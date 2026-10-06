@@ -18,7 +18,8 @@ class LaundryCustomerApp extends StatelessWidget {
         title: "Pia's Laundry Shop",
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xffcf2c73)),
+          colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xff704080)),
+          scaffoldBackgroundColor: const Color(0xfffbf7fc),
           useMaterial3: true,
           inputDecorationTheme: const InputDecorationTheme(
             border: OutlineInputBorder(),
@@ -192,14 +193,27 @@ class _AuthScreenState extends State<AuthScreen> {
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 440),
                 child: Card(
+                  color: Colors.white,
                   child: Padding(
                     padding: const EdgeInsets.all(24),
                     child: Form(
                       key: _formKey,
                       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                        const Icon(Icons.local_laundry_service, size: 52),
-                        const SizedBox(height: 12),
-                        Text("Pia's Laundry Shop", textAlign: TextAlign.center, style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(14),
+                            gradient: const LinearGradient(colors: [Color(0xff54245f), Color(0xff80508c)]),
+                          ),
+                          child: const Column(children: [
+                            Icon(Icons.local_laundry_service, size: 42, color: Colors.white),
+                            SizedBox(height: 8),
+                            Text("Pia's Laundry Shop", textAlign: TextAlign.center, style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
+                            SizedBox(height: 6),
+                            Text('Blk. 2, Brgy. San Jose, Tarlac City', textAlign: TextAlign.center, style: TextStyle(color: Colors.white)),
+                            Text('Contact: 0918-967-9623', textAlign: TextAlign.center, style: TextStyle(color: Colors.white)),
+                          ]),
+                        ),
                         const SizedBox(height: 6),
                         Text(_registering ? 'Create a customer account to request services.' : 'Sign in to request services and track your laundry.', textAlign: TextAlign.center),
                         const SizedBox(height: 20),
