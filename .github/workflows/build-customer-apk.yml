@@ -75,6 +75,29 @@ jobs:
         working-directory: mobile_app/native
         run: flutter build web --release --base-href "/${{ github.event.repository.name }}/"
 
+      - name: Add one-time cleanup for older Flutter web caches
+        working-directory: mobile_app/native
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          index = Path("build/web/index.html")
+          html = index.read_text(encoding="utf-8")
+          cleanup = """<script>
+          if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then((registrations) =>
+              Promise.all(registrations.map((registration) => registration.unregister()))
+            );
+          }
+          if ('caches' in window) {
+            caches.keys().then((keys) => Promise.all(keys.map((key) => caches.delete(key))));
+          }
+          </script>"""
+          if "</head>" not in html:
+              raise SystemExit("Could not find </head> in the Flutter web index.html")
+          index.write_text(html.replace("</head>", cleanup + "\n</head>", 1), encoding="utf-8")
+          PY
+
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
 
