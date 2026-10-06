@@ -260,6 +260,27 @@ class _CustomerHomeState extends State<CustomerHome> {
   bool _sending = false;
   String? _error;
 
+  static const _serviceSections = ['Wash', 'Dry', 'Full Service', 'Add-ons', 'Other services'];
+
+  String _sectionFor(Map<String, dynamic> service) {
+    final name = (service['name'] ?? '').toString().toLowerCase();
+    final category = (service['category'] ?? '').toString().toLowerCase();
+    if (category.contains('add') || name.contains('detergent') || name.contains('fabcon')) return 'Add-ons';
+    if ((name.contains('wash') && (name.contains('fold') || name.contains('full'))) || category.contains('wash & fold') || category.contains('full service')) return 'Full Service';
+    if (name == 'wash' || category == 'wash') return 'Wash';
+    if (name == 'dry' || name.contains('dry clean') || category == 'dry') return 'Dry';
+    if (name == 'fold') return 'Add-ons';
+    return 'Other services';
+  }
+
+  IconData _sectionIcon(String section) => switch (section) {
+        'Wash' => Icons.local_laundry_service,
+        'Dry' => Icons.air,
+        'Full Service' => Icons.checkroom,
+        'Add-ons' => Icons.add_circle_outline,
+        _ => Icons.cleaning_services,
+      };
+
   @override
   void initState() { super.initState(); _load(); }
 
@@ -325,31 +346,93 @@ class _CustomerHomeState extends State<CustomerHome> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text("Pia's Laundry Shop"), actions: [IconButton(tooltip: 'Sign out', onPressed: widget.onSignOut, icon: const Icon(Icons.logout))]),
+        appBar: AppBar(
+          title: const Text("Pia's Laundry Shop"),
+          actions: [IconButton(tooltip: 'Sign out', onPressed: widget.onSignOut, icon: const Icon(Icons.logout))],
+        ),
         body: RefreshIndicator(
           onRefresh: _load,
           child: _loading
               ? ListView(children: const [SizedBox(height: 260), Center(child: CircularProgressIndicator())])
               : ListView(padding: const EdgeInsets.all(16), children: [
                   Text('Hello, ${widget.customer['name'] ?? 'Customer'}', style: Theme.of(context).textTheme.titleLarge),
-                  const SizedBox(height: 4),
-                  const Text('Choose services to send a request to the shop.'),
+                  const SizedBox(height: 12),
+                  Card(
+                    clipBehavior: Clip.antiAlias,
+                    child: Container(
+                      padding: const EdgeInsets.all(18),
+                      decoration: const BoxDecoration(gradient: LinearGradient(colors: [Color(0xff54245f), Color(0xff80508c)])),
+                      child: const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text("Pia's Laundry Shop", style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+                        SizedBox(height: 8),
+                        Text('Blk. 2, Brgy. San Jose, Tarlac City', style: TextStyle(color: Colors.white)),
+                        Text('Contact: 0918-967-9623', style: TextStyle(color: Colors.white)),
+                      ]),
+                    ),
+                  ),
                   if (_error != null) ...[const SizedBox(height: 12), Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error))],
                   const SizedBox(height: 16),
-                  Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                    Text('Request a service', style: Theme.of(context).textTheme.titleLarge),
-                    const SizedBox(height: 12),
-                    if (_services.isEmpty) const Text('No services are currently available.') else ..._services.map(_serviceRow),
-                    const SizedBox(height: 8),
-                    OutlinedButton.icon(onPressed: _choosePickup, icon: const Icon(Icons.calendar_month), label: Text(_pickup == null ? 'Suggest a pickup time (optional)' : 'Pickup: ${MaterialLocalizations.of(context).formatMediumDate(_pickup!)} ${TimeOfDay.fromDateTime(_pickup!).format(context)}')),
-                    const SizedBox(height: 12),
-                    TextField(controller: _notes, maxLength: 255, maxLines: 2, decoration: const InputDecoration(labelText: 'Notes (optional)', hintText: 'Add any special instructions')),
-                    Align(alignment: Alignment.centerRight, child: Text('Estimated total: $currencySymbol${_estimate.toStringAsFixed(2)}', style: Theme.of(context).textTheme.titleMedium)),
-                    const SizedBox(height: 8),
-                    FilledButton(onPressed: _sending || _estimate <= 0 ? null : _sendRequest, child: Text(_sending ? 'Submitting…' : 'Submit service request')),
-                    const SizedBox(height: 6),
-                    const Text('This is an estimate. The shop will confirm your request and collect payment at the branch.', style: TextStyle(fontSize: 12)),
-                  ]))),
+                  Row(children: [
+                    Expanded(child: Text('Request a service', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold))),
+                    const Chip(avatar: Icon(Icons.shopping_bag_outlined, size: 18), label: Text('Pickup only')),
+                  ]),
+                  const Text('Pumili ng serbisyo at dami. Ang presyo ay mula sa shop menu.'),
+                  if (_services.isEmpty)
+                    const Card(child: Padding(padding: EdgeInsets.all(16), child: Text('No services are currently available.')))
+                  else
+                    ..._serviceSections.map((section) {
+                      final items = _services.where((service) => _sectionFor(service) == section).toList();
+                      if (items.isEmpty) return const SizedBox.shrink();
+                      return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        const SizedBox(height: 14),
+                        Row(children: [
+                          Icon(_sectionIcon(section), color: const Color(0xff704080)),
+                          const SizedBox(width: 8),
+                          Text(section, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold, color: const Color(0xff653476))),
+                        ]),
+                        const SizedBox(height: 6),
+                        ...items.map(_serviceRow),
+                      ]);
+                    }),
+                  const SizedBox(height: 16),
+                  Card(
+                    color: const Color(0xfffff8fc),
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                        Row(children: [
+                          const Icon(Icons.storefront_outlined, color: Color(0xff704080)),
+                          const SizedBox(width: 8),
+                          Expanded(child: Text('Pickup schedule', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold))),
+                          const Text('PICKUP ONLY', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xff704080))),
+                        ]),
+                        const SizedBox(height: 4),
+                        const Text('Walang delivery option sa ngayon. Kukumpirmahin ng shop ang pickup schedule.'),
+                        const SizedBox(height: 12),
+                        OutlinedButton.icon(
+                          onPressed: _choosePickup,
+                          icon: const Icon(Icons.calendar_month),
+                          label: Text(_pickup == null
+                              ? 'Pumili ng pickup date at oras (optional)'
+                              : '${MaterialLocalizations.of(context).formatMediumDate(_pickup!)} • ${TimeOfDay.fromDateTime(_pickup!).format(context)}'),
+                        ),
+                        if (_pickup != null)
+                          TextButton.icon(onPressed: () => setState(() => _pickup = null), icon: const Icon(Icons.close), label: const Text('Alisin ang schedule')),
+                      ]),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(controller: _notes, maxLength: 255, maxLines: 2, decoration: const InputDecoration(labelText: 'Notes (optional)', hintText: 'Add any special instructions')),
+                  Align(alignment: Alignment.centerRight, child: Text('Tantiyang halaga: $currencySymbol${_estimate.toStringAsFixed(2)}', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold))),
+                  const SizedBox(height: 8),
+                  FilledButton.icon(
+                    onPressed: _sending || _estimate <= 0 ? null : _sendRequest,
+                    icon: _sending ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.send),
+                    label: Text(_sending ? 'Ipinapadala…' : 'Mag-request ng pickup'),
+                    style: FilledButton.styleFrom(backgroundColor: const Color(0xff704080), padding: const EdgeInsets.symmetric(vertical: 14)),
+                  ),
+                  const SizedBox(height: 6),
+                  const Text('Estimate lamang ito. Kukumpirmahin ng shop ang serbisyo, presyo, at pickup schedule.', style: TextStyle(fontSize: 12)),
                   const SizedBox(height: 20),
                   Row(children: [Expanded(child: Text('My service tickets', style: Theme.of(context).textTheme.titleLarge)), IconButton(tooltip: 'Refresh tickets', onPressed: _load, icon: const Icon(Icons.refresh))]),
                   if (_tickets.isEmpty) const Card(child: Padding(padding: EdgeInsets.all(16), child: Text('You have no service tickets yet.'))),
@@ -363,11 +446,31 @@ class _CustomerHomeState extends State<CustomerHome> {
     final id = int.parse(service['id'].toString());
     final unit = service['unit']?.toString() ?? 'unit';
     final price = double.tryParse(service['price'].toString()) ?? 0;
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      title: Text(service['name']?.toString() ?? 'Service'),
-      subtitle: Text('${service['category'] ?? 'Laundry'} - $currencySymbol${price.toStringAsFixed(2)} / $unit'),
-      trailing: SizedBox(width: 82, child: TextField(controller: _quantities[id], keyboardType: const TextInputType.numberWithOptions(decimal: true), onChanged: (_) => setState(() {}), decoration: InputDecoration(labelText: unit, isDense: true),)),
+    final description = service['description']?.toString();
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Row(children: [
+          const CircleAvatar(backgroundColor: Color(0xfff4eaf6), child: Icon(Icons.local_laundry_service, color: Color(0xff704080))),
+          const SizedBox(width: 12),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(service['name']?.toString() ?? 'Service', style: const TextStyle(fontWeight: FontWeight.w600)),
+            if (description != null && description.isNotEmpty) Text(description, style: Theme.of(context).textTheme.bodySmall),
+            Text('$currencySymbol${price.toStringAsFixed(2)} / $unit', style: const TextStyle(color: Color(0xff704080), fontWeight: FontWeight.bold)),
+          ])),
+          SizedBox(
+            width: 86,
+            child: TextField(
+              controller: _quantities[id],
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              textAlign: TextAlign.center,
+              onChanged: (_) => setState(() {}),
+              decoration: InputDecoration(labelText: unit, hintText: '0', isDense: true, contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12)),
+            ),
+          ),
+        ]),
+      ),
     );
   }
 

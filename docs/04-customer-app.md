@@ -65,7 +65,10 @@ customer record, they need to register with a different email for now.
 
 1. The customer registers or signs in. Customer accounts are separate from staff accounts.
 2. The app loads active services and current prices from the web system.
-3. The customer selects services, quantities, an optional pickup date and notes.
+3. The customer selects services grouped as Wash, Dry, Full Service, and Add-ons,
+   enters quantities, and can suggest a pickup date and time. The customer request
+   flow is pickup-only; it has no delivery choice. Prices come from the active
+   services configured in the staff **Services** page.
 4. The app submits a ticket request. The server calculates prices from the service
    catalogue; it does not trust prices sent by the app.
 5. The ticket appears in the staff **Laundry Tickets** page as Pending and Unpaid.
