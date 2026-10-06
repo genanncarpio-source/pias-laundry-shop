@@ -144,6 +144,7 @@ class _AuthScreenState extends State<AuthScreen> {
   final _password = TextEditingController();
   bool _registering = false;
   bool _busy = false;
+  bool _obscurePassword = true;
   String? _error;
 
   @override
@@ -242,7 +243,22 @@ class _AuthScreenState extends State<AuthScreen> {
                           TextFormField(controller: _phone, decoration: const InputDecoration(labelText: 'Phone number'), keyboardType: TextInputType.phone, validator: (v) => (v == null || v.trim().isEmpty) ? 'Enter your phone number.' : null),
                         ],
                         const SizedBox(height: 12),
-                        TextFormField(controller: _password, decoration: InputDecoration(labelText: 'Password', helperText: _registering ? 'At least 10 characters' : null), obscureText: true, validator: (v) => (v == null || v.isEmpty || (_registering && v.length < 10)) ? (_registering ? 'Use at least 10 characters.' : 'Enter your password.') : null),
+                        TextFormField(
+                          controller: _password,
+                          decoration: InputDecoration(
+                            labelText: 'Password',
+                            helperText: _registering ? 'At least 10 characters' : null,
+                            suffixIcon: IconButton(
+                              tooltip: _obscurePassword ? 'Show password' : 'Hide password',
+                              onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                              icon: Icon(_obscurePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined),
+                            ),
+                          ),
+                          obscureText: _obscurePassword,
+                          validator: (v) => (v == null || v.isEmpty || (_registering && v.length < 10))
+                              ? (_registering ? 'Use at least 10 characters.' : 'Enter your password.')
+                              : null,
+                        ),
                         const SizedBox(height: 20),
                         FilledButton(onPressed: _busy ? null : _submit, child: _busy ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2)) : Text(_registering ? 'Create account' : 'Sign in')),
                       ]),
@@ -390,7 +406,7 @@ class _CustomerHomeState extends State<CustomerHome> {
                     Expanded(child: Text('Request a service', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold))),
                     const Chip(avatar: Icon(Icons.shopping_bag_outlined, size: 18), label: Text('Pickup only')),
                   ]),
-                  const Text('Pumili ng serbisyo at dami. Ang presyo ay mula sa shop menu.'),
+                  const Text('Choose a service and quantity. Prices come from the shop menu.'),
                   if (_services.isEmpty)
                     const Card(child: Padding(padding: EdgeInsets.all(16), child: Text('No services are currently available.')))
                   else
@@ -421,32 +437,32 @@ class _CustomerHomeState extends State<CustomerHome> {
                           const Text('PICKUP ONLY', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xff704080))),
                         ]),
                         const SizedBox(height: 4),
-                        const Text('Walang delivery option sa ngayon. Kukumpirmahin ng shop ang pickup schedule.'),
+                        const Text('Delivery is not available yet. The shop will confirm your pickup schedule.'),
                         const SizedBox(height: 12),
                         OutlinedButton.icon(
                           onPressed: _choosePickup,
                           icon: const Icon(Icons.calendar_month),
                           label: Text(_pickup == null
-                              ? 'Pumili ng pickup date at oras (optional)'
+                              ? 'Select a pickup date and time (optional)'
                               : '${MaterialLocalizations.of(context).formatMediumDate(_pickup!)} • ${TimeOfDay.fromDateTime(_pickup!).format(context)}'),
                         ),
                         if (_pickup != null)
-                          TextButton.icon(onPressed: () => setState(() => _pickup = null), icon: const Icon(Icons.close), label: const Text('Alisin ang schedule')),
+                          TextButton.icon(onPressed: () => setState(() => _pickup = null), icon: const Icon(Icons.close), label: const Text('Clear schedule')),
                       ]),
                     ),
                   ),
                   const SizedBox(height: 12),
                   TextField(controller: _notes, maxLength: 255, maxLines: 2, decoration: const InputDecoration(labelText: 'Notes (optional)', hintText: 'Add any special instructions')),
-                  Align(alignment: Alignment.centerRight, child: Text('Tantiyang halaga: $currencySymbol${_estimate.toStringAsFixed(2)}', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold))),
+                  Align(alignment: Alignment.centerRight, child: Text('Estimated total: $currencySymbol${_estimate.toStringAsFixed(2)}', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold))),
                   const SizedBox(height: 8),
                   FilledButton.icon(
                     onPressed: _sending || _estimate <= 0 ? null : _sendRequest,
                     icon: _sending ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.send),
-                    label: Text(_sending ? 'Ipinapadala…' : 'Mag-request ng pickup'),
+                    label: Text(_sending ? 'Submitting…' : 'Request pickup'),
                     style: FilledButton.styleFrom(backgroundColor: const Color(0xff704080), padding: const EdgeInsets.symmetric(vertical: 14)),
                   ),
                   const SizedBox(height: 6),
-                  const Text('Estimate lamang ito. Kukumpirmahin ng shop ang serbisyo, presyo, at pickup schedule.', style: TextStyle(fontSize: 12)),
+                  const Text('This is an estimate. The shop will confirm the service, price, and pickup schedule.', style: TextStyle(fontSize: 12)),
                   const SizedBox(height: 20),
                   Row(children: [Expanded(child: Text('My service tickets', style: Theme.of(context).textTheme.titleLarge)), IconButton(tooltip: 'Refresh tickets', onPressed: _load, icon: const Icon(Icons.refresh))]),
                   if (_tickets.isEmpty) const Card(child: Padding(padding: EdgeInsets.all(16), child: Text('You have no service tickets yet.'))),
