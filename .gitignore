@@ -1,0 +1,26 @@
+# Flutter generated files and local SDK paths
+mobile_app/native/build/
+mobile_app/native/.dart_tool/
+mobile_app/native/.flutter-plugins
+mobile_app/native/.flutter-plugins-dependencies
+mobile_app/native/android/.gradle/
+mobile_app/native/android/app/build/
+mobile_app/native/android/build/
+mobile_app/native/android/local.properties
+mobile_app/native/ios/Pods/
+mobile_app/native/ios/build/
+mobile_app/native/ios/Flutter/Generated.xcconfig
+mobile_app/native/ios/Flutter/flutter_export_environment.sh
+mobile_app/native/ios/Flutter/ephemeral/
+
+# .NET MAUI generated files
+mobile_app/maui/bin/
+mobile_app/maui/obj/
+
+# Editor and OS files
+.idea/
+.vs/
+*.user
+*.suo
+Thumbs.db
+Desktop.ini
