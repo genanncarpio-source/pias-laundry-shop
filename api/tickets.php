@@ -32,8 +32,8 @@ $lines = [];
 $subtotal = 0.0;
 foreach ($quantities as $serviceId => $quantity) {
     $service = $serviceMap[$serviceId];
-    if ($service['unit'] === 'piece' && floor($quantity) !== $quantity) {
-        api_json(422, ['success' => false, 'error' => 'Piece-based services require whole-number quantities.']);
+    if (in_array($service['unit'], ['piece', 'load'], true) && floor($quantity) !== $quantity) {
+        api_json(422, ['success' => false, 'error' => 'Piece- and load-based services require whole-number quantities.']);
     }
     $lineTotal = round((float)$service['price'] * $quantity, 2);
     $subtotal += $lineTotal;

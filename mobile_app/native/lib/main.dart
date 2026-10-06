@@ -463,7 +463,7 @@ class _CustomerHomeState extends State<CustomerHome> {
             width: 86,
             child: TextField(
               controller: _quantities[id],
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              keyboardType: TextInputType.numberWithOptions(decimal: unit == 'kg'),
               textAlign: TextAlign.center,
               onChanged: (_) => setState(() {}),
               decoration: InputDecoration(labelText: unit, hintText: '0', isDense: true, contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12)),

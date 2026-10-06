@@ -29,6 +29,14 @@ The Flutter app stores its bearer token using device secure storage. If local SD
 installation is impractical, the repository includes the GitHub Actions workflow
 `.github/workflows/build-customer-apk.yml` for cloud APK and web preview builds.
 
+The banner catalog uses Wash at ₱85/load (up to 7 kg), Dry at ₱85/load (up to
+7 kg), and Full Service at ₱199/load. Import `database/upgrade_pias_catalog.sql`
+once in phpMyAdmin to update an existing database. New installs use the same
+prices from `database/laundry_pos.sql`. The upgrade deactivates the previous
+default demo services; historical ticket line items keep their saved prices.
+Add-on prices are configured separately in the staff Services page after the
+shop sets them.
+
 ## Flutter web preview
 
 The same GitHub Actions workflow publishes the Flutter customer app to GitHub Pages

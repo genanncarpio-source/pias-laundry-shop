@@ -12,7 +12,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save'])) {
     $id          = (int)($_POST['id'] ?? 0);
     $name        = trim($_POST['name'] ?? '');
     $category    = trim($_POST['category'] ?? '');
-    $unit        = ($_POST['unit'] ?? 'kg') === 'piece' ? 'piece' : 'kg';
+    $unit        = in_array($_POST['unit'] ?? 'kg', ['kg', 'piece', 'load'], true) ? $_POST['unit'] : 'kg';
     $price       = max(0, (float)($_POST['price'] ?? 0));
     $description = trim($_POST['description'] ?? '');
     $is_active   = isset($_POST['is_active']) ? 1 : 0;
@@ -74,6 +74,7 @@ include __DIR__ . '/includes/header.php';
           <select id="unit" name="unit">
             <option value="kg" <?= ($editing['unit'] ?? 'kg') === 'kg' ? 'selected' : '' ?>>Per kilogram (kg)</option>
             <option value="piece" <?= ($editing['unit'] ?? '') === 'piece' ? 'selected' : '' ?>>Per piece</option>
+            <option value="load" <?= ($editing['unit'] ?? '') === 'load' ? 'selected' : '' ?>>Per load</option>
           </select>
         </div>
       </div>

@@ -125,7 +125,7 @@ $shopName = get_setting('shop_name', "Pia's Laundry Shop");
       services.forEach(service => {
         const row = document.createElement('label');
         row.className = 'service-row';
-        row.innerHTML = `<span class="service-info"><strong></strong><small></small></span><input type="number" min="0" step="${service.unit === 'piece' ? '1' : '0.25'}" value="0" inputmode="decimal" aria-label="Dami">`;
+        row.innerHTML = `<span class="service-info"><strong></strong><small></small></span><input type="number" min="0" step="${['piece', 'load'].includes(service.unit) ? '1' : '0.25'}" value="0" inputmode="decimal" aria-label="Dami">`;
         row.querySelector('strong').textContent = service.name;
         row.querySelector('small').textContent = `${service.category} · ₱${Number(service.price).toFixed(2)} / ${service.unit}`;
         row.querySelector('input').dataset.serviceId = service.id;

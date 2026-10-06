@@ -89,7 +89,7 @@ CREATE TABLE services (
   id          INT UNSIGNED NOT NULL AUTO_INCREMENT,
   name        VARCHAR(120) NOT NULL,
   category    VARCHAR(60)  NOT NULL DEFAULT 'Wash & Fold',
-  unit        ENUM('kg','piece') NOT NULL DEFAULT 'kg',
+  unit        ENUM('kg','piece','load') NOT NULL DEFAULT 'kg',
   price       DECIMAL(10,2) NOT NULL DEFAULT 0.00,
   description VARCHAR(255) DEFAULT NULL,
   is_active   TINYINT(1)   NOT NULL DEFAULT 1,
@@ -226,14 +226,14 @@ INSERT INTO customers (id, name, phone, email, address, is_active) VALUES
   (3, 'Pedro Lim',      '0919 333 4455', 'pedro@email.com','Pasig City', 1);
 
 INSERT INTO services (id, name, category, unit, price, description, is_active) VALUES
-  (1, 'Wash & Fold',        'Wash & Fold',      'kg',    35.00, 'Regular wash, dry and fold',            1),
-  (2, 'Wash, Dry & Fold',   'Wash & Fold',      'kg',    45.00, 'Premium wash with softener',             1),
-  (3, 'Bed Sheet',          'Wash & Fold',      'piece', 40.00, 'Per piece',                              1),
-  (4, 'Towel',              'Wash & Fold',      'piece', 25.00, 'Per piece',                              1),
-  (5, 'Ironing / Press',    'Ironing & Press',  'kg',    30.00, 'Ironing and folding only',               1),
-  (6, 'Dry Cleaning',       'Dry Cleaning',     'piece', 100.00, 'Dry clean per garment',                  1),
-  (7, 'Comforter / Blanket','Dry Cleaning',     'piece', 150.00, 'Thick blankets and comforters',          1),
-  (8, 'Curtain',            'Dry Cleaning',     'piece', 80.00, 'Per panel',                              1);
+  (1, 'Wash',               'Wash',             'load',  85.00, 'Up to 7 kilos per load',                1),
+  (2, 'Full Service',       'Full Service',     'load', 199.00, 'Wash, dry and fold per load',           1),
+  (3, 'Bed Sheet',          'Other',            'piece', 40.00, 'Per piece',                              0),
+  (4, 'Towel',              'Other',            'piece', 25.00, 'Per piece',                              0),
+  (5, 'Ironing / Press',    'Other',            'kg',    30.00, 'Ironing and folding only',               0),
+  (6, 'Dry',                'Dry',              'load',  85.00, 'Up to 7 kilos per load',                1),
+  (7, 'Comforter / Blanket','Other',            'piece', 150.00, 'Thick blankets and comforters',          0),
+  (8, 'Curtain',            'Other',            'piece', 80.00, 'Per panel',                              0);
 
 -- ------------------------------------------------------------
 -- Sample orders (so the dashboard and reports have
