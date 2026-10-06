@@ -458,7 +458,7 @@ class _CustomerHomeState extends State<CustomerHome> {
                   FilledButton.icon(
                     onPressed: _sending || _estimate <= 0 ? null : _sendRequest,
                     icon: _sending ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.send),
-                    label: Text(_sending ? 'Submitting…' : 'Request pickup'),
+                    label: Text(_sending ? 'Submitting…' : 'Book Service'),
                     style: FilledButton.styleFrom(backgroundColor: const Color(0xff704080), padding: const EdgeInsets.symmetric(vertical: 14)),
                   ),
                   const SizedBox(height: 6),
