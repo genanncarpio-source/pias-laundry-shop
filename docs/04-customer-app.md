@@ -27,7 +27,26 @@ Apache must allow connections from the local network and the computer firewall m
 allow Apache traffic. Use HTTPS before exposing the API outside the local network.
 The Flutter app stores its bearer token using device secure storage. If local SDK
 installation is impractical, the repository includes the GitHub Actions workflow
-`.github/workflows/build-customer-apk.yml` for a cloud APK build.
+`.github/workflows/build-customer-apk.yml` for cloud APK and web preview builds.
+
+## Flutter web preview
+
+The same GitHub Actions workflow publishes the Flutter customer app to GitHub Pages
+on every push to `main`. In the repository settings, open **Pages** and set the
+deployment source to **GitHub Actions**. After the workflow succeeds, open the
+`web-preview` deployment environment or the Pages URL shown in the workflow run.
+For this repository, the URL will be:
+
+```text
+https://genanncarpio-source.github.io/pias-laundry-shop/
+```
+
+This is a browser preview of the customer app. GitHub Pages hosts only the Flutter
+web files; it does not host the PHP API or MySQL database. To sign in or register
+from the hosted preview, configure the app to use an internet-accessible HTTPS API
+and configure that API to allow browser requests from the Pages origin. A local
+XAMPP HTTP address such as `localhost`, `10.0.2.2`, or a LAN IP will not work as a
+production API for the hosted HTTPS page.
 
 ## Browser prototype
 

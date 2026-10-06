@@ -43,3 +43,46 @@ jobs:
           path: mobile_app/native/build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
           retention-days: 14
+
+  web-preview:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Check out project
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Enable Flutter web platform
+        working-directory: mobile_app/native
+        run: flutter create --platforms=web .
+
+      - name: Restore Flutter packages
+        working-directory: mobile_app/native
+        run: flutter pub get
+
+      - name: Build web preview
+        working-directory: mobile_app/native
+        run: flutter build web --release --base-href "/${{ github.event.repository.name }}/"
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload web build to Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: mobile_app/native/build/web
+
+      - name: Deploy web preview
+        id: deployment
+        uses: actions/deploy-pages@v4
