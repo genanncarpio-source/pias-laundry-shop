@@ -1,0 +1,17 @@
+{
+  "cli": {
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "preview": {
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_API_BASE_URL": "http://192.168.100.165/laundry-pias/api"
+      },
+      "android": {
+        "buildType": "apk"
+      }
+    },
+    "production": {}
+  }
+}

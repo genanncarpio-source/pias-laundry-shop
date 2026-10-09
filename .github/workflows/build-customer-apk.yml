@@ -29,18 +29,18 @@ jobs:
           cache: true
 
       - name: Restore Flutter packages
-        working-directory: mobile_app/native
+        working-directory: mobile_app/flutter_app
         run: flutter pub get
 
       - name: Build Android APK
-        working-directory: mobile_app/native
-        run: flutter build apk --release
+        working-directory: mobile_app/flutter_app
+        run: flutter build apk --release --dart-define=API_BASE_URL=http://192.168.100.165/laundry-pias/api
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: pias-laundry-shop-customer-apk
-          path: mobile_app/native/build/app/outputs/flutter-apk/app-release.apk
+          path: mobile_app/flutter_app/build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
           retention-days: 14
 
@@ -64,19 +64,19 @@ jobs:
           cache: true
 
       - name: Enable Flutter web platform
-        working-directory: mobile_app/native
+        working-directory: mobile_app/flutter_app
         run: flutter create --platforms=web .
 
       - name: Restore Flutter packages
-        working-directory: mobile_app/native
+        working-directory: mobile_app/flutter_app
         run: flutter pub get
 
       - name: Build web preview
-        working-directory: mobile_app/native
+        working-directory: mobile_app/flutter_app
         run: flutter build web --release --base-href "/${{ github.event.repository.name }}/"
 
       - name: Add one-time cleanup for older Flutter web caches
-        working-directory: mobile_app/native
+        working-directory: mobile_app/flutter_app
         run: |
           python3 - <<'PY'
           from pathlib import Path
@@ -104,7 +104,7 @@ jobs:
       - name: Upload web build to Pages
         uses: actions/upload-pages-artifact@v3
         with:
-          path: mobile_app/native/build/web
+          path: mobile_app/flutter_app/build/web
 
       - name: Deploy web preview
         id: deployment
