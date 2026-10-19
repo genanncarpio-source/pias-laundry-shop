@@ -63,6 +63,20 @@ const LOCAL_DEV_API = getLocalDevelopmentApi();
 const DEFAULT_API = (CONFIGURED_API || (__DEV__ ? LOCAL_DEV_API : '')).replace(/\/+$/, '');
 let welcomeSeenThisLaunch = false;
 
+// Delivery coverage is measured from San Manuel, Tarlac City so the app and API use the same service area.
+const DELIVERY_CENTER = { latitude: 15.4908, longitude: 120.6668 };
+const DELIVERY_RADIUS_KM = 8;
+function isDeliveryArea(latitude, longitude) {
+  const lat = Number(latitude);
+  const lon = Number(longitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return false;
+  const radians = (value) => value * Math.PI / 180;
+  const deltaLat = radians(lat - DELIVERY_CENTER.latitude);
+  const deltaLon = radians(lon - DELIVERY_CENTER.longitude);
+  const a = Math.sin(deltaLat / 2) ** 2 + Math.cos(radians(DELIVERY_CENTER.latitude)) * Math.cos(radians(lat)) * Math.sin(deltaLon / 2) ** 2;
+  return 6371 * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))) <= DELIVERY_RADIUS_KM;
+}
+
 function normalizeApiUrl(url) {
   return url.trim().replace(/\/+$/, '');
 }
@@ -174,7 +188,11 @@ export default function App() {
       <StatusBar style="light" />
       {customer && token ? (
         <CustomerHome apiBase={apiBase} customer={customer} token={token}
-          onSessionExpired={handleSessionExpired} onSignOut={handleSignOut} />
+          onSessionExpired={handleSessionExpired} onSignOut={handleSignOut}
+          onCustomerUpdated={async (nextCustomer) => {
+            const saved = await saveVerifiedSession(apiBase, token, nextCustomer);
+            setSession(saved);
+          }} />
       ) : (
         <AuthScreen apiBase={apiBase} onSignedIn={handleSignedIn} sessionNotice={sessionNotice} />
       )}
@@ -316,7 +334,7 @@ function AuthScreen({ apiBase, onSignedIn, sessionNotice }) {
       if (permission.status !== 'granted') throw new Error('Allow location access to pin your delivery address.');
       const point = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
       const { latitude, longitude } = point.coords;
-      const deliveryAvailable = latitude >= 15.455 && latitude <= 15.525 && longitude >= 120.595 && longitude <= 120.690;
+      const deliveryAvailable = isDeliveryArea(latitude, longitude);
       setLocationPin({ latitude, longitude, deliveryAvailable });
       try { const places = await Location.reverseGeocodeAsync({ latitude, longitude }); const place = places[0]; if (place) setAddress([place.name, place.street, place.district, place.city || 'Tarlac City'].filter(Boolean).join(', ').slice(0, 255)); } catch (_) {}
     } catch (pinError) { setError(pinError.message || 'Could not pin your location.'); } finally { setLocating(false); }
@@ -575,7 +593,7 @@ function AuthScreen({ apiBase, onSignedIn, sessionNotice }) {
   );
 }
 
-function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut }) {
+function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, onCustomerUpdated }) {
   const pathname = usePathname();
   const router = useRouter();
   const params = useLocalSearchParams();
@@ -593,7 +611,7 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut })
   const [notes, setNotes] = useState('');
   const [fulfillment, setFulfillment] = useState('pickup_delivery');
   const [deliveryAddress, setDeliveryAddress] = useState(customer.address || '');
-  const deliveryAvailable = Number(customer.location_latitude) >= 15.455 && Number(customer.location_latitude) <= 15.525 && Number(customer.location_longitude) >= 120.595 && Number(customer.location_longitude) <= 120.690;
+  const deliveryAvailable = isDeliveryArea(customer.location_latitude, customer.location_longitude);
   const [pickupAt, setPickupAt] = useState(null);
   const [pickupDate, setPickupDate] = useState('');
   const [pickupTime, setPickupTime] = useState('09:00');
@@ -610,6 +628,12 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut })
   const [gcashReference, setGcashReference] = useState('');
   const [retryReferences, setRetryReferences] = useState({});
   const [retryBusy, setRetryBusy] = useState({});
+  const [editingLocation, setEditingLocation] = useState(false);
+  const [profileAddress, setProfileAddress] = useState(customer.address || '');
+  const [profilePin, setProfilePin] = useState(() => Number.isFinite(Number(customer.location_latitude)) && Number.isFinite(Number(customer.location_longitude)) ? { latitude: Number(customer.location_latitude), longitude: Number(customer.location_longitude), deliveryAvailable: isDeliveryArea(customer.location_latitude, customer.location_longitude) } : null);
+  const [profileLocating, setProfileLocating] = useState(false);
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileLocationError, setProfileLocationError] = useState('');
   const toast = typeof params.booking === 'string' && params.booking ? 'Booking submitted. Ticket ' + params.booking : '';
 
   useEffect(() => {
@@ -626,6 +650,33 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut })
 
   const { width } = useWindowDimensions();
   const wide = width >= 760;
+  const pinProfileLocation = async () => {
+    setProfileLocationError(''); setProfileLocating(true);
+    try {
+      const permission = await Location.requestForegroundPermissionsAsync();
+      if (permission.status !== 'granted') throw new Error('Allow location access to update your saved delivery address.');
+      const point = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const { latitude, longitude } = point.coords;
+      setProfilePin({ latitude, longitude, deliveryAvailable: isDeliveryArea(latitude, longitude) });
+      try { const places = await Location.reverseGeocodeAsync({ latitude, longitude }); const place = places[0]; if (place) setProfileAddress([place.name, place.street, place.district, place.city || 'Tarlac City'].filter(Boolean).join(', ').slice(0, 255)); } catch (_) {}
+    } catch (locationError) { setProfileLocationError(locationError.message || 'Could not update your location pin.'); } finally { setProfileLocating(false); }
+  };
+  const saveProfileLocation = async () => {
+    if (!profileAddress.trim()) return setProfileLocationError('Enter your pickup address.');
+    if (!profilePin) return setProfileLocationError('Pin your current location before saving.');
+    setProfileSaving(true); setProfileLocationError('');
+    try {
+      const result = await apiRequest(apiBase, 'customer_profile.php', { method: 'POST', token, body: { address: profileAddress.trim(), latitude: profilePin.latitude, longitude: profilePin.longitude } });
+      await onCustomerUpdated(result.customer); setEditingLocation(false);
+    } catch (saveError) {
+      if (saveError.status === 401) await onSessionExpired(); else setProfileLocationError(saveError.message || 'Could not save your location.');
+    } finally { setProfileSaving(false); }
+  };
+  const beginLocationEdit = () => {
+    setProfileAddress(customer.address || '');
+    setProfilePin(Number.isFinite(Number(customer.location_latitude)) && Number.isFinite(Number(customer.location_longitude)) ? { latitude: Number(customer.location_latitude), longitude: Number(customer.location_longitude), deliveryAvailable: isDeliveryArea(customer.location_latitude, customer.location_longitude) } : null);
+    setProfileLocationError(''); setEditingLocation(true);
+  };
   const navigateTo = (nextTab, bookingNumber) => {
     if (nextTab === 'track' && bookingNumber) {
       router.replace({ pathname: '/track', params: { booking: bookingNumber } });
@@ -947,7 +998,7 @@ if (['pickup_delivery', 'dropoff_delivery'].includes(fulfillment) && !deliveryAv
 
             <View style={styles.bookingPanel}>
               <Text style={styles.panelTitle}>Service handoff</Text>
-              {!deliveryAvailable ? <View style={styles.deliveryRestriction}><Text style={styles.deliveryRestrictionTitle}>Can’t reach this address for delivery</Text><Text style={styles.deliveryRestrictionCopy}>Pickup and delivery are available only in San Jose, Maliwalo, and San Manuel, Tarlac. You can still book using Drop-off & Pick-up.</Text></View> : null}
+              {!deliveryAvailable ? <View style={styles.deliveryRestriction}><Text style={styles.deliveryRestrictionTitle}>Can’t reach this address for delivery</Text><Text style={styles.deliveryRestrictionCopy}>Pickup and delivery are available within 8 km of San Manuel, Tarlac City. You can still book using Drop-off & Pick-up.</Text></View> : null}
               <View style={styles.handoffChoices}>
                 <Pressable disabled={!deliveryAvailable} onPress={() => { setFulfillment('pickup_delivery'); setPaymentMethod('cash_on_handoff'); }} style={[styles.handoffCard, fulfillment === 'pickup_delivery' && styles.handoffCardActive, !deliveryAvailable && styles.handoffCardDisabled]}>
                   <Text style={styles.handoffIcon}>🚚</Text>
@@ -1065,10 +1116,22 @@ if (['pickup_delivery', 'dropoff_delivery'].includes(fulfillment) && !deliveryAv
               <Text style={styles.profileEmail}>{customer.email || ''}</Text>
             </View>
             <View style={styles.profileCard}>
-              <ProfileRow icon="👤" label="Full name" value={customer.name} />
-              <ProfileRow icon="✉️" label="Email address" value={customer.email} />
-              <ProfileRow icon="☎️" label="Phone number" value={customer.phone} />
-              <ProfileRow icon="📍" label="Pickup address" value={customer.address} last />
+              <ProfileRow icon="�" label="Full name" value={customer.name} />
+              <ProfileRow icon="�" label="Email address" value={customer.email} />
+              <ProfileRow icon="�" label="Phone number" value={customer.phone} />
+              <ProfileRow icon="�" label="Pickup address" value={customer.address} last />
+            </View>
+            <View style={styles.profileLocationCard}>
+              <Text style={styles.panelTitle}>Saved delivery location</Text>
+              <Text style={styles.profileLocationCopy}>Update your pin when your pickup or delivery address changes. Pickup and delivery are available within 8 km of San Manuel, Tarlac City.</Text>
+              {editingLocation ? <>
+                <Text style={styles.addressLabel}>Pickup address</Text>
+                <TextInput value={profileAddress} onChangeText={setProfileAddress} maxLength={255} placeholder="Street, barangay, city" placeholderTextColor="#a59ba5" style={styles.deliveryAddressInput} />
+                <Pressable disabled={profileLocating || profileSaving} onPress={pinProfileLocation} style={[styles.locationPinButton, (profileLocating || profileSaving) && styles.disabledButton]}>{profileLocating ? <ActivityIndicator color={COLORS.white} /> : <Text style={styles.locationPinButtonText}>Update pinned location</Text>}</Pressable>
+                {profilePin ? <><Text style={[styles.locationPinSuccess, !profilePin.deliveryAvailable && styles.locationPinWarning]}>{profilePin.deliveryAvailable ? 'Pickup and delivery are available at this location.' : "Can't reach this address for delivery. Drop-off & Pick-up is still available."}</Text><View style={styles.registrationMap}><DeliveryMap location={profilePin} label="Saved customer location" /></View></> : null}
+                {profileLocationError ? <Text style={styles.errorBox}>{profileLocationError}</Text> : null}
+                <View style={styles.profileLocationActions}><Pressable disabled={profileSaving} onPress={() => setEditingLocation(false)} style={styles.secondaryButton}><Text style={styles.secondaryButtonText}>Cancel</Text></Pressable><Pressable disabled={profileSaving} onPress={saveProfileLocation} style={[styles.primaryButton, profileSaving && styles.disabledButton]}>{profileSaving ? <ActivityIndicator color={COLORS.white} /> : <Text style={styles.primaryButtonText}>Save location</Text>}</Pressable></View>
+              </> : <><Text style={[styles.locationPinSuccess, !isDeliveryArea(customer.location_latitude, customer.location_longitude) && styles.locationPinWarning]}>{isDeliveryArea(customer.location_latitude, customer.location_longitude) ? 'Pickup and delivery are available at your saved location.' : "Can't reach your saved address for delivery."}</Text><Pressable onPress={beginLocationEdit} style={styles.locationPinButton}><Text style={styles.locationPinButtonText}>Edit saved location</Text></Pressable></>}
             </View>
             <Pressable onPress={onSignOut} style={styles.signOutButton}><Text style={styles.signOutButtonText}>Sign out</Text></Pressable>
           </View>
@@ -1530,6 +1593,9 @@ const styles = StyleSheet.create({
   aboutTitle: { color: COLORS.cream, fontSize: 15, fontWeight: '800', marginTop: 9 },
   aboutText: { color: '#c7bac8', fontSize: 12, lineHeight: 18, marginTop: 5 },
   profileHeader: { alignItems: 'center', paddingVertical: 32 },
+  profileLocationCard: { width: '100%', maxWidth: 760, backgroundColor: COLORS.purpleLight, borderColor: COLORS.line, borderWidth: 1, borderRadius: 14, padding: 15, gap: 10, marginTop: 12 },
+  profileLocationCopy: { color: COLORS.muted, fontSize: 13, lineHeight: 19 },
+  profileLocationActions: { flexDirection: 'row', gap: 10, marginTop: 2 },
   profileAvatar: { width: 88, height: 88, borderRadius: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.purple, borderColor: '#d7b7dd', borderWidth: 3 },
   profileAvatarText: { color: COLORS.white, fontSize: 37, fontWeight: '900' },
   profileName: { color: COLORS.cream, fontSize: 23, fontWeight: '900', marginTop: 13 },

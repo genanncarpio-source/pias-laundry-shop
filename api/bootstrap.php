@@ -48,10 +48,18 @@ function api_require_method(string $method): void
 
 function api_is_delivery_area(float $latitude, float $longitude): bool
 {
-    // San Jose, Maliwalo and San Manuel, Tarlac City service zone.
-    return $latitude >= 15.4550 && $latitude <= 15.5250 && $longitude >= 120.5950 && $longitude <= 120.6900;
+    // Service radius: 8 km around San Manuel, Tarlac City.
+    $centerLatitude = 15.4908;
+    $centerLongitude = 120.6668;
+    $earthRadiusKm = 6371.0;
+    $latitudeDelta = deg2rad($latitude - $centerLatitude);
+    $longitudeDelta = deg2rad($longitude - $centerLongitude);
+    $a = sin($latitudeDelta / 2) ** 2
+       + cos(deg2rad($centerLatitude)) * cos(deg2rad($latitude)) * sin($longitudeDelta / 2) ** 2;
+    $distanceKm = $earthRadiusKm * 2 * atan2(sqrt($a), sqrt(1 - $a));
+    return $distanceKm <= 8.0;
 }
-function api_delivery_area_error(): string { return 'Delivery is available only in San Jose, Maliwalo, and San Manuel, Tarlac. Choose a location inside the service area.'; }
+function api_delivery_area_error(): string { return 'Delivery is available only within 8 km of San Manuel, Tarlac City. Choose a location inside the service area.'; }
 function api_send_transactional_email(string $email, string $subject, string $text): void
 {
     $apiKey = trim((string)getenv('BREVO_API_KEY'));
