@@ -22,3 +22,5 @@ RUN mkdir -p /var/www/html/uploads/gcash \
 EXPOSE 80
 
 CMD ["sh", "-c", "rm -f /etc/apache2/mods-enabled/mpm_*.load /etc/apache2/mods-enabled/mpm_*.conf && ln -sf ../mods-available/mpm_prefork.load /etc/apache2/mods-enabled/mpm_prefork.load && ln -sf ../mods-available/mpm_prefork.conf /etc/apache2/mods-enabled/mpm_prefork.conf && exec apache2-foreground"]
+
+RUN echo 'ServerName localhost' > /etc/apache2/conf-available/servername.conf && a2enconf servername
