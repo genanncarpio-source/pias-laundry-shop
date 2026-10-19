@@ -77,6 +77,14 @@ function isDeliveryArea(latitude, longitude) {
   return 6371 * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))) <= DELIVERY_RADIUS_KM;
 }
 
+function isCompleteAddress(address) {
+  const parts = String(address || '').split(',').map((part) => part.trim()).filter(Boolean);
+  return parts.length >= 4 && parts.some((part) => /(?:brgy\.?|barangay)/i.test(part));
+}
+function isSanManuelTarlacAddress(address) {
+  const normalized = String(address || '').toLowerCase();
+  return isCompleteAddress(address) && normalized.includes('san manuel') && normalized.includes('tarlac');
+}
 function normalizeApiUrl(url) {
   return url.trim().replace(/\/+$/, '');
 }
@@ -294,6 +302,7 @@ function AuthScreen({ apiBase, onSignedIn, sessionNotice }) {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [address, setAddress] = useState('');
+  const [addressDetails, setAddressDetails] = useState('');
   const [locationPin, setLocationPin] = useState(null);
   const [locating, setLocating] = useState(false);
   const [email, setEmail] = useState('');
@@ -348,7 +357,8 @@ function AuthScreen({ apiBase, onSignedIn, sessionNotice }) {
     if (registering && verificationPending && !/^\d{6}$/.test(verificationCode)) return setError('Enter the 6-digit code sent to your email.');
     if (registering && !verificationPending && !name.trim()) return setError('Enter your full name.');
     if (registering && !verificationPending && !phone.trim()) return setError('Enter your phone number.');
-    if (registering && !verificationPending && !address.trim()) return setError('Enter your pickup address.');
+    const completeRegistrationAddress = [addressDetails.trim(), address.trim()].filter(Boolean).join(', ');
+    if (registering && !verificationPending && !isCompleteAddress(completeRegistrationAddress)) return setError('Enter your complete address details: house or block, street, barangay, and city.');
     if (registering && !verificationPending && !locationPin) return setError('Pin your location so the app can check delivery coverage.');
     if (registering && !verificationPending && !/^09\d{9}$/.test(phone)) return setError('Enter an 11-digit mobile number starting with 09.');
     if ((!registering || !verificationPending) && (!password || (registering && password.length < 10))) return setError(registering ? 'Use a password with at least 10 characters.' : 'Enter your password.');
@@ -362,7 +372,7 @@ function AuthScreen({ apiBase, onSignedIn, sessionNotice }) {
         body: registering && verificationPending
           ? { email: normalizedEmail, code: verificationCode }
           : {
-              ...(registering ? { name: name.trim(), phone, address: address.trim(), latitude: locationPin?.latitude, longitude: locationPin?.longitude } : {}),
+              ...(registering ? { name: name.trim(), phone, address: completeRegistrationAddress, latitude: locationPin?.latitude, longitude: locationPin?.longitude } : {}),
               email: normalizedEmail,
               password,
             },
@@ -407,7 +417,7 @@ function AuthScreen({ apiBase, onSignedIn, sessionNotice }) {
     try {
       const data = await apiRequest(apiBase, 'register.php', {
         method: 'POST',
-        body: { name: name.trim(), phone, address: address.trim(), latitude: locationPin?.latitude, longitude: locationPin?.longitude, email: email.trim(), password },
+        body: { name: name.trim(), phone, address: [addressDetails.trim(), address.trim()].filter(Boolean).join(', '), latitude: locationPin?.latitude, longitude: locationPin?.longitude, email: email.trim(), password },
       });
       setVerificationCode('');
       setNotice(data.message || 'A new verification code was sent.');
@@ -515,8 +525,9 @@ function AuthScreen({ apiBase, onSignedIn, sessionNotice }) {
             ) : <>
             {registering ? <Field label="Full name" value={name} onChangeText={setName} placeholder="Your name" autoCapitalize="words" maxLength={100} returnKeyType="next" /> : null}
             {registering ? <Field label="Phone number" value={phone} onChangeText={(value) => setPhone(value.replace(/\D/g, '').slice(0, 11))} placeholder="09xx xxx xxxx" keyboardType="phone-pad" maxLength={11} returnKeyType="next" /> : null}
-            {registering ? <><Field label="Pickup address" value={address} onChangeText={setAddress} placeholder="Street, barangay, city" autoCapitalize="words" maxLength={255} returnKeyType="next" />
-              <View style={styles.locationPinPanel}><Text style={styles.locationPinTitle}>Location pin</Text><Text style={styles.locationPinCopy}>Pin your location to check whether pickup and delivery are available. You can still register and use drop-off service outside the delivery area.</Text><Pressable disabled={locating} onPress={pinMyLocation} style={[styles.locationPinButton, locating && styles.disabledButton]}>{locating ? <ActivityIndicator color={COLORS.white} /> : <Text style={styles.locationPinButtonText}>{locationPin ? 'Update pinned location' : 'Pin my current location'}</Text>}</Pressable>{locationPin ? <><Text style={[styles.locationPinSuccess, !locationPin.deliveryAvailable && styles.locationPinWarning]}>{locationPin.deliveryAvailable ? '✓ Delivery is available at this pinned location.' : "Can't reach this address for delivery. You can still use Drop-off & Pick-up."}</Text><View style={styles.registrationMap}><DeliveryMap location={locationPin} label="Pinned customer location" /></View></> : null}</View></> : null}
+            {registering ? <><Field label="Address" value={address} onChangeText={setAddress} placeholder="Brgy. San Manuel, Tarlac City" autoCapitalize="words" maxLength={180} returnKeyType="next" />
+              <Field label="Address details (required)" value={addressDetails} onChangeText={setAddressDetails} placeholder="House/Blk/Lot No., Street, subdivision or landmark" autoCapitalize="words" maxLength={180} returnKeyType="next" />
+              <View style={styles.locationPinPanel}><Text style={styles.locationPinTitle}>Location pin</Text><Text style={styles.locationPinCopy}>Enter your complete address, then pin your location. Free pickup and delivery are available only for San Manuel, Tarlac City. You can still register and use Drop-off & Pick-up outside this area.</Text><Pressable disabled={locating} onPress={pinMyLocation} style={[styles.locationPinButton, locating && styles.disabledButton]}>{locating ? <ActivityIndicator color={COLORS.white} /> : <Text style={styles.locationPinButtonText}>{locationPin ? 'Update pinned location' : 'Pin my current location'}</Text>}</Pressable>{locationPin ? <><Text style={[styles.locationPinSuccess, !locationPin.deliveryAvailable && styles.locationPinWarning]}>{locationPin.deliveryAvailable && isSanManuelTarlacAddress([addressDetails, address].filter(Boolean).join(', ')) ? '✓ Free pickup and delivery are available at this pinned location.' : "Free pickup and delivery are available only for complete addresses in San Manuel, Tarlac City. You can still use Drop-off & Pick-up."}</Text><View style={styles.registrationMap}><DeliveryMap location={locationPin} label="Pinned customer location" /></View></> : null}</View></> : null}
             <Field label="Email address" value={email} onChangeText={setEmail} placeholder="you@example.com" keyboardType="email-address" autoCapitalize="none" autoCorrect={false} maxLength={120} returnKeyType="next" />
             <Field
               label="Password"
@@ -611,7 +622,7 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
   const [notes, setNotes] = useState('');
   const [fulfillment, setFulfillment] = useState('pickup_delivery');
   const [deliveryAddress, setDeliveryAddress] = useState(customer.address || '');
-  const deliveryAvailable = isDeliveryArea(customer.location_latitude, customer.location_longitude);
+  const deliveryAvailable = isDeliveryArea(customer.location_latitude, customer.location_longitude) && isSanManuelTarlacAddress(customer.address);
   const [pickupAt, setPickupAt] = useState(null);
   const [pickupDate, setPickupDate] = useState('');
   const [pickupTime, setPickupTime] = useState('09:00');
@@ -662,7 +673,7 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
     } catch (locationError) { setProfileLocationError(locationError.message || 'Could not update your location pin.'); } finally { setProfileLocating(false); }
   };
   const saveProfileLocation = async () => {
-    if (!profileAddress.trim()) return setProfileLocationError('Enter your pickup address.');
+    if (!isCompleteAddress(profileAddress)) return setProfileLocationError('Enter your complete address: house or block, street, barangay, and city.');
     if (!profilePin) return setProfileLocationError('Pin your current location before saving.');
     setProfileSaving(true); setProfileLocationError('');
     try {
@@ -817,8 +828,8 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
       return setError('Use up to 500 per service, with whole numbers for loads and pieces.');
     }
     if (pickupAt && new Date(pickupAt) <= new Date()) return setError('Choose a future schedule or remove the suggested time.');
-if (['pickup_delivery', 'dropoff_delivery'].includes(fulfillment) && !deliveryAvailable) return setError("Can't reach this address for delivery. Choose Drop-off & Pick-up instead.");
-    if (fulfillment !== 'dropoff_pickup' && !deliveryAddress.trim()) return setError('Enter your delivery address.');
+if (['pickup_delivery', 'dropoff_delivery'].includes(fulfillment) && !deliveryAvailable) return setError('Free pickup and delivery are available only for complete addresses in San Manuel, Tarlac City. Choose Drop-off & Pick-up instead.');
+    if (fulfillment !== 'dropoff_pickup' && !isCompleteAddress(deliveryAddress)) return setError('Enter the complete delivery address: house or block, street, barangay, and city.');
     if (paymentMethod === 'gcash') {
       if (!gcashInfo?.configured) return setError('The shop has not configured GCash payments yet.');
       if (gcashReference.trim().length < 6) return setError('Enter the GCash reference from your completed transfer.');
@@ -998,7 +1009,7 @@ if (['pickup_delivery', 'dropoff_delivery'].includes(fulfillment) && !deliveryAv
 
             <View style={styles.bookingPanel}>
               <Text style={styles.panelTitle}>Service handoff</Text>
-              {!deliveryAvailable ? <View style={styles.deliveryRestriction}><Text style={styles.deliveryRestrictionTitle}>Can’t reach this address for delivery</Text><Text style={styles.deliveryRestrictionCopy}>Pickup and delivery are available within 8 km of San Manuel, Tarlac City. You can still book using Drop-off & Pick-up.</Text></View> : null}
+              {!deliveryAvailable ? <View style={styles.deliveryRestriction}><Text style={styles.deliveryRestrictionTitle}>Can’t reach this address for delivery</Text><Text style={styles.deliveryRestrictionCopy}>Free pickup and delivery are available only for complete addresses in San Manuel, Tarlac City. You can still book using Drop-off & Pick-up.</Text></View> : null}
               <View style={styles.handoffChoices}>
                 <Pressable disabled={!deliveryAvailable} onPress={() => { setFulfillment('pickup_delivery'); setPaymentMethod('cash_on_handoff'); }} style={[styles.handoffCard, fulfillment === 'pickup_delivery' && styles.handoffCardActive, !deliveryAvailable && styles.handoffCardDisabled]}>
                   <Text style={styles.handoffIcon}>🚚</Text>
@@ -1014,8 +1025,8 @@ if (['pickup_delivery', 'dropoff_delivery'].includes(fulfillment) && !deliveryAv
                 </Pressable>
               </View>
               {fulfillment !== 'dropoff_pickup' ? <View>
-                <Text style={styles.addressLabel}>Final delivery address</Text>
-                <TextInput value={deliveryAddress} onChangeText={setDeliveryAddress} maxLength={255} placeholder="Street, barangay, city" placeholderTextColor="#a59ba5" style={styles.deliveryAddressInput} />
+                <Text style={styles.addressLabel}>Complete delivery address</Text>
+                <TextInput value={deliveryAddress} onChangeText={setDeliveryAddress} maxLength={255} placeholder="House/Blk/Lot No., Street, Brgy. San Manuel, Tarlac City" placeholderTextColor="#a59ba5" style={styles.deliveryAddressInput} />
                 <Text style={styles.addressHelp}>{fulfillment === 'pickup_delivery' ? 'This address is used for both collection and final delivery.' : 'The driver will deliver the finished laundry to this address.'}</Text>
               </View> : null}
               <View style={styles.panelTitleRow}>
@@ -1122,16 +1133,16 @@ if (['pickup_delivery', 'dropoff_delivery'].includes(fulfillment) && !deliveryAv
               <ProfileRow icon="�" label="Pickup address" value={customer.address} last />
             </View>
             <View style={styles.profileLocationCard}>
-              <Text style={styles.panelTitle}>Saved delivery location</Text>
-              <Text style={styles.profileLocationCopy}>Update your pin when your pickup or delivery address changes. Pickup and delivery are available within 8 km of San Manuel, Tarlac City.</Text>
+              <Text style={styles.panelTitle}>Address and saved location</Text>
+              <Text style={styles.profileLocationCopy}>Use your complete address: house or block, street, barangay, and city. Free pickup and delivery are available only in San Manuel, Tarlac City.</Text>
               {editingLocation ? <>
-                <Text style={styles.addressLabel}>Pickup address</Text>
-                <TextInput value={profileAddress} onChangeText={setProfileAddress} maxLength={255} placeholder="Street, barangay, city" placeholderTextColor="#a59ba5" style={styles.deliveryAddressInput} />
+                <Text style={styles.addressLabel}>Complete address (required)</Text>
+                <TextInput value={profileAddress} onChangeText={setProfileAddress} maxLength={255} placeholder="House/Blk/Lot No., Street, Brgy. San Manuel, Tarlac City" placeholderTextColor="#a59ba5" style={styles.deliveryAddressInput} />
                 <Pressable disabled={profileLocating || profileSaving} onPress={pinProfileLocation} style={[styles.locationPinButton, (profileLocating || profileSaving) && styles.disabledButton]}>{profileLocating ? <ActivityIndicator color={COLORS.white} /> : <Text style={styles.locationPinButtonText}>Update pinned location</Text>}</Pressable>
-                {profilePin ? <><Text style={[styles.locationPinSuccess, !profilePin.deliveryAvailable && styles.locationPinWarning]}>{profilePin.deliveryAvailable ? 'Pickup and delivery are available at this location.' : "Can't reach this address for delivery. Drop-off & Pick-up is still available."}</Text><View style={styles.registrationMap}><DeliveryMap location={profilePin} label="Saved customer location" /></View></> : null}
+                {profilePin ? <><Text style={[styles.locationPinSuccess, !profilePin.deliveryAvailable && styles.locationPinWarning]}>{profilePin.deliveryAvailable && isSanManuelTarlacAddress(profileAddress) ? 'Free pickup and delivery are available at this location.' : "Free pickup and delivery are available only for complete addresses in San Manuel, Tarlac City. Drop-off & Pick-up is still available."}</Text><View style={styles.registrationMap}><DeliveryMap location={profilePin} label="Saved customer location" /></View></> : null}
                 {profileLocationError ? <Text style={styles.errorBox}>{profileLocationError}</Text> : null}
                 <View style={styles.profileLocationActions}><Pressable disabled={profileSaving} onPress={() => setEditingLocation(false)} style={styles.secondaryButton}><Text style={styles.secondaryButtonText}>Cancel</Text></Pressable><Pressable disabled={profileSaving} onPress={saveProfileLocation} style={[styles.primaryButton, profileSaving && styles.disabledButton]}>{profileSaving ? <ActivityIndicator color={COLORS.white} /> : <Text style={styles.primaryButtonText}>Save location</Text>}</Pressable></View>
-              </> : <><Text style={[styles.locationPinSuccess, !isDeliveryArea(customer.location_latitude, customer.location_longitude) && styles.locationPinWarning]}>{isDeliveryArea(customer.location_latitude, customer.location_longitude) ? 'Pickup and delivery are available at your saved location.' : "Can't reach your saved address for delivery."}</Text><Pressable onPress={beginLocationEdit} style={styles.locationPinButton}><Text style={styles.locationPinButtonText}>Edit saved location</Text></Pressable></>}
+              </> : <><Text style={[styles.locationPinSuccess, !(isDeliveryArea(customer.location_latitude, customer.location_longitude) && isSanManuelTarlacAddress(customer.address)) && styles.locationPinWarning]}>{isDeliveryArea(customer.location_latitude, customer.location_longitude) && isSanManuelTarlacAddress(customer.address) ? 'Free pickup and delivery are available at your saved location.' : "Free pickup and delivery are unavailable outside San Manuel, Tarlac City."}</Text><Pressable onPress={beginLocationEdit} style={styles.locationPinButton}><Text style={styles.locationPinButtonText}>Edit address</Text></Pressable></>}
             </View>
             <Pressable onPress={onSignOut} style={styles.signOutButton}><Text style={styles.signOutButtonText}>Sign out</Text></Pressable>
           </View>

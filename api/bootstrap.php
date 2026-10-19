@@ -59,6 +59,19 @@ function api_is_delivery_area(float $latitude, float $longitude): bool
     $distanceKm = $earthRadiusKm * 2 * atan2(sqrt($a), sqrt(1 - $a));
     return $distanceKm <= 8.0;
 }
+function api_is_complete_address(string $address): bool
+{
+    $parts = array_values(array_filter(array_map('trim', explode(',', $address)), static fn ($part) => $part !== ''));
+    if (count($parts) < 4) return false;
+    foreach ($parts as $part) {
+        if (preg_match('/(?:brgy\\.?|barangay)/i', $part)) return true;
+    }
+    return false;
+}
+function api_is_san_manuel_tarlac_address(string $address): bool
+{
+    return api_is_complete_address($address) && stripos($address, 'san manuel') !== false && stripos($address, 'tarlac') !== false;
+}
 function api_delivery_area_error(): string { return 'Delivery is available only within 8 km of San Manuel, Tarlac City. Choose a location inside the service area.'; }
 function api_send_transactional_email(string $email, string $subject, string $text): void
 {
