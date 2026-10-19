@@ -1,42 +1,39 @@
 @echo off
+setlocal EnableExtensions EnableDelayedExpansion
+title Pia's Laundry Shop - Local Installation
+
 REM ============================================================
-REM  Pia's Laundry Shop - One-click database setup
+REM  Pia's Laundry Shop - Local database installer
 REM
-REM  Works with XAMPP, Laragon and WAMP.
-REM  Auto-detects mysql.exe / mariadb.exe and imports
-REM  database\laundry_pos.sql
+REM  For a fresh XAMPP, Laragon, or WAMP installation.
+REM  Imports database\laundry_pos.sql with delivery, driver, GCash,
+REM  customer account, and offline-booking database support.
 REM
-REM  Before running: make sure Apache and MySQL are STARTED
-REM  (XAMPP Control Panel, or Laragon "Start All").
+REM  This affects only the LOCAL database on this laptop. It does not
+REM  deploy to Railway or change the online Railway database.
 REM ============================================================
 
-setlocal EnableDelayedExpansion
+set "DB_HOST=localhost"
+set "DB_PORT=3306"
+set "DB_USER=root"
+set "DB_PASS="
+set "DB_NAME=laundry_pos"
+set "SQL_FILE=%~dp0database\laundry_pos.sql"
+set "MYSQL_EXE="
+set "FOUND_IN="
 
-REM ---------- Connection settings (XAMPP + Laragon defaults) ----------
-set DB_HOST=localhost
-set DB_USER=root
-set DB_PASS=
-set DB_NAME=laundry_pos
-
-set SQL_FILE=%~dp0database\laundry_pos.sql
-set MYSQL_EXE=
-set FOUND_IN=
-
-REM ---------- 0) Manual override ----------
-REM Auto-detection below covers XAMPP, Laragon and WAMP. If your MySQL is
-REM somewhere else, remove the "REM" from the next line and edit the path:
+REM Optional override. Remove REM and edit if MySQL is installed elsewhere.
 REM set "MYSQL_BIN=D:\xampp\mysql\bin"
 
+REM ---------- Find MySQL or MariaDB ----------
 if defined MYSQL_BIN if exist "!MYSQL_BIN!\mysql.exe" (
     set "MYSQL_EXE=!MYSQL_BIN!\mysql.exe"
     set "FOUND_IN=MYSQL_BIN override"
 )
-if defined MYSQL_BIN if exist "!MYSQL_BIN!\mariadb.exe" (
+if not defined MYSQL_EXE if defined MYSQL_BIN if exist "!MYSQL_BIN!\mariadb.exe" (
     set "MYSQL_EXE=!MYSQL_BIN!\mariadb.exe"
     set "FOUND_IN=MYSQL_BIN override"
 )
-
-REM ---------- 1) XAMPP ----------
 if not defined MYSQL_EXE if exist "C:\xampp\mysql\bin\mysql.exe" (
     set "MYSQL_EXE=C:\xampp\mysql\bin\mysql.exe"
     set "FOUND_IN=XAMPP"
@@ -45,21 +42,17 @@ if not defined MYSQL_EXE if exist "C:\xampp\mysql\bin\mariadb.exe" (
     set "MYSQL_EXE=C:\xampp\mysql\bin\mariadb.exe"
     set "FOUND_IN=XAMPP MariaDB"
 )
-
-REM ---------- 2) Laragon (versioned folder) ----------
 if not defined MYSQL_EXE (
     for /d %%D in ("C:\laragon\bin\mysql\mysql-*") do (
-        if exist "%%~D\bin\mysql.exe" (
+        if not defined MYSQL_EXE if exist "%%~D\bin\mysql.exe" (
             set "MYSQL_EXE=%%~D\bin\mysql.exe"
             set "FOUND_IN=Laragon"
         )
     )
 )
-
-REM ---------- 3) WAMP ----------
 if not defined MYSQL_EXE (
     for /d %%D in ("C:\wamp64\bin\mysql\mysql*") do (
-        if exist "%%~D\bin\mysql.exe" (
+        if not defined MYSQL_EXE if exist "%%~D\bin\mysql.exe" (
             set "MYSQL_EXE=%%~D\bin\mysql.exe"
             set "FOUND_IN=WAMP64"
         )
@@ -67,14 +60,12 @@ if not defined MYSQL_EXE (
 )
 if not defined MYSQL_EXE (
     for /d %%D in ("C:\wamp\bin\mysql\mysql*") do (
-        if exist "%%~D\bin\mysql.exe" (
+        if not defined MYSQL_EXE if exist "%%~D\bin\mysql.exe" (
             set "MYSQL_EXE=%%~D\bin\mysql.exe"
             set "FOUND_IN=WAMP"
         )
     )
 )
-
-REM ---------- 4) Anywhere on PATH ----------
 if not defined MYSQL_EXE (
     for /f "delims=" %%P in ('where mysql.exe 2^>nul') do (
         if not defined MYSQL_EXE (
@@ -83,93 +74,101 @@ if not defined MYSQL_EXE (
         )
     )
 )
-
-REM ---------- Report ----------
-echo.
-echo ============================================================
-echo   Pia's Laundry Shop - Database Setup
-echo ============================================================
-echo.
-
 if not defined MYSQL_EXE (
-    echo [ERROR] Could not find mysql.exe in any of these locations:
-    echo.
-    echo     C:\xampp\mysql\bin
-    echo     C:\laragon\bin\mysql\mysql-*\bin
-    echo     C:\wamp64\bin\mysql\mysql*\bin
-    echo     system PATH
-    echo.
-    echo Fix it by editing this file and changing the MYSQL_BIN line
-    echo near the top to your real folder, for example:
-    echo.
-    echo     set MYSQL_BIN=D:\xampp\mysql\bin
-    echo.
-    echo Alternatively import manually via phpMyAdmin:
-    echo     http://localhost/phpmyadmin  ^>  Import  ^>  database\laundry_pos.sql
-    echo.
-    pause
-    exit /b 1
+    for /f "delims=" %%P in ('where mariadb.exe 2^>nul') do (
+        if not defined MYSQL_EXE (
+            set "MYSQL_EXE=%%~fP"
+            set "FOUND_IN=system PATH"
+        )
+    )
 )
 
-echo   MySQL client : !MYSQL_EXE!
-echo   Detected     : !FOUND_IN!
-echo   Host         : %DB_HOST%
-echo   User         : %DB_USER%
-echo   Database     : %DB_NAME%
-echo   SQL file     : %SQL_FILE%
+echo.
+echo ============================================================
+echo          Pia's Laundry Shop - Local Installation
+echo ============================================================
+echo.
+echo This installs a LOCAL copy for XAMPP, Laragon, or WAMP.
+echo Your current Railway website and online database are not changed.
 echo.
 
 if not exist "%SQL_FILE%" (
-    echo [ERROR] SQL file not found: %SQL_FILE%
-    echo Make sure this .bat file is still inside the project folder.
+    echo [ERROR] Database file was not found:
+    echo %SQL_FILE%
+    echo Keep install.bat in the main laundry-pias project folder.
     pause
     exit /b 1
 )
 
-REM ---------- Build the password argument only when needed ----------
+if not defined MYSQL_EXE (
+    echo [ERROR] mysql.exe or mariadb.exe was not found.
+    echo.
+    echo Install XAMPP, Laragon, or WAMP first. Then start MySQL and run this file again.
+    echo If it is installed elsewhere, edit the MYSQL_BIN line near the top of this file.
+    pause
+    exit /b 1
+)
+
+echo MySQL client : !MYSQL_EXE!
+echo Detected     : !FOUND_IN!
+echo Host         : %DB_HOST%:%DB_PORT%
+echo Database     : %DB_NAME%
+echo SQL file     : %SQL_FILE%
+echo.
+echo Before continuing, start Apache and MySQL in XAMPP or Start All in Laragon.
+echo.
+echo WARNING: This deletes and recreates all tables in the LOCAL "%DB_NAME%" database.
+echo It will remove existing local data but will not affect Railway.
+set /p "CONFIRM=Type YES to continue: "
+if /I not "%CONFIRM%"=="YES" (
+    echo Installation cancelled. No database was changed.
+    pause
+    exit /b 0
+)
+
 set "PASSARG="
 if not "%DB_PASS%"=="" set "PASSARG=-p%DB_PASS%"
 
-echo Importing... (this drops and recreates all tables)
 echo.
-
-"%MYSQL_EXE%" -h %DB_HOST% -u %DB_USER% %PASSARG% < "%SQL_FILE%"
-
-if not "%errorlevel%"=="0" (
+echo Importing local database. Please wait...
+"%MYSQL_EXE%" -h "%DB_HOST%" -P %DB_PORT% -u "%DB_USER%" %PASSARG% < "%SQL_FILE%"
+if errorlevel 1 (
     echo.
     echo [ERROR] Import failed.
     echo.
-    echo Most common causes:
-    echo   1. MySQL is not running - start it in the XAMPP Control Panel
-    echo      or click "Start All" in Laragon.
-    echo   2. Wrong password - if your root user has a password, edit the
-    echo      DB_PASS line near the top of this file.
-    echo   3. Port 3306 is already used by another MySQL service.
-    echo.
+    echo Check that MySQL is running, the port is correct, and DB_PASS at the top is correct.
     pause
     exit /b 1
 )
 
-REM ---------- Verify ----------
 echo.
-"%MYSQL_EXE%" -h %DB_HOST% -u %DB_USER% %PASSARG% -N -B -e "SELECT CONCAT('Tables created : ', COUNT(*)) FROM information_schema.tables WHERE table_schema='%DB_NAME%';" 2>nul
-"%MYSQL_EXE%" -h %DB_HOST% -u %DB_USER% %PASSARG% -N -B -e "SELECT CONCAT('Sample orders  : ', COUNT(*)) FROM %DB_NAME%.orders;" 2>nul
-"%MYSQL_EXE%" -h %DB_HOST% -u %DB_USER% %PASSARG% -N -B -e "SELECT CONCAT('Shop name      : ', `value) FROM %DB_NAME%.settings WHERE `key='shop_name';" 2>nul
+echo Verifying imported database...
+"%MYSQL_EXE%" -h "%DB_HOST%" -P %DB_PORT% -u "%DB_USER%" %PASSARG% -N -B -e "SELECT CONCAT('Tables created : ', COUNT(*)) FROM information_schema.tables WHERE table_schema='%DB_NAME%';" 2>nul
+"%MYSQL_EXE%" -h "%DB_HOST%" -P %DB_PORT% -u "%DB_USER%" %PASSARG% -N -B -e "SELECT CONCAT('Services       : ', COUNT(*)) FROM %DB_NAME%.services;" 2>nul
+"%MYSQL_EXE%" -h "%DB_HOST%" -P %DB_PORT% -u "%DB_USER%" %PASSARG% -N -B -e "SELECT CONCAT('Driver accounts: ', COUNT(*)) FROM %DB_NAME%.delivery_drivers;" 2>nul
 
 echo.
 echo ============================================================
-echo   [OK] Database imported successfully.
+echo [OK] Local database imported successfully.
 echo ============================================================
 echo.
-echo   Copy the project folder to your web root if you have not:
-echo       XAMPP    :  C:\xampp\htdocs\laundry-pos
-echo       Laragon  :  C:\laragon\www\laundry-pos
+echo Next steps for this laptop:
+echo   1. Keep this folder inside your web root, for example:
+echo      XAMPP   C:\xampp\htdocs\laundry-pias
+echo      Laragon C:\laragon\www\laundry-pias
+echo   2. Start Apache and MySQL.
+echo   3. Open http://localhost/laundry-pias/
 echo.
-echo   Then open:   http://localhost/laundry-pos/
+echo Online deployment:
+echo   Railway hosts the deployed website, API, and online database.
+echo   The online app keeps working when XAMPP is off. This installer is
+ echo   only for a separate local copy or local development.
 echo.
-echo   Log in with:
-echo       admin / admin123    (Administrator)
-echo       staff / staff123    (Cashier)
+echo Expo mobile app:
+echo   The latest Expo app uses the Railway HTTPS API. On a new laptop,
+echo   install Node.js, open mobile_app\expo_app, then run npm.cmd install.
+echo.
+echo Change default admin and staff passwords after first local sign-in.
 echo.
 pause
 endlocal

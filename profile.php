@@ -7,7 +7,7 @@ $user = current_user();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!csrf_verify($_POST['csrf'] ?? null)) {
-        flash_set('error', 'Invalid request.');
+        flash_set('error', 'This form has expired. Refresh the page and try again.');
         redirect('profile.php');
     }
 
@@ -32,8 +32,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if (!password_verify($current, $user['password'])) {
             flash_set('error', 'Current password is incorrect.');
-        } elseif (strlen($new) < 6) {
-            flash_set('error', 'New password must be at least 6 characters.');
+        } elseif (strlen($new) < 8) {
+            flash_set('error', 'New password must be at least 8 characters.');
         } elseif ($new !== $confirm) {
             flash_set('error', 'New passwords do not match.');
         } else {
@@ -85,10 +85,10 @@ include __DIR__ . '/includes/header.php';
       <input type="password" id="current_password" name="current_password" required>
 
       <label for="new_password">New Password</label>
-      <input type="password" id="new_password" name="new_password" required minlength="6">
+      <input type="password" id="new_password" name="new_password" required minlength="8">
 
       <label for="confirm_password">Confirm New Password</label>
-      <input type="password" id="confirm_password" name="confirm_password" required minlength="6">
+      <input type="password" id="confirm_password" name="confirm_password" required minlength="8">
 
       <div class="form-actions">
         <button type="submit" class="btn btn-primary">Change Password</button>

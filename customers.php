@@ -1,13 +1,16 @@
 <?php
 require_once __DIR__ . '/includes/auth.php';
 require_login();
+require_once __DIR__ . '/includes/feature_schema.php';
+ensure_customer_schema();
+ensure_workflow_schema();
 
 $pdo = db();
 
 /* ---------- Save (add or update) ---------- */
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save'])) {
     if (!csrf_verify($_POST['csrf'] ?? null)) {
-        flash_set('error', 'Invalid request.');
+        flash_set('error', 'This form has expired. Refresh the page and try again.');
         redirect('customers.php');
     }
     $id      = (int)($_POST['id'] ?? 0);
@@ -35,16 +38,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save'])) {
             flash_set('error', 'Another customer is already using that email address.');
             redirect('customers.php' . ($id ? "?id=$id" : ''));
         }
+        $accountDup = $pdo->prepare('SELECT customer_id FROM customer_accounts WHERE email = ? AND customer_id <> ?');
+        $accountDup->execute([$email, $id]);
+        if ($accountDup->fetch()) {
+            flash_set('error', 'That email is already used by another customer login.');
+            redirect('customers.php' . ($id ? "?id=$id" : ''));
+        }
+    }
+    if ($id > 0 && $email === '') {
+        $loginCheck = $pdo->prepare('SELECT id FROM customer_accounts WHERE customer_id = ?');
+        $loginCheck->execute([$id]);
+        if ($loginCheck->fetchColumn()) {
+            flash_set('error', 'A customer with a login account must keep a valid email address.');
+            redirect('customers.php' . ($id ? "?id=$id" : ''));
+        }
     }
 
 
     if ($id > 0) {
+        $beforeStmt = $pdo->prepare('SELECT name, phone, email, address, is_active FROM customers WHERE id = ?');
+        $beforeStmt->execute([$id]);
+        $before = $beforeStmt->fetch();
         $stmt = $pdo->prepare(
             "UPDATE customers
                 SET name = ?, phone = ?, email = ?, address = ?, is_active = ?
               WHERE id = ?"
         );
         $stmt->execute([$name, $phone, $email !== '' ? $email : null, $address, $isActive, $id]);
+        if ($email !== '') {
+            $accountUpdate = $pdo->prepare('UPDATE customer_accounts SET email = ? WHERE customer_id = ?');
+            $accountUpdate->execute([$email, $id]);
+        }
+        add_audit_log('Customer updated', 'customers', $id, $before, ['name' => $name, 'phone' => $phone, 'email' => $email, 'address' => $address, 'is_active' => $isActive]);
         flash_set('success', 'Customer updated.');
     } else {
         $stmt = $pdo->prepare(
@@ -53,6 +78,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save'])) {
              VALUES (?, ?, ?, ?, ?)"
         );
         $stmt->execute([$name, $phone, $email !== '' ? $email : null, $address, $isActive]);
+        add_audit_log('Customer created', 'customers', (int)$pdo->lastInsertId(), null, ['name' => $name, 'email' => $email, 'is_active' => $isActive]);
         flash_set('success', 'Customer added.');
     }
     redirect('customers.php');
@@ -63,11 +89,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete'])) {
     if (!is_admin()) {
         flash_set('error', 'Only administrators can delete customers.');
     } elseif (!csrf_verify($_POST['csrf'] ?? null)) {
-        flash_set('error', 'Invalid request.');
+        flash_set('error', 'This form has expired. Refresh the page and try again.');
     } else {
-        $stmt = $pdo->prepare("DELETE FROM customers WHERE id = ?");
+        $stmt = $pdo->prepare("UPDATE customers SET is_active = 0 WHERE id = ?");
         $stmt->execute([(int)$_POST['id']]);
-        flash_set('success', 'Customer deleted.');
+        add_audit_log('Customer deactivated', 'customers', (int)$_POST['id']);
+        flash_set('success', 'Customer deactivated. Order history has been preserved.');
     }
     redirect('customers.php');
 }
@@ -85,6 +112,10 @@ if ($editId > 0) {
 
 $params = [];
 $whereSql = '';
+$showCustomerSpending = true;
+$spendingSelect = $showCustomerSpending
+    ? "(SELECT COALESCE(SUM(o.total),0) FROM orders o WHERE o.customer_id = c.id AND o.status <> 'cancelled') AS total_spent"
+    : 'NULL AS total_spent';
 if ($search !== '') {
     $whereSql = "WHERE name LIKE ? OR phone LIKE ? OR email LIKE ?";
     $params = ["%$search%", "%$search%", "%$search%"];
@@ -92,7 +123,7 @@ if ($search !== '') {
 $stmt = $pdo->prepare(
     "SELECT c.*,
             (SELECT COUNT(*) FROM orders o WHERE o.customer_id = c.id) AS order_count,
-            (SELECT COALESCE(SUM(GREATEST(o.amount_paid - o.change_due - (SELECT COALESCE(SUM(a.amount),0) FROM order_adjustments a WHERE a.order_id = o.id AND a.adjustment_type = 'refund'), 0)),0) FROM orders o WHERE o.customer_id = c.id AND o.status <> 'cancelled') AS total_spent
+            $spendingSelect
      FROM customers c $whereSql
      ORDER BY c.name"
 );
@@ -147,29 +178,29 @@ include __DIR__ . '/includes/header.php';
     </div>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Name</th><th>Contact</th><th class="num">Service Tickets</th><th class="num">Total Spent</th><th></th></tr></thead>
+        <thead><tr><th>Name</th><th>Contact</th><th class="num">Orders</th><?php if ($showCustomerSpending): ?><th class="num">Total Spent</th><?php endif; ?><th></th></tr></thead>
         <tbody>
           <?php if (!$customers): ?>
-            <tr><td colspan="5" class="empty-state">No customers found.</td></tr>
+            <tr><td colspan="<?= $showCustomerSpending ? 5 : 4 ?>" class="empty-state">No customers found.</td></tr>
           <?php endif; ?>
           <?php foreach ($customers as $c): ?>
           <tr>
             <td>
               <?= e($c['name']) ?>
-              <?php if ((int)($c['is_active'] ?? 1) !== 1): ?><span class="badge badge-inactive">inactive</span><?php endif; ?>
+              <?php if ((int)($c['is_active'] ?? 1) !== 1): ?><span class="badge badge-inactive">Inactive</span><?php endif; ?>
             </td>
-            <td class="muted"><?= e($c['phone'] ?: ($c['email'] ?: '—')) ?></td>
+            <td class="muted"><div><?= e($c['phone'] ?: '—') ?></div><?php if ($c['email']): ?><div><?= e($c['email']) ?></div><?php endif; ?><?php if ($c['address']): ?><div class="small"><?= e($c['address']) ?></div><?php endif; ?></td>
             <td class="num"><?= (int)$c['order_count'] ?></td>
-            <td class="num"><?= money($c['total_spent']) ?></td>
+            <?php if ($showCustomerSpending): ?><td class="num"><?= money($c['total_spent']) ?></td><?php endif; ?>
             <td class="right">
               <a class="btn btn-outline btn-sm" href="customers.php?id=<?= (int)$c['id'] ?>">Edit</a>
               <?php if (is_admin()): ?>
               <form method="post" action="customers.php" style="display:inline;"
-                    onsubmit="return confirm('Delete this customer?');">
+                    onsubmit="return confirm('Deactivate this customer account? Order history will be preserved.');">
                 <?= csrf_field() ?>
                 <input type="hidden" name="delete" value="1">
                 <input type="hidden" name="id" value="<?= (int)$c['id'] ?>">
-                <button class="btn btn-danger btn-sm" type="submit">Delete</button>
+                <button class="btn btn-danger btn-sm" type="submit">Deactivate</button>
               </form>
               <?php endif; ?>
             </td>

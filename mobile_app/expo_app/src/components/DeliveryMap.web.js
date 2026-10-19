@@ -1,7 +1,7 @@
 import React from 'react';
 import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 
-export default function DeliveryMap({ location, label = 'Driver' }) {
+export default function DeliveryMap({ location, label = 'Driver', offline = false }) {
   const latitude = Number(location.latitude);
   const longitude = Number(location.longitude);
   const url = 'https://www.openstreetmap.org/?mlat=' + latitude + '&mlon=' + longitude + '#map=16/' + latitude + '/' + longitude;
@@ -9,9 +9,9 @@ export default function DeliveryMap({ location, label = 'Driver' }) {
   return (
     <View style={styles.mapFallback}>
       <Text style={styles.coordinates}>{label} coordinates: {latitude.toFixed(5)}, {longitude.toFixed(5)}</Text>
-      <Pressable onPress={() => Linking.openURL(url)} style={styles.mapButton}>
-        <Text style={styles.mapButtonText}>Open live location map</Text>
-      </Pressable>
+      {offline ? <Text style={styles.coordinates}>Saved coordinates only. Reconnect to open the map.</Text> : <Pressable onPress={() => Linking.openURL(url)} style={styles.mapButton}>
+        <Text style={styles.mapButtonText}>Open location on map</Text>
+      </Pressable>}
     </View>
   );
 }

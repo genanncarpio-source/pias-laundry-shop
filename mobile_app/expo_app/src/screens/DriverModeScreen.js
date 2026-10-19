@@ -184,6 +184,24 @@ export default function DriverModeScreen() {
     }
   };
 
+
+  const updateOrder = async (delivery, action) => {
+    if (!token || busy) return;
+    setBusy(true);
+    setError('');
+    setMessage('');
+    try {
+      const result = await driverRequest('driver_order_action.php', {
+        method: 'POST', token, body: { order_id: delivery.id, action },
+      });
+      setMessage(result.message);
+      await loadDeliveries(token);
+    } catch (actionError) {
+      setError(actionError.message || 'Could not update the order.');
+    } finally {
+      setBusy(false);
+    }
+  };
   const sendLocation = async (activeToken, location) => {
     await driverRequest('driver_tracking.php', {
       method: 'POST',
@@ -326,6 +344,7 @@ export default function DriverModeScreen() {
         {error ? <Text style={styles.error}>{error}</Text> : null}
         {message ? <Text style={styles.notice}>{message}</Text> : null}
         {!driver ? (
+          <>
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Driver sign in</Text>
             <Text style={styles.info}>Customers cannot use driver accounts. Ask a staff member or admin to create your login.</Text>
@@ -340,6 +359,7 @@ export default function DriverModeScreen() {
               {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Sign in to driver mode</Text>}
             </Pressable>
           </View>
+          </>
         ) : (
           <>
             <View style={styles.card}>
@@ -352,8 +372,17 @@ export default function DriverModeScreen() {
                   </View>
                   <Text style={styles.customerName}>{delivery.customer_name}</Text>
                   {delivery.customer_phone ? <Pressable onPress={() => Linking.openURL('tel:' + delivery.customer_phone)}><Text style={styles.phone}>Call {delivery.customer_phone}</Text></Pressable> : null}
-                  <Text style={styles.address}>{delivery.delivery_address || 'No delivery address was saved.'}</Text>
-                  {delivery.delivery_address ? <Pressable onPress={() => Linking.openURL('https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(delivery.delivery_address))} style={styles.mapLink}><Text style={styles.mapLinkText}>Open delivery address in Maps</Text></Pressable> : null}
+                  <View style={styles.stagePill}><Text style={styles.stagePillText}>{delivery.status === 'confirmed' ? 'PICK UP FROM CUSTOMER' : 'DELIVER CLEAN LAUNDRY'}</Text></View>
+                  <Text style={styles.address}>{delivery.status === 'confirmed' ? (delivery.pickup_address || delivery.delivery_address) : (delivery.delivery_address || 'No delivery address was saved.')}</Text>
+                  {(delivery.status === 'confirmed' ? (delivery.pickup_address || delivery.delivery_address) : delivery.delivery_address) ? <Pressable onPress={() => Linking.openURL('https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(delivery.status === 'confirmed' ? (delivery.pickup_address || delivery.delivery_address) : delivery.delivery_address))} style={styles.mapLink}><Text style={styles.mapLinkText}>Open address in Maps</Text></Pressable> : null}
+                  {delivery.status === 'confirmed' ? (
+                    <View style={styles.actionPanel}>
+                      <Text style={styles.info}>{delivery.payment_method === 'cash_on_handoff' ? 'Collect ₱' + Number(delivery.total || 0).toFixed(2) + ' when receiving the laundry.' : 'GCash payment is handled by the shop.'}</Text>
+                      <Pressable disabled={busy} onPress={() => updateOrder(delivery, 'collect')} style={[styles.button, busy && styles.disabled]}><Text style={styles.buttonText}>Confirm laundry collected</Text></Pressable>
+                    </View>
+                  ) : (
+                    <Pressable disabled={busy} onPress={() => updateOrder(delivery, 'deliver')} style={[styles.button, styles.deliveredButton, busy && styles.disabled]}><Text style={styles.buttonText}>Confirm delivered to customer</Text></Pressable>
+                  )}
                   <View style={styles.customerPin}>
                     <Text style={styles.pinTitle}>Customer location</Text>
                     {delivery.customer_location ? (
@@ -423,6 +452,10 @@ const styles = StyleSheet.create({
   address: { color: '#514653', fontSize: 14, lineHeight: 20 },
   mapLink: { alignSelf: 'flex-start', paddingVertical: 4 },
   mapLinkText: { color: '#58265f', fontWeight: '700', fontSize: 13 },
+  stagePill: { alignSelf: 'flex-start', borderRadius: 20, backgroundColor: '#efe3f1', paddingHorizontal: 10, paddingVertical: 6, marginTop: 10 },
+  stagePillText: { color: '#58265f', fontSize: 11, fontWeight: '900' },
+  actionPanel: { gap: 9, marginTop: 10 },
+  deliveredButton: { backgroundColor: '#40513b', marginTop: 12 },
   customerPin: { gap: 8, borderRadius: 12, backgroundColor: '#fffaf2', padding: 12, marginTop: 5 },
   pinTitle: { color: '#58265f', fontSize: 15, fontWeight: '800' },
   sharingPanel: { gap: 8, borderRadius: 12, backgroundColor: '#f2eaf4', padding: 13, marginTop: 8 },

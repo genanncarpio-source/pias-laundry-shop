@@ -1,26 +1,28 @@
-# Flutter generated files and local SDK paths
-mobile_app/native/build/
-mobile_app/native/.dart_tool/
-mobile_app/native/.flutter-plugins
-mobile_app/native/.flutter-plugins-dependencies
-mobile_app/native/android/.gradle/
-mobile_app/native/android/app/build/
-mobile_app/native/android/build/
-mobile_app/native/android/local.properties
-mobile_app/native/ios/Pods/
-mobile_app/native/ios/build/
-mobile_app/native/ios/Flutter/Generated.xcconfig
-mobile_app/native/ios/Flutter/flutter_export_environment.sh
-mobile_app/native/ios/Flutter/ephemeral/
+# Local configuration and generated files
+.env
+.env.*
+!.env.example
+.vscode/
+**/.idea/
+*.iml
 
-# .NET MAUI generated files
-mobile_app/maui/bin/
-mobile_app/maui/obj/
+# Dependencies and generated mobile build output
+**/node_modules/
+mobile_app/expo_app/.expo/
+mobile_app/expo_app/dist/
+mobile_app/expo_app/web-build/
+mobile_app/expo_app/.tmp-*-export/
+mobile_app/flutter_app/.dart_tool/
+mobile_app/flutter_app/build/
+mobile_app/flutter_app/android/local.properties
 
-# Editor and OS files
-.idea/
-.vs/
-*.user
-*.suo
-Thumbs.db
-Desktop.ini
+# Deployment archives and local exports
+*.zip
+*.apk
+*.aab
+*.sql.gz
+database/railway_import.sql
+
+# Customer-uploaded payment files
+uploads/gcash/*
+!uploads/gcash/.gitkeep

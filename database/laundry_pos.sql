@@ -25,7 +25,9 @@ USE laundry_pos;
 SET FOREIGN_KEY_CHECKS = 0;
 DROP TABLE IF EXISTS order_history;
 DROP TABLE IF EXISTS order_adjustments;
-DROP TABLE IF EXISTS customer_sessions;
+DROP TABLE IF EXISTS inventory_movements;
+DROP TABLE IF EXISTS cash_closings;
+DROP TABLE IF EXISTS inventory_items;
 DROP TABLE IF EXISTS order_items;
 DROP TABLE IF EXISTS orders;
 DROP TABLE IF EXISTS services;
@@ -61,25 +63,11 @@ CREATE TABLE customers (
   phone       VARCHAR(30)  DEFAULT NULL,
   email       VARCHAR(120) DEFAULT NULL,
   address     VARCHAR(255) DEFAULT NULL,
-  password_hash VARCHAR(255) DEFAULT NULL,
   is_active   TINYINT(1)   NOT NULL DEFAULT 1,
   created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   KEY idx_customers_name (name),
   UNIQUE KEY uq_customers_email (email)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE customer_sessions (
-  id          INT UNSIGNED NOT NULL AUTO_INCREMENT,
-  customer_id INT UNSIGNED NOT NULL,
-  token_hash  CHAR(64) NOT NULL,
-  expires_at  DATETIME NOT NULL,
-  created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (id),
-  UNIQUE KEY uq_customer_session_token (token_hash),
-  KEY idx_customer_session_customer (customer_id),
-  KEY idx_customer_session_expiry (expires_at),
-  CONSTRAINT fk_customer_session_customer FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ------------------------------------------------------------
@@ -89,7 +77,7 @@ CREATE TABLE services (
   id          INT UNSIGNED NOT NULL AUTO_INCREMENT,
   name        VARCHAR(120) NOT NULL,
   category    VARCHAR(60)  NOT NULL DEFAULT 'Wash & Fold',
-  unit        ENUM('kg','piece','load') NOT NULL DEFAULT 'kg',
+  unit        ENUM('kg','piece') NOT NULL DEFAULT 'kg',
   price       DECIMAL(10,2) NOT NULL DEFAULT 0.00,
   description VARCHAR(255) DEFAULT NULL,
   is_active   TINYINT(1)   NOT NULL DEFAULT 1,
@@ -105,7 +93,9 @@ CREATE TABLE orders (
   order_number    VARCHAR(40)  NOT NULL,
   customer_id     INT UNSIGNED DEFAULT NULL,
   customer_name   VARCHAR(100) DEFAULT NULL,
-  order_type      ENUM('walk_in','drop_off') NOT NULL DEFAULT 'walk_in',
+  pickup_address  VARCHAR(255) DEFAULT NULL,
+  delivery_address VARCHAR(255) DEFAULT NULL,
+  order_type      VARCHAR(30) NOT NULL DEFAULT 'walk_in',
   status          ENUM('pending','washing','ready','picked_up','cancelled') NOT NULL DEFAULT 'pending',
   subtotal        DECIMAL(10,2) NOT NULL DEFAULT 0.00,
   discount        DECIMAL(10,2) NOT NULL DEFAULT 0.00,
@@ -113,7 +103,6 @@ CREATE TABLE orders (
   amount_paid     DECIMAL(10,2) NOT NULL DEFAULT 0.00,
   change_due      DECIMAL(10,2) NOT NULL DEFAULT 0.00,
   payment_method  VARCHAR(30)  NOT NULL DEFAULT 'cash',
-  paid_at         DATETIME     DEFAULT NULL,
   expected_pickup DATETIME     DEFAULT NULL,
   notes           VARCHAR(255) DEFAULT NULL,
   created_by      INT UNSIGNED DEFAULT NULL,
@@ -125,6 +114,26 @@ CREATE TABLE orders (
   KEY idx_orders_created (created_at),
   CONSTRAINT fk_orders_customer FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL,
   CONSTRAINT fk_orders_user     FOREIGN KEY (created_by)  REFERENCES users(id)     ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ------------------------------------------------------------
+-- Live delivery tracking (latest driver location while en route)
+-- ------------------------------------------------------------
+CREATE TABLE delivery_tracking (
+  order_id         INT UNSIGNED NOT NULL,
+  driver_code_hash CHAR(64) NOT NULL,
+  is_active        TINYINT(1) NOT NULL DEFAULT 1,
+  latitude         DECIMAL(10,7) DEFAULT NULL,
+  longitude        DECIMAL(10,7) DEFAULT NULL,
+  accuracy         DECIMAL(8,2) DEFAULT NULL,
+  heading          DECIMAL(7,2) DEFAULT NULL,
+  speed            DECIMAL(8,2) DEFAULT NULL,
+  started_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at       DATETIME DEFAULT NULL,
+  stopped_at       DATETIME DEFAULT NULL,
+  PRIMARY KEY (order_id),
+  KEY idx_delivery_tracking_active (is_active, updated_at),
+  CONSTRAINT fk_delivery_tracking_order FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ------------------------------------------------------------
@@ -186,7 +195,52 @@ CREATE TABLE order_history (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ------------------------------------------------------------
--- Refund and cancellation records
+-- Inventory, cash closing, and order adjustment records
+-- ------------------------------------------------------------
+CREATE TABLE inventory_items (
+  id             INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  name           VARCHAR(120) NOT NULL,
+  unit           VARCHAR(20) NOT NULL DEFAULT 'piece',
+  current_stock  DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+  reorder_level  DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+  is_active      TINYINT(1) NOT NULL DEFAULT 1,
+  created_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_inventory_active (is_active)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE inventory_movements (
+  id            INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  item_id       INT UNSIGNED NOT NULL,
+  movement_type ENUM('in','out') NOT NULL,
+  quantity      DECIMAL(10,2) NOT NULL,
+  unit_cost     DECIMAL(10,2) DEFAULT NULL,
+  note          VARCHAR(255) DEFAULT NULL,
+  created_by    INT UNSIGNED DEFAULT NULL,
+  created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_inventory_movement_item (item_id, created_at),
+  CONSTRAINT fk_inventory_movement_item FOREIGN KEY (item_id) REFERENCES inventory_items(id),
+  CONSTRAINT fk_inventory_movement_user FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE cash_closings (
+  id             INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  user_id        INT UNSIGNED NOT NULL,
+  business_date  DATE NOT NULL,
+  opening_cash   DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+  cash_counted   DECIMAL(10,2) DEFAULT NULL,
+  expected_cash  DECIMAL(10,2) DEFAULT NULL,
+  difference     DECIMAL(10,2) DEFAULT NULL,
+  notes          VARCHAR(255) DEFAULT NULL,
+  status         ENUM('open','closed') NOT NULL DEFAULT 'open',
+  opened_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  closed_at      DATETIME DEFAULT NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_cash_closing_user_day (user_id, business_date),
+  CONSTRAINT fk_cash_closing_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE order_adjustments (
   id             INT UNSIGNED NOT NULL AUTO_INCREMENT,
   order_id       INT UNSIGNED NOT NULL,
@@ -226,14 +280,14 @@ INSERT INTO customers (id, name, phone, email, address, is_active) VALUES
   (3, 'Pedro Lim',      '0919 333 4455', 'pedro@email.com','Pasig City', 1);
 
 INSERT INTO services (id, name, category, unit, price, description, is_active) VALUES
-  (1, 'Wash',               'Wash',             'load',  85.00, 'Up to 7 kilos per load',                1),
-  (2, 'Full Service',       'Full Service',     'load', 199.00, 'Wash, dry and fold per load',           1),
-  (3, 'Bed Sheet',          'Other',            'piece', 40.00, 'Per piece',                              0),
-  (4, 'Towel',              'Other',            'piece', 25.00, 'Per piece',                              0),
-  (5, 'Ironing / Press',    'Other',            'kg',    30.00, 'Ironing and folding only',               0),
-  (6, 'Dry',                'Dry',              'load',  85.00, 'Up to 7 kilos per load',                1),
-  (7, 'Comforter / Blanket','Other',            'piece', 150.00, 'Thick blankets and comforters',          0),
-  (8, 'Curtain',            'Other',            'piece', 80.00, 'Per panel',                              0);
+  (1, 'Wash & Fold',        'Full Service',     'kg',    35.00, 'Complete wash, dry and fold service',   1),
+  (2, 'Wash, Dry & Fold',   'Full Service',     'kg',    45.00, 'Complete wash, dry and fold with softener', 1),
+  (3, 'Bed Sheet',          'Full Service',     'piece', 40.00, 'Wash, dry and fold per piece',           1),
+  (4, 'Towel',              'Full Service',     'piece', 25.00, 'Wash, dry and fold per piece',           1),
+  (5, 'Ironing / Press',    'Dry',              'kg',    30.00, 'Dry-only finishing and pressing',         1),
+  (6, 'Dry Cleaning',       'Dry',              'piece', 100.00, 'Dry clean per garment',                  1),
+  (7, 'Comforter / Blanket','Full Service',     'piece', 150.00, 'Wash, dry and fold thick items',         1),
+  (8, 'Curtain',            'Full Service',     'piece', 80.00, 'Wash, dry and fold per panel',            1);
 
 -- ------------------------------------------------------------
 -- Sample orders (so the dashboard and reports have

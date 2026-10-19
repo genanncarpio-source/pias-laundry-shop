@@ -6,7 +6,7 @@ $pdo = db();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save'])) {
     if (!csrf_verify($_POST['csrf'] ?? null)) {
-        flash_set('error', 'Invalid request.');
+        flash_set('error', 'This form has expired. Refresh the page and try again.');
         redirect('expenses.php');
     }
     $description = trim($_POST['description'] ?? '');
@@ -28,7 +28,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save'])) {
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete'])) {
     if (!csrf_verify($_POST['csrf'] ?? null)) {
-        flash_set('error', 'Invalid request.');
+        flash_set('error', 'This form has expired. Refresh the page and try again.');
     } else {
         $stmt = $pdo->prepare("DELETE FROM expenses WHERE id = ?");
         $stmt->execute([(int)$_POST['id']]);

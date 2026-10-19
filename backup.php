@@ -3,26 +3,17 @@ require_once __DIR__ . '/includes/auth.php';
 require_admin();
 require_once __DIR__ . '/includes/feature_schema.php';
 ensure_feature_schema();
-ensure_customer_auth_schema();
 
-$tables = ['users', 'customers', 'services', 'orders', 'order_items', 'expenses', 'settings', 'order_history', 'order_adjustments'];
-$optionalLegacyTables = ['inventory_items', 'inventory_movements', 'cash_closings'];
+$tables = ['users', 'customers', 'services', 'orders', 'order_items', 'expenses', 'settings', 'order_history', 'inventory_items', 'inventory_movements', 'cash_closings', 'order_adjustments'];
 $pdo = db();
-$existingLegacyTables = [];
-$tableCheck = $pdo->prepare('SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?');
-foreach ($optionalLegacyTables as $table) {
-    $tableCheck->execute([$table]);
-    if ((int)$tableCheck->fetchColumn() > 0) $existingLegacyTables[] = $table;
-}
-$backupTables = array_merge($tables, $existingLegacyTables);
 
 if (isset($_GET['download'])) {
     $data = [];
-    foreach ($backupTables as $table) {
+    foreach ($tables as $table) {
         $data[$table] = $pdo->query("SELECT * FROM `$table`")->fetchAll(PDO::FETCH_ASSOC);
     }
     $backup = ['format' => 'laundry-pos-backup', 'version' => 1, 'created_at' => date('c'), 'tables' => $data];
-    $filename = 'pias-laundry-shop-backup-' . date('Y-m-d-His') . '.json';
+    $filename = 'laundry-pos-backup-' . date('Y-m-d-His') . '.json';
     header('Content-Type: application/json; charset=utf-8');
     header('Content-Disposition: attachment; filename="' . $filename . '"');
     header('X-Content-Type-Options: nosniff');
@@ -32,7 +23,7 @@ if (isset($_GET['download'])) {
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['restore'])) {
     if (!csrf_verify($_POST['csrf'] ?? null)) {
-        flash_set('error', 'Invalid request.');
+        flash_set('error', 'This form has expired. Refresh the page and try again.');
         redirect('backup.php');
     }
     $upload = $_FILES['backup_file'] ?? null;
@@ -46,7 +37,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['restore'])) {
     }
     $decoded = json_decode((string)file_get_contents($upload['tmp_name']), true);
     if (!is_array($decoded) || ($decoded['format'] ?? '') !== 'laundry-pos-backup' || ($decoded['version'] ?? 0) !== 1 || !is_array($decoded['tables'] ?? null)) {
-        flash_set('error', 'This is not a supported Pia\'s Laundry Shop backup file.');
+        flash_set('error', 'This is not a supported Laundry POS backup file.');
         redirect('backup.php');
     }
     foreach ($tables as $table) {
@@ -56,13 +47,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['restore'])) {
         }
     }
 
-    $restoreTables = array_merge($tables, array_values(array_intersect($existingLegacyTables, array_keys($decoded['tables']))));
-    $insertOrder = $restoreTables;
+    $insertOrder = ['users', 'customers', 'services', 'orders', 'order_items', 'expenses', 'settings', 'order_history', 'inventory_items', 'inventory_movements', 'cash_closings', 'order_adjustments'];
     $deleteOrder = array_reverse($insertOrder);
     try {
         $pdo->beginTransaction();
         $pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
-        $pdo->exec('DELETE FROM customer_sessions');
         foreach ($deleteOrder as $table) $pdo->exec("DELETE FROM `$table`");
         foreach ($insertOrder as $table) {
             $columns = [];
@@ -94,7 +83,7 @@ include __DIR__ . '/includes/header.php';
 <div class="grid two">
   <section class="card">
     <h2>Create a backup</h2>
-    <p class="muted">Downloads a JSON file containing shop settings, accounts, customers, laundry service tickets, expenses and related records. Keep a copy somewhere separate from this computer.</p>
+    <p class="muted">Downloads a JSON file containing shop settings, accounts, customers, orders, expenses, inventory and cash closings. Keep a copy somewhere separate from this computer.</p>
     <a class="btn btn-primary" href="backup.php?download=1">Download backup</a>
   </section>
   <section class="card">

@@ -1,4 +1,4 @@
-# Pia's Laundry Shop Management System
+# P.O.S. and Laundry Shop Management System for Pia's Laundry Shop
 
 A complete Point-of-Sale and laundry shop management system built with **PHP, MySQL, CSS and JavaScript** — no frameworks, no Composer, no build step. It runs directly on **XAMPP** or **Laragon** (Apache + MySQL) with no conversion needed.
 
@@ -14,45 +14,45 @@ A complete Point-of-Sale and laundry shop management system built with **PHP, My
 6. [Using the system](#using-the-system)
 7. [Troubleshooting](#troubleshooting)
 8. [Documentation for the capstone manuscript](#documentation-for-the-capstone-manuscript)
-9. [Customer Android APK](#customer-android-apk)
 
 ---
 
 ## Features
 
-### Laundry Ticket Intake
-- Service catalogue grouped by category (Wash & Fold, Ironing & Press, Dry Cleaning)
-- Per-kilogram and per-piece pricing
-- Cart with live totals, discount, and change computation
-- Walk-in and drop-off orders, with expected pickup date/time
-- Payment methods: Cash, GCash, Maya, Card
-- Thermal-style (80 mm) printable receipt
+### Customer service requests
+- Customers register, sign in, book pickup or delivery, and track orders in the Expo mobile app
+- Customer accounts and service records remain in the shared database for the app and staff POS
+- Weight-based service rates use a 7 kg minimum load
+- Staff can print order receipts
 
-### Laundry Ticket Management
+### Order management
+- Mobile app bookings appear in the staff/admin Orders list and remain unpaid until confirmed at the shop
+- Customer sign-in and private order history are provided by the mobile app
 - Order list with status, type and date filters
-- Status workflow: **Pending → In Progress → Ready for Pickup → Picked Up** (plus Cancelled)
-- Full status timeline per order (who changed what, and when)
+- Status workflow: **Pending → Accepted → Received → Wash → Dry → Ready for Pick-up**; Full Service automatically records Fold before Ready
+- Full status timeline, in-app notifications and customer order history
+- Actual-weight billing, payment ledger with partial payments, with staff payment records
 - Reprint receipt at any time
-- Public customer status lookup from the order number and registered phone
+- Delivery location tracking is handled by the mobile app
 - Ready-for-pickup SMS text prepared for staff to send from a phone
 
 ### Management
 - Customers (name, phone, email, address, order history and total spent)
 - Services / price list
 - Expenses
-- Cancellation reasons and partial/full refund records
+- Inventory stock and low-stock alerts
 - Admin JSON backup download and protected restore
 - Reports and dashboard (revenue, expenses, net, top services, 7-day chart)
 - Employees / user accounts
 - Settings (shop information and receipt footer)
-- Customer mobile web app for registration, login, laundry service requests and ticket tracking
-- Customer API used by the Flutter customer app and optional browser prototype
 
 ### Roles
 | Capability | Admin | Staff |
-|---|---|---|
-| Service tickets, customers, services | ✅ | ✅ |
-| Expenses, reports, employees, settings, backup/restore | ✅ | ❌ |
+|---|---:|---:|
+| View dashboard, orders, customers and services | ✅ | ✅ |
+| Update laundry process status and record payments | ❌ | ✅ |
+| Reports, employees, settings and backup/restore | ✅ | ❌ |
+
 
 ---
 
@@ -82,10 +82,10 @@ Pick your stack: [XAMPP](#xampp) or [Laragon](#laragon). Steps 2–4 are the sam
 Extract this archive into XAMPP's web root:
 
 ```
-C:\xampp\htdocs\laundry-pos
+C:\xampp\htdocs\laundry-pias
 ```
 
-`index.php` and the `config` folder must sit **directly** inside `laundry-pos` — not inside a nested sub-folder.
+`index.php` and the `config` folder must sit **directly** inside `laundry-pias` — not inside a nested sub-folder.
 
 #### 2. Start Apache and MySQL
 
@@ -99,10 +99,10 @@ If MySQL will not start, port 3306 is usually taken — see [Troubleshooting](#t
 
 1. In the XAMPP Control Panel click **Admin** next to MySQL, or open `http://localhost/phpmyadmin`
 2. Click the **Import** tab
-3. **Choose File** → `laundry-pos\database\laundry_pos.sql`
+3. **Choose File** → `laundry-pias\database\laundry_pos.sql`
 4. Click **Go**
 
-The file creates the `laundry_pos` database itself, with all 12 tables and the seed data. You do **not** need to create the database by hand first.
+The file creates the `laundry_pos` database itself, with core tables and seed data. New customer and workflow tables are added automatically the first time the related pages are opened; existing installations can also import `database/upgrade_features.sql`.
 
 Existing databases are upgraded additively when an administrator or cashier first
 opens a feature page. You can also import `database/upgrade_features.sql`; it creates
@@ -116,7 +116,7 @@ Double-click `install.bat` in the project folder. It auto-detects `C:\xampp\mysq
 
 ```bat
 cd C:\xampp\mysql\bin
-mysql.exe -u root < C:\xampp\htdocs\laundry-pos\database\laundry_pos.sql
+mysql.exe -u root < C:\xampp\htdocs\laundry-pias\database\laundry_pos.sql
 ```
 
 > ⚠️ **Re-importing this file drops and recreates every table.** Back up first if the system already holds real data.
@@ -124,7 +124,7 @@ mysql.exe -u root < C:\xampp\htdocs\laundry-pos\database\laundry_pos.sql
 #### 4. Open the system
 
 ```
-http://localhost/laundry-pos/
+http://localhost/laundry-pias/
 ```
 
 ---
@@ -136,7 +136,7 @@ http://localhost/laundry-pos/
 Extract this archive into Laragon's web root:
 
 ```
-C:\laragon\www\laundry-pos
+C:\laragon\www\laundry-pias
 ```
 
 #### 2. Start the stack
@@ -160,13 +160,13 @@ Double-click `install.bat`. It auto-detects the versioned Laragon MySQL folder
 Laragon tray icon → **MySQL**, then:
 
 ```sql
-SOURCE C:/laragon/www/laundry-pos/database/laundry_pos.sql;
+SOURCE C:/laragon/www/laundry-pias/database/laundry_pos.sql;
 ```
 
 #### 4. Open the system
 
 ```
-http://localhost/laundry-pos/
+http://localhost/laundry-pias/
 ```
 
 ---
@@ -187,7 +187,7 @@ If yours differ, either edit `config/database.php` or set environment variables
 
 ### Moving between XAMPP and Laragon
 
-1. Copy the whole `laundry-pos` folder to the other stack's web root
+1. Copy the whole `laundry-pias` folder to the other stack's web root
    (`C:\xampp\htdocs` ↔ `C:\laragon\www`).
 2. Export your data from phpMyAdmin (**Export → Go**) and import it into the other
    stack — or just re-import `database/laundry_pos.sql` if you do not need the data.
@@ -207,34 +207,32 @@ If yours differ, either edit `config/database.php` or set environment variables
 
 > 🔒 **Change these before real use.** Admin → **Employees** for staff accounts, **Profile** for your own password.
 >
-> 🗑️ **Delete `reset_password.php`** once you no longer need it. It can reset any password without authentication, so it must not stay on a live server.
+> Password resets require an administrator login through Employees. The old public reset utility is disabled.
 
 ---
 
 ## Project structure
 
 ```
-laundry-pos/
+laundry-pias/
 ├── index.php                 Login (with show/hide password)
 ├── logout.php
 ├── dashboard.php             Stats, revenue chart, recent orders
-├── pos.php                   Staff service-ticket intake
 ├── orders.php                Order list + filters
 ├── order_view.php            Order detail, status, timeline
 ├── receipt.php               Printable 80 mm receipt
-├── track.php                 Public order status lookup
-├── mobile_app/               Pia's Laundry Shop Flutter customer app and APK build workflow
-├── customer-app/             Optional browser prototype
-├── api/                      Customer registration, login and service API
-├── customers.php             Customers
+├── customers.php             Staff customer records
 ├── services.php              Price list
 ├── expenses.php              Expenses
+├── inventory.php             Supply stock (admin)
 ├── backup.php                Database backup / restore (admin)
 ├── reports.php               Sales / expense / net reports
 ├── employees.php             User accounts (admin)
 ├── settings.php              Shop info (admin)
 ├── profile.php               Own account + password
-├── reset_password.php        ⚠️ Emergency tool — delete after use
+├── reset_password.php        Admin-only redirect to secure account tools
+├── api/                     JSON endpoints for the mobile app
+├── mobile_app/              Expo and Flutter customer apps
 ├── install.bat               One-click database import
 │
 ├── config/
@@ -249,25 +247,25 @@ laundry-pos/
 │   ├── css/style.css
 │   └── js/app.js
 ├── database/
-│   ├── laundry_pos.sql       Schema + seed data (12 tables)
+│   ├── laundry_pos.sql       Schema + seed data (12 core tables)
 │   └── upgrade_features.sql  Additive feature migration
 └── docs/                     Capstone documentation
     ├── 01-system-overview.md
     ├── 02-database.md
-    └── 03-user-guide.md
+    ├── 03-user-guide.md
+    ├── 04-system-analysis.md
+    └── 05-system-design.md
 ```
 
 ---
 
 ## Using the system
 
-### Recording a sale
-1. **Create a service ticket**
-2. Click services to add them; adjust quantities
-3. Choose **Walk-in** or **Drop-off** (drop-off asks for an expected pickup time)
-4. Pick a saved customer, add a new one, or leave as walk-in
-5. Choose a payment method; for cash, enter the amount tendered
-6. **💵 Complete Sale** → the receipt opens, ready to print
+### Customer bookings
+1. Customers register or sign in through the Expo mobile app
+2. Choose available laundry services and pickup or delivery options
+3. Submit the booking; it appears in the staff Orders list
+4. Staff confirms the service and updates its status; customer accounts and order history stay in the shared database
 
 ### Updating an order
 1. **Orders** → open an order
@@ -304,7 +302,7 @@ or change XAMPP's port: Control Panel → **Config** next to MySQL → `my.ini`,
 **XAMPP: Apache will not start (port 80 in use)**
 Skype, IIS or World Wide Web Publishing Service commonly hold port 80. Stop it, or
 switch Apache to port 8080 (Control Panel → **Config** → `http.conf`, change
-`Listen 80`), then use `http://localhost:8080/laundry-pos/`.
+`Listen 80`), then use `http://localhost:8080/laundry-pias/`.
 
 **"Access denied for user 'root'@'localhost'"**
 Your root user has a password. Either put it in `config/database.php`, or reset it.
@@ -312,36 +310,28 @@ XAMPP's root has no password by default, so this usually means a previous instal
 set one.
 
 **Forgot the admin password**
-Open `reset_password.php` in the browser and follow the instructions. **Delete the file afterwards.**
+Sign in as an administrator and reset staff passwords from Employees. Users can change their own password from My Account.
 
 **Order numbers look wrong after importing**
 Sample orders are numbered by their own date (`ORD-YYYYMMDD-NNN`). New orders continue the sequence for today using `MAX(sequence) + 1`, so the sample data will not collide with live sales.
 
 ---
 
-## Customer Android APK
-
-The customer app source is in `mobile_app/`. To build locally, follow
-[`mobile_app/README.md`](mobile_app/README.md). It can run on a physical Android
-phone without an emulator. The app's sign-in screen accepts the shop API address;
-for a phone on the same Wi-Fi as XAMPP, use the computer's LAN IP, for example
-`http://192.168.1.20/laundry-pos/api`.
-
-If Flutter/Android SDK are not installed locally, push this folder to a GitHub
-repository. The **Build Pia's Laundry Shop APK** workflow runs on pushes to
-`main` and publishes a test/install APK artifact; Play Store distribution needs
-a private release signing key.
-
----
-
 ## Documentation for the capstone manuscript
+
+- [System analysis](docs/04-system-analysis.md)
+- [System design](docs/05-system-design.md)
+- [System overview](docs/01-system-overview.md)
+- [Database design](docs/02-database.md)
+- [User guide](docs/03-user-guide.md)
 
 | File | Contents |
 |---|---|
 | [docs/01-system-overview.md](docs/01-system-overview.md) | Project title, objectives, scope and limitations, features, users, architecture, technologies |
 | [docs/02-database.md](docs/02-database.md) | Database tables, relationships, and a text ERD |
 | [docs/03-user-guide.md](docs/03-user-guide.md) | Step-by-step guide for administrators and cashiers |
-| [docs/04-customer-app.md](docs/04-customer-app.md) | Customer app, API endpoints, and setup details |
+| [docs/05-system-design.md](docs/05-system-design.md) | Application architecture, modules, data, workflows, security and deployment |
+| [docs/04-system-analysis.md](docs/04-system-analysis.md) | Current system scope, roles, processes, requirements, data and business rules |
 
 ---
 

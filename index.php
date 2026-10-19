@@ -9,7 +9,7 @@ $error = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!csrf_verify($_POST['csrf'] ?? null)) {
-        $error = 'Invalid request. Please try again.';
+        $error = 'This form has expired. Refresh the page and try again.';
     } else {
         $username = trim($_POST['username'] ?? '');
         $password = (string)($_POST['password'] ?? '');
@@ -23,6 +23,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $error = 'This account has been deactivated. Please contact the administrator.';
             } else {
                 session_regenerate_id(true);
+                unset($_SESSION['customer_id']);
                 $_SESSION['user_id'] = $user['id'];
                 redirect('dashboard.php');
             }
@@ -40,7 +41,7 @@ $shopName = get_setting('shop_name', "Pia's Laundry Shop");
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Login · <?= e($shopName) ?></title>
-<link rel="stylesheet" href="assets/css/style.css">
+<link rel="stylesheet" href="assets/css/style.css?v=8">
 </head>
 <body>
 <div class="login-wrap">
@@ -48,7 +49,7 @@ $shopName = get_setting('shop_name', "Pia's Laundry Shop");
     <div class="login-brand">
       <div class="icon">🧺</div>
       <h1><?= e($shopName) ?></h1>
-      <p>Laundry Shop Management System</p>
+      <p>Laundry Management System</p>
     </div>
 
     <?php if ($error): ?>
@@ -73,9 +74,6 @@ $shopName = get_setting('shop_name', "Pia's Laundry Shop");
       </div>
     </form>
 
-    <p class="muted mt-16 mb-0" style="text-align:center;font-size:12px;">
-      Default login: <strong>admin / admin123</strong> &middot; staff / staff123
-    </p>
   </div>
 </div>
 

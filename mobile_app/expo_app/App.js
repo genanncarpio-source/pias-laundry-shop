@@ -1,11 +1,13 @@
 import { StatusBar } from 'expo-status-bar';
 import { useLocalSearchParams, usePathname, useRouter } from 'expo-router';
 import Constants from 'expo-constants';
-import * as SecureStore from 'expo-secure-store';
+import { apiRequest } from './src/api';
+import { readSession, readLegacyToken, saveVerifiedSession, clearSession, getActiveSession } from './src/session';
+import { useOnlineShop } from './src/useOnlineShop';
 import * as Location from 'expo-location';
 import { LinearGradient } from 'expo-linear-gradient';
 import DeliveryMap from './src/components/DeliveryMap';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -38,7 +40,6 @@ const COLORS = {
   white: '#ffffff',
 };
 
-const TOKEN_KEY = 'pias_customer_api_token';
 const CONFIGURED_API = process.env.EXPO_PUBLIC_API_BASE_URL?.trim();
 
 function getLocalDevelopmentApi() {
@@ -60,79 +61,10 @@ function getLocalDevelopmentApi() {
 
 const LOCAL_DEV_API = getLocalDevelopmentApi();
 const DEFAULT_API = (CONFIGURED_API || (__DEV__ ? LOCAL_DEV_API : '')).replace(/\/+$/, '');
-
-async function storageGet(key) {
-  try {
-    if (Platform.OS === 'web') return typeof window !== 'undefined' ? window.localStorage.getItem(key) : null;
-    return await SecureStore.getItemAsync(key);
-  } catch (_) {
-    return null;
-  }
-}
-
-async function storageSet(key, value) {
-  if (Platform.OS === 'web') {
-    if (typeof window !== 'undefined') window.localStorage.setItem(key, value);
-    return;
-  }
-  await SecureStore.setItemAsync(key, value);
-}
-
-async function storageDelete(key) {
-  if (Platform.OS === 'web') {
-    if (typeof window !== 'undefined') window.localStorage.removeItem(key);
-    return;
-  }
-  await SecureStore.deleteItemAsync(key);
-}
+let welcomeSeenThisLaunch = false;
 
 function normalizeApiUrl(url) {
   return url.trim().replace(/\/+$/, '');
-}
-
-async function apiRequest(baseUrl, endpoint, { method = 'GET', body, token } = {}) {
-  if (!baseUrl) {
-    throw new Error('Shop connection is not configured. Set EXPO_PUBLIC_API_BASE_URL for this build.');
-  }
-  const headers = { Accept: 'application/json' };
-  if (body !== undefined) headers['Content-Type'] = 'application/json';
-  if (token) headers.Authorization = `Bearer ${token}`;
-
-  let response;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 20000);
-  try {
-    response = await fetch(`${normalizeApiUrl(baseUrl)}/${endpoint}`, {
-      method,
-      headers,
-      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-      signal: controller.signal,
-    });
-  } catch (_) {
-    throw new Error('Could not connect to the shop. Check the API address and network connection.');
-  } finally {
-    clearTimeout(timeout);
-  }
-
-  let data;
-  let responseText;
-  try {
-    responseText = await response.text();
-    data = JSON.parse(responseText);
-  } catch (_) {
-    const contentType = response.headers.get('content-type') || '';
-    if (contentType.includes('text/html') || /^\s*</.test(responseText || '')) {
-      throw new Error('The configured shop server returned a web page instead of API data. Check the app connection configuration.');
-    }
-    throw new Error('The shop server returned an unreadable response.');
-  }
-
-  if (!response.ok || data.success !== true) {
-    const error = new Error(data.error || 'The request could not be completed.');
-    error.status = response.status;
-    throw error;
-  }
-  return data;
 }
 
 function money(value) {
@@ -172,78 +104,110 @@ function statusLabel(value) {
 export default function App() {
   const router = useRouter();
   const apiBase = DEFAULT_API;
-  const [token, setToken] = useState(null);
-  const [customer, setCustomer] = useState(null);
-  const [booting, setBooting] = useState(true);
+  const [session, setSession] = useState(() => getActiveSession(apiBase));
+  const [booting, setBooting] = useState(() => !getActiveSession(apiBase));
+  const [sessionNotice, setSessionNotice] = useState('');
+  const [welcomeSeen, setWelcomeSeen] = useState(welcomeSeenThisLaunch);
+  const token = session?.token;
+  const customer = session?.customer;
 
   useEffect(() => {
+    if (!sessionNotice) return undefined;
+    const timer = setTimeout(() => setSessionNotice(''), 3000);
+    return () => clearTimeout(timer);
+  }, [sessionNotice]);
+
+  useEffect(() => {
+    if (getActiveSession(apiBase)) return;
     let active = true;
     (async () => {
-      const savedToken = await storageGet(TOKEN_KEY);
-      if (!active) return;
-      if (savedToken) {
+      let saved;
+      try {
+        saved = await readSession(apiBase);
+        const savedToken = saved?.token || await readLegacyToken();
+        if (!savedToken || !active) return;
         try {
-          const data = await apiRequest(apiBase, 'me.php', { token: savedToken });
-          if (active) {
-            setToken(savedToken);
-            setCustomer(data.customer);
+          const data = await apiRequest(apiBase, 'me.php', { token: savedToken, timeoutMs: 6000 });
+          if (!active) return;
+          const verified = await saveVerifiedSession(apiBase, savedToken, data.customer);
+          if (active) setSession(verified);
+        } catch (problem) {
+          if (!active) return;
+          if (problem.status === 401 || problem.status === 403) {
+            await clearSession();
+            setSessionNotice('Your session expired. Sign in again to continue.');
+          } else {
+            setSessionNotice('The shop cannot be reached. Check your internet connection and try again.');
           }
-        } catch (_) {
-          await storageDelete(TOKEN_KEY);
         }
-      }
-      if (active) setBooting(false);
+      } catch (problem) {
+        if (active) setSessionNotice('Could not open saved sign-in: ' + problem.message);
+      } finally { if (active) setBooting(false); }
     })();
     return () => { active = false; };
   }, [apiBase]);
 
-  const handleSignedIn = (session) => {
-    setToken(session.token);
-    setCustomer(session.customer);
+  const handleSignedIn = (nextSession) => {
+    setSession(nextSession);
+    setSessionNotice('');
     router.replace('/');
   };
-
+  const handleSessionExpired = useCallback(async () => {
+    const saved = await readSession(apiBase);
+    if (saved?.token && saved.token !== token) return;
+    await clearSession();
+    setSession(null);
+    setSessionNotice('Your session expired. Sign in again to continue.');
+  }, [apiBase, token]);
   const handleSignOut = async () => {
     try {
-      await apiRequest(apiBase, 'logout.php', { method: 'POST', body: {}, token });
-    } catch (_) {
-      // Clear the local token even if the shop cannot be reached.
-    }
-    await storageDelete(TOKEN_KEY);
-    setToken(null);
-    setCustomer(null);
-    router.replace('/');
+      await clearSession();
+      setSession(null);
+      setSessionNotice('Signed out successfully.');
+      void apiRequest(apiBase, 'logout.php', { method: 'POST', body: {}, token }).catch(() => {});
+    } catch (_problem) { setSessionNotice('Could not clear saved sign-in. Please try signing out again.'); }
   };
-
-  const handleSessionExpired = async () => {
-    await storageDelete(TOKEN_KEY);
-    setToken(null);
-    setCustomer(null);
-    router.replace('/');
-  };
-
-  if (booting) {
-    return <LoadingScreen message="Opening Pia&apos;s Laundry Shop…" />;
-  }
-
+  if (!welcomeSeen) return <WelcomeScreen onStart={() => { welcomeSeenThisLaunch = true; setWelcomeSeen(true); }} />;
+  if (booting) return <LoadingScreen message="Opening Pia&apos;s Laundry Shop..." />;
   return (
     <View style={styles.app}>
       <StatusBar style="light" />
       {customer && token ? (
-        <CustomerHome
-          apiBase={apiBase}
-          customer={customer}
-          token={token}
-          onSessionExpired={handleSessionExpired}
-          onSignOut={handleSignOut}
-        />
+        <CustomerHome apiBase={apiBase} customer={customer} token={token}
+          onSessionExpired={handleSessionExpired} onSignOut={handleSignOut} />
       ) : (
-        <AuthScreen apiBase={apiBase} onSignedIn={handleSignedIn} />
+        <AuthScreen apiBase={apiBase} onSignedIn={handleSignedIn} sessionNotice={sessionNotice} />
       )}
     </View>
   );
 }
 
+function WelcomeScreen({ onStart }) {
+  return (
+    <LinearGradient colors={['#211422', '#54265d', '#8d5996']} start={{ x: 0.1, y: 0 }} end={{ x: 0.9, y: 1 }} style={styles.welcomeRoot}>
+      <StatusBar style="light" />
+      <View style={styles.welcomeBubbleOne} />
+      <View style={styles.welcomeBubbleTwo} />
+      <View style={styles.welcomeContent}>
+        <View style={styles.welcomeLogoShell}>
+          <Image source={require('./assets/pias-logo-app-icon.png')} resizeMode="contain" style={styles.welcomeLogo} />
+        </View>
+        <Text style={styles.welcomeBrand}>Pia&apos;s Laundry Shop</Text>
+        <Text style={styles.welcomeTagline}>Fresh clothes, less hassle.</Text>
+        <Text style={styles.welcomeDescription}>Book trusted laundry services, request pickup or delivery, and follow every service ticket from your phone.</Text>
+        <View style={styles.welcomeFeatureRow}>
+          <View style={styles.welcomeFeature}><Text style={styles.welcomeFeatureIcon}>🧺</Text><Text style={styles.welcomeFeatureText}>Easy booking</Text></View>
+          <View style={styles.welcomeFeature}><Text style={styles.welcomeFeatureIcon}>🚚</Text><Text style={styles.welcomeFeatureText}>Pickup & delivery</Text></View>
+          <View style={styles.welcomeFeature}><Text style={styles.welcomeFeatureIcon}>📍</Text><Text style={styles.welcomeFeatureText}>Live tracking</Text></View>
+        </View>
+        <Pressable accessibilityRole="button" onPress={onStart} style={({ pressed }) => [styles.welcomeStart, pressed && styles.pressed]}>
+          <Text style={styles.welcomeStartText}>Get Started</Text><Text style={styles.welcomeStartArrow}>→</Text>
+        </Pressable>
+        <Text style={styles.welcomeAddress}>Blk. 2, Brgy. San Jose, Tarlac City · 0918-967-9623</Text>
+      </View>
+    </LinearGradient>
+  );
+}
 function LoadingScreen({ message }) {
   return (
     <View style={styles.loadingScreen}>
@@ -306,76 +270,236 @@ function Field({ label, value, onChangeText, secureTextEntry, right, ...inputPro
   );
 }
 
-function AuthScreen({ apiBase, onSignedIn }) {
+function AuthScreen({ apiBase, onSignedIn, sessionNotice }) {
   const router = useRouter();
   const [registering, setRegistering] = useState(false);
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [address, setAddress] = useState('');
+  const [locationPin, setLocationPin] = useState(null);
+  const [locating, setLocating] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [verificationPending, setVerificationPending] = useState(false);
+  const [verificationCode, setVerificationCode] = useState('');
+  const [forgotPassword, setForgotPassword] = useState(false);
+  const [resetCodeSent, setResetCodeSent] = useState(false);
+  const [resetCode, setResetCode] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const { width } = useWindowDimensions();
 
+  const submitting = useRef(false);
+  const { width } = useWindowDimensions();
+  const compactAuth = width < 420;
+
+  useEffect(() => {
+    if (!notice) return undefined;
+    const timer = setTimeout(() => setNotice(''), 3000);
+    return () => clearTimeout(timer);
+  }, [notice]);
+
+  useEffect(() => {
+    if (!error) return undefined;
+    const timer = setTimeout(() => setError(''), 3000);
+    return () => clearTimeout(timer);
+  }, [error]);
+
+  const pinMyLocation = async () => {
+    setError(''); setLocating(true);
+    try {
+      const permission = await Location.requestForegroundPermissionsAsync();
+      if (permission.status !== 'granted') throw new Error('Allow location access to pin your delivery address.');
+      const point = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const { latitude, longitude } = point.coords;
+      const deliveryAvailable = latitude >= 15.455 && latitude <= 15.525 && longitude >= 120.595 && longitude <= 120.690;
+      setLocationPin({ latitude, longitude, deliveryAvailable });
+      try { const places = await Location.reverseGeocodeAsync({ latitude, longitude }); const place = places[0]; if (place) setAddress([place.name, place.street, place.district, place.city || 'Tarlac City'].filter(Boolean).join(', ').slice(0, 255)); } catch (_) {}
+    } catch (pinError) { setError(pinError.message || 'Could not pin your location.'); } finally { setLocating(false); }
+  };
   const submit = async () => {
+    if (submitting.current) return;
     setError('');
     setNotice('');
-    if (registering && !name.trim()) return setError('Enter your full name.');
-    if (registering && !phone.trim()) return setError('Enter your phone number.');
-    if (registering && !address.trim()) return setError('Enter your pickup address.');
-    if (!email.includes('@')) return setError('Enter a valid email address.');
-    if (!password || (registering && password.length < 10)) return setError(registering ? 'Use a password with at least 10 characters.' : 'Enter your password.');
+    const normalizedEmail = email.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(normalizedEmail)) return setError('Enter a valid email address, such as name@example.com.');
+    if (registering && verificationPending && !/^\d{6}$/.test(verificationCode)) return setError('Enter the 6-digit code sent to your email.');
+    if (registering && !verificationPending && !name.trim()) return setError('Enter your full name.');
+    if (registering && !verificationPending && !phone.trim()) return setError('Enter your phone number.');
+    if (registering && !verificationPending && !address.trim()) return setError('Enter your pickup address.');
+    if (registering && !verificationPending && !locationPin) return setError('Pin your location so the app can check delivery coverage.');
+    if (registering && !verificationPending && !/^09\d{9}$/.test(phone)) return setError('Enter an 11-digit mobile number starting with 09.');
+    if ((!registering || !verificationPending) && (!password || (registering && password.length < 10))) return setError(registering ? 'Use a password with at least 10 characters.' : 'Enter your password.');
 
+    submitting.current = true;
     setBusy(true);
     try {
-      const data = await apiRequest(apiBase, registering ? 'register.php' : 'login.php', {
+      const endpoint = registering ? (verificationPending ? 'verify_registration.php' : 'register.php') : 'login.php';
+      const data = await apiRequest(apiBase, endpoint, {
         method: 'POST',
-        body: {
-          ...(registering ? { name: name.trim(), phone: phone.trim(), address: address.trim() } : {}),
-          email: email.trim(),
-          password,
-        },
+        body: registering && verificationPending
+          ? { email: normalizedEmail, code: verificationCode }
+          : {
+              ...(registering ? { name: name.trim(), phone, address: address.trim(), latitude: locationPin?.latitude, longitude: locationPin?.longitude } : {}),
+              email: normalizedEmail,
+              password,
+            },
       });
+      if (registering) {
+        if (!verificationPending) {
+          setVerificationPending(true);
+          setVerificationCode('');
+          setNotice(data.message || 'A verification code was sent to your email.');
+          return;
+        }
+        setName('');
+        setPhone('');
+        setAddress('');
+        setLocationPin(null);
+        setPassword('');
+        setShowPassword(false);
+        setVerificationPending(false);
+        setVerificationCode('');
+        setRegistering(false);
+        setNotice('Email verified. Your account was created. Please sign in.');
+        return;
+      }
       const nextToken = String(data.token);
-      await storageSet(TOKEN_KEY, nextToken);
-      onSignedIn({ token: nextToken, customer: data.customer });
+      const saved = await saveVerifiedSession(apiBase, nextToken, data.customer, { expiresIn: data.expires_in });
+      setPassword('');
+      setShowPassword(false);
+      onSignedIn(saved);
     } catch (submitError) {
       setError(submitError.message || 'The request could not be completed.');
     } finally {
+      submitting.current = false;
       setBusy(false);
     }
   };
 
+  const resendVerificationCode = async () => {
+    if (submitting.current) return;
+    submitting.current = true;
+    setBusy(true);
+    setError('');
+    try {
+      const data = await apiRequest(apiBase, 'register.php', {
+        method: 'POST',
+        body: { name: name.trim(), phone, address: address.trim(), latitude: locationPin?.latitude, longitude: locationPin?.longitude, email: email.trim(), password },
+      });
+      setVerificationCode('');
+      setNotice(data.message || 'A new verification code was sent.');
+    } catch (resendError) {
+      setError(resendError.message || 'Could not resend the verification code.');
+    } finally {
+      submitting.current = false;
+      setBusy(false);
+    }
+  };
+
+  const requestPasswordReset = async () => {
+    if (submitting.current) return;
+    const normalizedEmail = email.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(normalizedEmail)) return setError('Enter the email address used by your account.');
+    submitting.current = true;
+    setBusy(true);
+    setError('');
+    try {
+      const data = await apiRequest(apiBase, 'request_password_reset.php', { method: 'POST', body: { email: normalizedEmail } });
+      setResetCodeSent(true);
+      setResetCode('');
+      setNotice(data.message || 'A password reset code was sent if this email has a verified account.');
+    } catch (resetError) {
+      setError(resetError.message || 'Could not request a password reset code.');
+    } finally {
+      submitting.current = false;
+      setBusy(false);
+    }
+  };
+
+  const completePasswordReset = async () => {
+    if (submitting.current) return;
+    if (!/^\d{6}$/.test(resetCode)) return setError('Enter the 6-digit reset code sent to your email.');
+    if (newPassword.length < 10) return setError('Use a new password with at least 10 characters.');
+    if (newPassword !== confirmNewPassword) return setError('The new passwords do not match.');
+    submitting.current = true;
+    setBusy(true);
+    setError('');
+    try {
+      const data = await apiRequest(apiBase, 'reset_password.php', { method: 'POST', body: { email: email.trim(), code: resetCode, new_password: newPassword } });
+      setForgotPassword(false);
+      setResetCodeSent(false);
+      setResetCode('');
+      setNewPassword('');
+      setConfirmNewPassword('');
+      setShowNewPassword(false);
+      setPassword('');
+      setNotice(data.message || 'Password changed. Sign in with your new password.');
+    } catch (resetError) {
+      setError(resetError.message || 'Could not reset the password.');
+    } finally {
+      submitting.current = false;
+      setBusy(false);
+    }
+  };
+
+
   return (
-    <KeyboardAvoidingView style={styles.authRoot} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <KeyboardAvoidingView
+      style={styles.authRoot}
+      behavior={Platform.OS === 'ios' ? 'padding' : Platform.OS === 'android' ? 'height' : undefined}
+    >
       <BrandBar />
-      <ScrollView contentContainerStyle={styles.authScroll} keyboardShouldPersistTaps="handled">
-        <View style={[styles.authContainer, { width: Math.min(width - 32, 520) }]}>
+      <ScrollView
+        style={styles.authScrollView}
+        contentContainerStyle={styles.authScroll}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+      >
+        <View style={[styles.authContainer, compactAuth && styles.authContainerCompact]}>
           <HeroBanner compact />
           <View style={styles.authIntro}>
-            <Text style={styles.authTitle}>{registering ? 'Join the laundry club' : 'Welcome back'}</Text>
-            <Text style={styles.authDescription}>{registering ? 'Create an account to book laundry services and follow your tickets.' : 'Sign in to book a service and follow your laundry ticket.'}</Text>
+            <Text style={styles.authTitle}>{forgotPassword ? 'Reset your password' : registering ? 'Join the laundry club' : 'Welcome back'}</Text>
+            <Text style={styles.authDescription}>{forgotPassword ? 'Receive a code by email and choose a new password.' : registering ? 'Create an account to book laundry services and follow your tickets.' : 'Sign in to book a service and follow your laundry ticket.'}</Text>
           </View>
-          <View style={styles.authCard}>
+          <View style={[styles.authCard, compactAuth && styles.authCardCompact]}>
             <View style={styles.authSwitch}>
-              <Pressable onPress={() => { setRegistering(false); setError(''); }} style={[styles.authSwitchButton, !registering && styles.authSwitchSelected]}>
+              <Pressable onPress={() => { setRegistering(false); setForgotPassword(false); setError(''); }} style={[styles.authSwitchButton, !registering && styles.authSwitchSelected]}>
                 <Text style={[styles.authSwitchText, !registering && styles.authSwitchSelectedText]}>Sign in</Text>
               </Pressable>
-              <Pressable onPress={() => { setRegistering(true); setError(''); }} style={[styles.authSwitchButton, registering && styles.authSwitchSelected]}>
+              <Pressable onPress={() => { setRegistering(true); setForgotPassword(false); setError(''); }} style={[styles.authSwitchButton, registering && styles.authSwitchSelected]}>
                 <Text style={[styles.authSwitchText, registering && styles.authSwitchSelectedText]}>Create account</Text>
               </Pressable>
             </View>
 
+            {sessionNotice ? <Text style={styles.successBox}>{sessionNotice}</Text> : null}
             {notice ? <Text style={styles.successBox}>{notice}</Text> : null}
             {error ? <Text style={styles.errorBox}>{error}</Text> : null}
 
-            {registering ? <Field label="Full name" value={name} onChangeText={setName} placeholder="Your name" autoCapitalize="words" returnKeyType="next" /> : null}
-            {registering ? <Field label="Phone number" value={phone} onChangeText={setPhone} placeholder="09xx xxx xxxx" keyboardType="phone-pad" returnKeyType="next" /> : null}
-            {registering ? <Field label="Pickup address" value={address} onChangeText={setAddress} placeholder="Street, barangay, city" autoCapitalize="words" returnKeyType="next" /> : null}
-            <Field label="Email address" value={email} onChangeText={setEmail} placeholder="you@example.com" keyboardType="email-address" autoCapitalize="none" autoCorrect={false} returnKeyType="next" />
+            <>
+            {forgotPassword ? (
+              <>
+                <Text style={styles.authFootnote}>{resetCodeSent ? 'Enter the 6-digit code from your email and choose a new password.' : 'Enter the verified email address used by your customer account.'}</Text>
+                <Field label={'Email address'} value={email} onChangeText={setEmail} editable={!resetCodeSent} placeholder={'you@example.com'} keyboardType={'email-address'} autoCapitalize={'none'} autoCorrect={false} maxLength={120} />
+                {resetCodeSent ? <>
+                  <Field label={'Reset code'} value={resetCode} onChangeText={(value) => setResetCode(value.replace(/\D/g, '').slice(0, 6))} placeholder={'6-digit code'} keyboardType={'number-pad'} maxLength={6} returnKeyType={'next'} />
+                  <Field label={'New password'} value={newPassword} onChangeText={setNewPassword} placeholder={'At least 10 characters'} secureTextEntry={!showNewPassword} autoCapitalize={'none'} right={<Pressable accessibilityRole={'button'} accessibilityLabel={showNewPassword ? 'Hide password' : 'Show password'} hitSlop={8} onPress={() => setShowNewPassword((visible) => !visible)} style={styles.passwordVisibilityButton}><Text style={styles.showPassword}>{showNewPassword ? 'Hide' : 'Show'}</Text></Pressable>} returnKeyType={'go'} onSubmitEditing={completePasswordReset} />
+                  <Field label={'Confirm new password'} value={confirmNewPassword} onChangeText={setConfirmNewPassword} placeholder={'Enter the new password again'} secureTextEntry={!showNewPassword} autoCapitalize={'none'} returnKeyType={'go'} onSubmitEditing={completePasswordReset} />
+                  <Pressable onPress={completePasswordReset} disabled={busy} style={({ pressed }) => [styles.primaryButton, pressed && !busy && styles.pressed, busy && styles.disabledButton]}>{busy ? <ActivityIndicator color={COLORS.white} /> : <Text style={styles.primaryButtonText}>Reset password</Text>}</Pressable>
+                  <Pressable onPress={requestPasswordReset} disabled={busy} style={styles.driverSignInLink}><Text style={styles.driverSignInText}>Resend reset code</Text></Pressable>
+                </> : <Pressable onPress={requestPasswordReset} disabled={busy} style={({ pressed }) => [styles.primaryButton, pressed && !busy && styles.pressed, busy && styles.disabledButton]}>{busy ? <ActivityIndicator color={COLORS.white} /> : <Text style={styles.primaryButtonText}>Send reset code</Text>}</Pressable>}
+                <Pressable onPress={() => { setForgotPassword(false); setResetCodeSent(false); setResetCode(''); setNewPassword(''); setConfirmNewPassword(''); setError(''); }} disabled={busy} style={styles.driverSignInLink}><Text style={styles.driverSignInText}>Back to sign in</Text></Pressable>
+              </>
+            ) : <>
+            {registering ? <Field label="Full name" value={name} onChangeText={setName} placeholder="Your name" autoCapitalize="words" maxLength={100} returnKeyType="next" /> : null}
+            {registering ? <Field label="Phone number" value={phone} onChangeText={(value) => setPhone(value.replace(/\D/g, '').slice(0, 11))} placeholder="09xx xxx xxxx" keyboardType="phone-pad" maxLength={11} returnKeyType="next" /> : null}
+            {registering ? <><Field label="Pickup address" value={address} onChangeText={setAddress} placeholder="Street, barangay, city" autoCapitalize="words" maxLength={255} returnKeyType="next" />
+              <View style={styles.locationPinPanel}><Text style={styles.locationPinTitle}>Location pin</Text><Text style={styles.locationPinCopy}>Pin your location to check whether pickup and delivery are available. You can still register and use drop-off service outside the delivery area.</Text><Pressable disabled={locating} onPress={pinMyLocation} style={[styles.locationPinButton, locating && styles.disabledButton]}>{locating ? <ActivityIndicator color={COLORS.white} /> : <Text style={styles.locationPinButtonText}>{locationPin ? 'Update pinned location' : 'Pin my current location'}</Text>}</Pressable>{locationPin ? <><Text style={[styles.locationPinSuccess, !locationPin.deliveryAvailable && styles.locationPinWarning]}>{locationPin.deliveryAvailable ? '✓ Delivery is available at this pinned location.' : "Can't reach this address for delivery. You can still use Drop-off & Pick-up."}</Text><View style={styles.registrationMap}><DeliveryMap location={locationPin} label="Pinned customer location" /></View></> : null}</View></> : null}
+            <Field label="Email address" value={email} onChangeText={setEmail} placeholder="you@example.com" keyboardType="email-address" autoCapitalize="none" autoCorrect={false} maxLength={120} returnKeyType="next" />
             <Field
               label="Password"
               value={password}
@@ -383,22 +507,70 @@ function AuthScreen({ apiBase, onSignedIn }) {
               placeholder={registering ? 'At least 10 characters' : 'Enter your password'}
               secureTextEntry={!showPassword}
               autoCapitalize="none"
-              right={<Pressable onPress={() => setShowPassword(!showPassword)}><Text style={styles.showPassword}>{showPassword ? 'Hide' : 'Show'}</Text></Pressable>}
+              right={<Pressable accessibilityRole="button" accessibilityLabel={showPassword ? 'Hide password' : 'Show password'} hitSlop={8} onPress={() => setShowPassword((visible) => !visible)} style={styles.passwordVisibilityButton}><Text style={styles.showPassword}>{showPassword ? 'Hide' : 'Show'}</Text></Pressable>}
               returnKeyType="go"
               onSubmitEditing={submit}
             />
             <Pressable onPress={submit} disabled={busy} style={({ pressed }) => [styles.primaryButton, pressed && !busy && styles.pressed, busy && styles.disabledButton]}>
               {busy ? <ActivityIndicator color={COLORS.white} /> : <Text style={styles.primaryButtonText}>{registering ? 'Create account' : 'Sign in'}</Text>}
             </Pressable>
+            {!registering ? <Pressable onPress={() => { setForgotPassword(true); setResetCodeSent(false); setResetCode(''); setNewPassword(''); setConfirmNewPassword(''); setError(''); }} disabled={busy} style={styles.driverSignInLink}><Text style={styles.driverSignInText}>Forgot password?</Text></Pressable> : null}
             <Text style={styles.authFootnote}>The shop confirms your service, price, and pickup or delivery schedule.</Text>
             {!registering ? (
               <Pressable accessibilityRole="link" onPress={() => router.push('/driver')} style={styles.driverSignInLink}>
                 <Text style={styles.driverSignInText}>Delivery driver? Sign in here</Text>
               </Pressable>
             ) : null}
+            </>}
+            </>
           </View>
         </View>
       </ScrollView>
+      <Modal
+        transparent
+        visible={registering && verificationPending}
+        animationType="fade"
+        onRequestClose={() => {
+          if (busy) return;
+          setVerificationPending(false);
+          setVerificationCode('');
+          setError('');
+        }}
+      >
+        <View style={styles.modalShade}>
+          <KeyboardAvoidingView
+            style={styles.verificationModalKeyboard}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          >
+            <View style={styles.modalCard}>
+              <Text style={styles.modalTitle}>Verify your email</Text>
+              <Text style={styles.modalCopy}>We sent a 6-digit verification code to {email}. Enter it below within 10 minutes to create your account.</Text>
+              {notice ? <Text style={styles.successBox}>{notice}</Text> : null}
+              {error ? <Text style={styles.errorBox}>{error}</Text> : null}
+              <Field
+                label="Verification code"
+                value={verificationCode}
+                onChangeText={(value) => setVerificationCode(value.replace(/\D/g, '').slice(0, 6))}
+                placeholder="6-digit code"
+                keyboardType="number-pad"
+                maxLength={6}
+                autoFocus
+                returnKeyType="go"
+                onSubmitEditing={submit}
+              />
+              <Pressable onPress={submit} disabled={busy} style={({ pressed }) => [styles.primaryButton, pressed && !busy && styles.pressed, busy && styles.disabledButton]}>
+                {busy ? <ActivityIndicator color={COLORS.white} /> : <Text style={styles.primaryButtonText}>Verify and create account</Text>}
+              </Pressable>
+              <Pressable onPress={resendVerificationCode} disabled={busy} style={styles.driverSignInLink}>
+                <Text style={styles.driverSignInText}>Resend verification code</Text>
+              </Pressable>
+              <Pressable onPress={() => { setVerificationPending(false); setVerificationCode(''); setError(''); setNotice(''); }} disabled={busy} style={styles.driverSignInLink}>
+                <Text style={styles.driverSignInText}>Edit account details</Text>
+              </Pressable>
+            </View>
+          </KeyboardAvoidingView>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -407,72 +579,58 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut })
   const pathname = usePathname();
   const router = useRouter();
   const params = useLocalSearchParams();
-  const tab = pathname === '/track' ? 'track' : 'book';
-  const [services, setServices] = useState([]);
-  const [tickets, setTickets] = useState([]);
+  const tab = pathname === '/track' ? 'track'
+    : pathname === '/offers' ? 'offers'
+    : pathname === '/about' ? 'about'
+    : pathname === '/profile' ? 'profile'
+    : 'home';
+  const { services, tickets, payment: gcashInfo, loading, refreshing,
+    error, setError, refresh: loadShopData } = useOnlineShop({ apiBase, customer, token, onSessionExpired });
+  const bookingBusy = useRef(false);
   const [quantities, setQuantities] = useState({});
   const [filter, setFilter] = useState('All');
   const [search, setSearch] = useState('');
   const [notes, setNotes] = useState('');
-  const [fulfillment, setFulfillment] = useState('pickup');
+  const [fulfillment, setFulfillment] = useState('pickup_delivery');
   const [deliveryAddress, setDeliveryAddress] = useState(customer.address || '');
+  const deliveryAvailable = Number(customer.location_latitude) >= 15.455 && Number(customer.location_latitude) <= 15.525 && Number(customer.location_longitude) >= 120.595 && Number(customer.location_longitude) <= 120.690;
   const [pickupAt, setPickupAt] = useState(null);
   const [pickupDate, setPickupDate] = useState('');
   const [pickupTime, setPickupTime] = useState('09:00');
   const [pickupError, setPickupError] = useState('');
   const [pickupModal, setPickupModal] = useState(false);
-  const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
-  const [error, setError] = useState('');
   const [locationBusy, setLocationBusy] = useState({});
   const [locationError, setLocationError] = useState({});
-  const [gcashInfo, setGcashInfo] = useState(null);
-  const [paymentMethod, setPaymentMethod] = useState('at_shop');
+  const [paymentMethod, setPaymentMethod] = useState('cash_on_handoff');
   const [gcashReference, setGcashReference] = useState('');
   const [retryReferences, setRetryReferences] = useState({});
   const [retryBusy, setRetryBusy] = useState({});
   const toast = typeof params.booking === 'string' && params.booking ? 'Booking submitted. Ticket ' + params.booking : '';
+
+  useEffect(() => {
+    if (!toast) return undefined;
+    const timer = setTimeout(() => router.replace(pathname), 3000);
+    return () => clearTimeout(timer);
+  }, [toast, router, pathname]);
+
+  useEffect(() => {
+    if (!error) return undefined;
+    const timer = setTimeout(() => setError(''), 3000);
+    return () => clearTimeout(timer);
+  }, [error, setError]);
+
   const { width } = useWindowDimensions();
   const wide = width >= 760;
   const navigateTo = (nextTab, bookingNumber) => {
     if (nextTab === 'track' && bookingNumber) {
       router.replace({ pathname: '/track', params: { booking: bookingNumber } });
-    } else {
-      router.replace(nextTab === 'track' ? '/track' : '/');
+      return;
     }
+    const paths = { home: '/', track: '/track', offers: '/offers', about: '/about', profile: '/profile' };
+    router.replace(paths[nextTab] || '/');
   };
 
-
-  const loadShopData = useCallback(async (quiet = false) => {
-    if (!quiet) {
-      setLoading(true);
-      setError('');
-    }
-    try {
-      const [serviceData, ticketData, paymentData] = await Promise.all([
-        apiRequest(apiBase, 'services.php'),
-        apiRequest(apiBase, 'my_tickets.php', { token }),
-        apiRequest(apiBase, 'payment_info.php', { token }),
-      ]);
-      setServices(serviceData.services || []);
-      setGcashInfo(paymentData.payment || null);
-      const nextTickets = await Promise.all((ticketData.tickets || []).map(async (ticket) => {
-        if (ticket.order_type !== 'delivery_request' || ticket.status !== 'out_for_delivery') return ticket;
-        try {
-          const trackingData = await apiRequest(apiBase, 'delivery_tracking.php?order_id=' + encodeURIComponent(ticket.id), { token });
-          return { ...ticket, tracking: trackingData.tracking };
-        } catch (_) {
-          return ticket;
-        }
-      }));
-      setTickets(nextTickets);
-    } catch (loadError) {
-      if (loadError.status === 401) await onSessionExpired();
-      setError(loadError.message || 'Could not load the shop right now.');
-    } finally {
-      if (!quiet) setLoading(false);
-    }
-  }, [apiBase, onSessionExpired, token]);
 
   const updateCustomerLocation = async (ticket, action) => {
     const ticketId = String(ticket.id);
@@ -497,18 +655,6 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut })
       setLocationBusy((current) => ({ ...current, [ticketId]: false }));
     }
   };
-
-  useEffect(() => {
-    const timer = setTimeout(() => { void loadShopData(); }, 0);
-    return () => clearTimeout(timer);
-  }, [loadShopData]);
-
-  useEffect(() => {
-    const hasActiveDelivery = tickets.some((ticket) => ticket.order_type === 'delivery_request' && ticket.status === 'out_for_delivery');
-    if (tab !== 'track' || !hasActiveDelivery) return undefined;
-    const timer = setInterval(() => { loadShopData(true); }, 12000);
-    return () => clearInterval(timer);
-  }, [loadShopData, tab, tickets]);
 
   const sharedDeliveryIds = tickets
     .filter((ticket) => ticket.order_type === 'delivery_request' && ticket.status === 'out_for_delivery' && ticket.tracking?.customer_location_shared)
@@ -567,9 +713,22 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut })
     return total + (Number(service.price) || 0) * (Number.isFinite(quantity) ? quantity : 0);
   }, 0), [quantities, services]);
 
-  const updateQuantity = (id, value) => {
+  const updateQuantity = (service, value) => {
     const clean = String(value).replace(/[^0-9.]/g, '');
-    setQuantities((current) => ({ ...current, [String(id)]: clean }));
+    const id = String(service.id);
+    const isCoreService = ['Wash', 'Dry', 'Full service'].includes(serviceCategory(service));
+    setQuantities((current) => {
+      if (!isCoreService || Number(clean || 0) <= 0) return { ...current, [id]: clean };
+      const next = { ...current };
+      services.forEach((item) => {
+        if (String(item.id) !== id && ['Wash', 'Dry', 'Full service'].includes(serviceCategory(item))) next[String(item.id)] = '';
+      });
+      next[id] = clean;
+      return next;
+    });
+    if (isCoreService && Number(clean || 0) > 0) {
+      setError('');
+    }
   };
 
   const confirmPickup = () => {
@@ -579,7 +738,12 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut })
       return;
     }
     if (selected <= new Date()) {
-      setPickupError('Choose a pickup time in the future.');
+      setPickupError('That schedule has already passed. Choose a future time slot.');
+      return;
+    }
+    const hour = selected.getHours();
+    if (hour < 8 || hour >= 18) {
+      setPickupError('Choose a time within shop hours: 8:00 AM to 6:00 PM.');
       return;
     }
     setPickupAt(selected.toISOString());
@@ -588,45 +752,57 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut })
   };
 
   const bookService = async () => {
-    const chosen = services
-      .map((service) => ({ service_id: Number(service.id), quantity: Number(quantities[String(service.id)] || 0) }))
-      .filter((line) => line.quantity > 0);
+    if (bookingBusy.current) return;
+    const chosen = services.map((service) => ({
+      service_id: Number(service.id), quantity: Number(quantities[String(service.id)] || 0),
+    })).filter((line) => line.quantity > 0);
     if (!chosen.length) return setError('Add at least one service before booking.');
-    if (fulfillment === 'delivery' && !deliveryAddress.trim()) return setError('Enter the address where the clean laundry should be delivered.');
-    if (paymentMethod === 'gcash') {
-      if (!gcashInfo?.configured) return setError('The shop has not configured GCash payments yet. Choose Pay at shop or contact the shop.');
-      if (gcashReference.trim().length < 6) return setError('Enter the GCash reference number from your completed transfer.');
+    if (chosen.some((line) => !Number.isFinite(line.quantity) || line.quantity > 500 ||
+      (['piece', 'load'].includes(services.find((service) => Number(service.id) === line.service_id)?.unit) && !Number.isInteger(line.quantity)))) {
+      return setError('Use up to 500 per service, with whole numbers for loads and pieces.');
     }
+    if (pickupAt && new Date(pickupAt) <= new Date()) return setError('Choose a future schedule or remove the suggested time.');
+if (['pickup_delivery', 'dropoff_delivery'].includes(fulfillment) && !deliveryAvailable) return setError("Can't reach this address for delivery. Choose Drop-off & Pick-up instead.");
+    if (fulfillment !== 'dropoff_pickup' && !deliveryAddress.trim()) return setError('Enter your delivery address.');
+    if (paymentMethod === 'gcash') {
+      if (!gcashInfo?.configured) return setError('The shop has not configured GCash payments yet.');
+      if (gcashReference.trim().length < 6) return setError('Enter the GCash reference from your completed transfer.');
+    }
+    bookingBusy.current = true;
     setSending(true);
     setError('');
     try {
       const result = await apiRequest(apiBase, 'tickets.php', {
-        method: 'POST',
-        token,
+        method: 'POST', token, timeoutMs: 20000,
         body: {
           services: chosen,
           fulfillment_type: fulfillment,
-          ...(fulfillment === 'delivery' ? { delivery_address: deliveryAddress.trim() } : {}),
+          delivery_address: deliveryAddress.trim(),
           expected_pickup: pickupAt,
           notes: notes.trim(),
+          quoted_total: Number(estimate.toFixed(2)),
           payment_method: paymentMethod,
-          ...(paymentMethod === 'gcash' ? { payment_amount: Number(estimate.toFixed(2)), payment_reference: gcashReference.trim() } : {}),
+          ...(paymentMethod === 'gcash' ? {
+            payment_amount: Number(estimate.toFixed(2)),
+            payment_reference: gcashReference.trim(),
+          } : {}),
         },
       });
       setQuantities({});
       setNotes('');
       setPickupAt(null);
-      setPaymentMethod('at_shop');
+      setPaymentMethod('cash_on_handoff');
       setGcashReference('');
-      navigateTo('track', result.ticket.ticket_number);
-    } catch (bookError) {
-      if (bookError.status === 401) await onSessionExpired();
-      setError(bookError.message || 'Could not submit the booking.');
+      await loadShopData(true);
+      navigateTo('track', result.ticket?.ticket_number || result.ticket?.order_number);
+    } catch (problem) {
+      if (problem.status === 401 || problem.status === 403) await onSessionExpired();
+      setError((problem.message || 'Could not submit the booking.') + ' Your form has been kept.');
     } finally {
+      bookingBusy.current = false;
       setSending(false);
     }
   };
-
   const resubmitGcashReference = async (ticket) => {
     const ticketId = String(ticket.id);
     const reference = String(retryReferences[ticketId] || '').trim();
@@ -652,29 +828,78 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut })
   };
 
   const filters = ['All', 'Wash', 'Dry', 'Full service', 'Add-ons'];
+  const scheduleDates = useMemo(() => Array.from({ length: 7 }, (_, offset) => {
+    const date = new Date();
+    date.setHours(12, 0, 0, 0);
+    date.setDate(date.getDate() + offset);
+    return {
+      value: [date.getFullYear(), String(date.getMonth() + 1).padStart(2, '0'), String(date.getDate()).padStart(2, '0')].join('-'),
+      month: date.toLocaleDateString(undefined, { month: 'short' }),
+      day: date.getDate(),
+      weekday: date.toLocaleDateString(undefined, { weekday: 'short' }),
+    };
+  }), []);
+  const scheduleSlots = [
+    { value: '08:00', label: '8:00 AM – 10:00 AM' },
+    { value: '10:00', label: '10:00 AM – 12:00 PM' },
+    { value: '12:00', label: '12:00 PM – 2:00 PM' },
+    { value: '14:00', label: '2:00 PM – 4:00 PM' },
+    { value: '16:00', label: '4:00 PM – 6:00 PM' },
+  ];
 
   return (
     <View style={styles.homeRoot}>
-      <BrandBar onSignOut={onSignOut} />
-      {tab === 'book' ? (
+      <BrandBar />
+      {tab === 'home' ? (
+        <ScrollView contentContainerStyle={styles.homeScroll}>
+          <View style={styles.pageWidth}>
+            <HeroBanner />
+            <View style={styles.homeWelcomeCard}>
+              <Text style={styles.homeEyebrow}>WELCOME TO</Text>
+              <Text style={styles.homeHeadline}>Pia&apos;s Laundry Shop</Text>
+              <Text style={styles.homeLead}>Hello, {customer.name || 'Customer'}! Let us take care of your laundry today.</Text>
+              <Pressable onPress={() => navigateTo('offers')} style={styles.homeCta}><Text style={styles.homeCtaText}>Choose a service</Text><Text style={styles.homeCtaArrow}>→</Text></Pressable>
+              <Pressable onPress={() => navigateTo('track')} style={styles.homeTrackCta}><Text style={styles.homeTrackCtaText}>Track my bookings</Text><Text style={styles.homeTrackCtaArrow}>▣</Text></Pressable>
+            </View>
+            {error ? <Text style={styles.errorBox}>{error}</Text> : null}
+            <View style={styles.homeStatsRow}>
+              <View style={styles.homeStat}><Text style={styles.homeStatValue}>{services.length}</Text><Text style={styles.homeStatLabel}>Services available</Text></View>
+              <View style={styles.homeStat}><Text style={styles.homeStatValue}>{tickets.length}</Text><Text style={styles.homeStatLabel}>My service tickets</Text></View>
+            </View>
+            <View style={styles.sectionHeadingRow}><View><Text style={styles.sectionHeading}>Laundry made simple</Text><Text style={styles.sectionCopy}>Choose the service that fits your needs.</Text></View><Pressable onPress={() => navigateTo('offers')}><Text style={styles.sectionLink}>View all</Text></Pressable></View>
+            <View style={styles.homeServiceGrid}>
+              {services.slice(0, 4).map((service) => (
+                <Pressable key={service.id} onPress={() => navigateTo('offers')} style={styles.homeServiceCard}>
+                  <View style={styles.homeServiceIcon}><Text style={styles.homeServiceEmoji}>{serviceEmoji(service)}</Text></View>
+                  <Text style={styles.homeServiceName} numberOfLines={2}>{service.name}</Text>
+                  <Text style={styles.homeServicePrice}>{money(service.price)} / {service.unit || 'unit'}</Text>
+                </Pressable>
+              ))}
+            </View>
+            <View style={styles.homeInfoRow}>
+              <View style={styles.homeInfoCard}><Text style={styles.homeInfoIcon}>🧺</Text><Text style={styles.homeInfoTitle}>Book online</Text><Text style={styles.homeInfoCopy}>Select your actual services and quantity.</Text></View>
+              <View style={styles.homeInfoCard}><Text style={styles.homeInfoIcon}>🚚</Text><Text style={styles.homeInfoTitle}>Pickup or delivery</Text><Text style={styles.homeInfoCopy}>Choose how the shop should handle your order.</Text></View>
+            </View>
+          </View>
+        </ScrollView>
+      ) : tab === 'offers' ? (
         <ScrollView contentContainerStyle={styles.homeScroll} keyboardShouldPersistTaps="handled">
           <View style={styles.pageWidth}>
             <HeroBanner />
             <View style={styles.welcomeLine}>
               <View>
-                <Text style={styles.greeting}>Hello, {customer.name || 'Customer'}</Text>
-                <Text style={styles.welcomeCopy}>Choose your laundry service and how you want it handled.</Text>
+                <Text style={styles.greeting}>Choose your services</Text>
+                <Text style={styles.welcomeCopy}>Add or remove quantities, then schedule your pickup or delivery.</Text>
               </View>
               <View style={styles.pickupBadge}><Text style={styles.pickupBadgeText}>PICKUP OR DELIVERY</Text></View>
             </View>
-
             {toast ? <Text style={styles.successBox}>{toast}</Text> : null}
             {error ? <Text style={styles.errorBox}>{error}</Text> : null}
 
             <View style={styles.searchRow}>
               <Text style={styles.searchIcon}>⌕</Text>
               <TextInput value={search} onChangeText={setSearch} placeholder="Search laundry services…" placeholderTextColor="#a59ba5" style={styles.searchInput} />
-              <Pressable onPress={loadShopData} style={styles.refreshButton}><Text style={styles.refreshText}>↻</Text></Pressable>
+              <Pressable onPress={() => loadShopData()} style={styles.refreshButton}><Text style={styles.refreshText}>↻</Text></Pressable>
             </View>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filtersRow}>
               {filters.map((item) => (
@@ -683,8 +908,12 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut })
                 </Pressable>
               ))}
             </ScrollView>
+            <View style={styles.serviceRuleNote}>
+              <Text style={styles.serviceRuleTitle}>Choose one main laundry service</Text>
+              <Text style={styles.serviceRuleCopy}>Select Wash, Dry, or Full Service. Add-ons such as detergent and fabcon can still be included.</Text>
+            </View>
 
-            {loading ? (
+            {loading && !services.length ? (
               <View style={styles.inlineLoading}><ActivityIndicator color={COLORS.purple} /><Text style={styles.mutedText}>Loading shop services…</Text></View>
             ) : visibleServices.length ? (
               <View style={styles.serviceGrid}>
@@ -693,48 +922,52 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut })
                     key={service.id}
                     service={service}
                     quantity={quantities[String(service.id)] || ''}
-                    onQuantityChange={(value) => updateQuantity(service.id, value)}
+                    onQuantityChange={(value) => updateQuantity(service, value)}
                     wide={wide}
                     index={index}
                   />
                 ))}
               </View>
             ) : (
-              <View style={styles.emptyCard}><Text style={styles.emptyEmoji}>🫧</Text><Text style={styles.emptyTitle}>No services found</Text><Text style={styles.mutedText}>Try another search or category.</Text></View>
+              <View style={styles.emptyCard}><Text style={styles.emptyEmoji}>🫧</Text><Text style={styles.emptyTitle}>No services found</Text><Text style={styles.mutedText}>{error && !services.length ? 'Connect to the internet and refresh the service list.' : 'Try another search or category.'}</Text></View>
             )}
 
             <View style={styles.bookingPanel}>
               <Text style={styles.panelTitle}>Service handoff</Text>
-              <View style={styles.fulfillmentRow}>
-                <Pressable onPress={() => setFulfillment('pickup')} style={[styles.fulfillmentChoice, fulfillment === 'pickup' && styles.fulfillmentChoiceActive]}>
-                  <Text style={[styles.fulfillmentChoiceText, fulfillment === 'pickup' && styles.fulfillmentChoiceTextActive]}>Pickup from my address</Text>
+              {!deliveryAvailable ? <View style={styles.deliveryRestriction}><Text style={styles.deliveryRestrictionTitle}>Can’t reach this address for delivery</Text><Text style={styles.deliveryRestrictionCopy}>Pickup and delivery are available only in San Jose, Maliwalo, and San Manuel, Tarlac. You can still book using Drop-off & Pick-up.</Text></View> : null}
+              <View style={styles.handoffChoices}>
+                <Pressable disabled={!deliveryAvailable} onPress={() => { setFulfillment('pickup_delivery'); setPaymentMethod('cash_on_handoff'); }} style={[styles.handoffCard, fulfillment === 'pickup_delivery' && styles.handoffCardActive, !deliveryAvailable && styles.handoffCardDisabled]}>
+                  <Text style={styles.handoffIcon}>🚚</Text>
+                  <View style={styles.flexOne}><Text style={[styles.handoffTitle, fulfillment === 'pickup_delivery' && styles.handoffTitleActive]}>Pickup & Delivery</Text><Text style={[styles.handoffCopy, fulfillment === 'pickup_delivery' && styles.handoffCopyActive]}>Driver collects your laundry and returns it after service.</Text></View>
                 </Pressable>
-                <Pressable onPress={() => setFulfillment('delivery')} style={[styles.fulfillmentChoice, fulfillment === 'delivery' && styles.fulfillmentChoiceActive]}>
-                  <Text style={[styles.fulfillmentChoiceText, fulfillment === 'delivery' && styles.fulfillmentChoiceTextActive]}>Deliver to me</Text>
+                <Pressable disabled={!deliveryAvailable} onPress={() => { setFulfillment('dropoff_delivery'); setPaymentMethod('cash_on_handoff'); }} style={[styles.handoffCard, fulfillment === 'dropoff_delivery' && styles.handoffCardActive, !deliveryAvailable && styles.handoffCardDisabled]}>
+                  <Text style={styles.handoffIcon}>🏪</Text>
+                  <View style={styles.flexOne}><Text style={[styles.handoffTitle, fulfillment === 'dropoff_delivery' && styles.handoffTitleActive]}>Drop-off & Delivery</Text><Text style={[styles.handoffCopy, fulfillment === 'dropoff_delivery' && styles.handoffCopyActive]}>Bring laundry to the shop; a driver returns it when done.</Text></View>
+                </Pressable>
+                <Pressable onPress={() => { setFulfillment('dropoff_pickup'); setPaymentMethod('cash_on_handoff'); }} style={[styles.handoffCard, fulfillment === 'dropoff_pickup' && styles.handoffCardActive]}>
+                  <Text style={styles.handoffIcon}>🧺</Text>
+                  <View style={styles.flexOne}><Text style={[styles.handoffTitle, fulfillment === 'dropoff_pickup' && styles.handoffTitleActive]}>Drop-off & Pick-up</Text><Text style={[styles.handoffCopy, fulfillment === 'dropoff_pickup' && styles.handoffCopyActive]}>Bring laundry to the shop and collect it when it is ready.</Text></View>
                 </Pressable>
               </View>
-              {fulfillment === 'delivery' ? (
-                <View>
-                  <Text style={styles.addressLabel}>Delivery address</Text>
-                  <TextInput value={deliveryAddress} onChangeText={setDeliveryAddress} maxLength={255} placeholder="Street, barangay, city" placeholderTextColor="#a59ba5" style={styles.deliveryAddressInput} />
-                  <Text style={styles.addressHelp}>The shop will use this address for the delivery and live tracking.</Text>
-                </View>
-              ) : null}
+              {fulfillment !== 'dropoff_pickup' ? <View>
+                <Text style={styles.addressLabel}>Final delivery address</Text>
+                <TextInput value={deliveryAddress} onChangeText={setDeliveryAddress} maxLength={255} placeholder="Street, barangay, city" placeholderTextColor="#a59ba5" style={styles.deliveryAddressInput} />
+                <Text style={styles.addressHelp}>{fulfillment === 'pickup_delivery' ? 'This address is used for both collection and final delivery.' : 'The driver will deliver the finished laundry to this address.'}</Text>
+              </View> : null}
               <View style={styles.panelTitleRow}>
                 <Text style={styles.panelIcon}>🗓</Text>
-                <View style={styles.flexOne}><Text style={styles.panelTitle}>Preferred schedule</Text><Text style={styles.panelSub}>The shop will confirm the {fulfillment === 'delivery' ? 'delivery' : 'pickup'} time.</Text></View>
+                <View style={styles.flexOne}><Text style={styles.panelTitle}>Preferred schedule</Text><Text style={styles.panelSub}>{fulfillment === 'pickup_delivery' ? 'Choose when the driver should collect your laundry.' : 'Choose when you plan to drop off at the shop.'}</Text></View>
                 <Text style={styles.pickupBadgeText}>OPTIONAL</Text>
               </View>
               <Pressable onPress={() => {
                 const tomorrow = new Date();
-                tomorrow.setDate(tomorrow.getDate() + 1);
                 const localDate = [tomorrow.getFullYear(), String(tomorrow.getMonth() + 1).padStart(2, '0'), String(tomorrow.getDate()).padStart(2, '0')].join('-');
                 setPickupDate(localDate);
-                setPickupTime('09:00');
+                setPickupTime('08:00');
                 setPickupError('');
                 setPickupModal(true);
               }} style={styles.pickupButton}>
-                <Text style={styles.pickupButtonText}>{pickupAt ? (fulfillment === 'delivery' ? 'Delivery: ' : 'Pickup: ') + new Date(pickupAt).toLocaleString() : '＋  Select a ' + (fulfillment === 'delivery' ? 'delivery' : 'pickup') + ' date and time'}</Text>
+                <Text style={styles.pickupButtonText}>{pickupAt ? (fulfillment === 'pickup_delivery' ? 'Pickup: ' : 'Drop-off: ') + new Date(pickupAt).toLocaleString() : '＋  Select a ' + (fulfillment === 'pickup_delivery' ? 'pickup' : 'drop-off') + ' date and time'}</Text>
               </Pressable>
               {pickupAt ? <Pressable onPress={() => setPickupAt(null)}><Text style={styles.clearSchedule}>Remove suggested time</Text></Pressable> : null}
             </View>
@@ -742,8 +975,8 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut })
             <View style={styles.paymentPanel}>
               <Text style={styles.panelTitle}>Payment method</Text>
               <View style={styles.fulfillmentRow}>
-                <Pressable onPress={() => setPaymentMethod('at_shop')} style={[styles.fulfillmentChoice, paymentMethod === 'at_shop' && styles.fulfillmentChoiceActive]}>
-                  <Text style={[styles.fulfillmentChoiceText, paymentMethod === 'at_shop' && styles.fulfillmentChoiceTextActive]}>Pay at shop</Text>
+                <Pressable onPress={() => setPaymentMethod('cash_on_handoff')} style={[styles.fulfillmentChoice, paymentMethod === 'cash_on_handoff' && styles.fulfillmentChoiceActive]}>
+                  <Text style={[styles.fulfillmentChoiceText, paymentMethod === 'cash_on_handoff' && styles.fulfillmentChoiceTextActive]}>{fulfillment === 'pickup_delivery' ? 'Pay driver upon pickup' : 'Pay at shop upon drop-off'}</Text>
                 </Pressable>
                 <Pressable disabled={!gcashInfo?.configured} onPress={() => setPaymentMethod('gcash')} style={[styles.fulfillmentChoice, paymentMethod === 'gcash' && styles.fulfillmentChoiceActive, !gcashInfo?.configured && styles.disabledButton]}>
                   <Text style={[styles.fulfillmentChoiceText, paymentMethod === 'gcash' && styles.fulfillmentChoiceTextActive]}>GCash transfer</Text>
@@ -759,8 +992,8 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut })
                   <Text style={styles.addressLabel}>GCash reference number</Text>
                   <TextInput value={gcashReference} onChangeText={setGcashReference} maxLength={120} autoCapitalize="characters" placeholder="Enter the completed transfer reference" placeholderTextColor="#a59ba5" style={styles.deliveryAddressInput} />
                 </View>
-              ) : <Text style={styles.addressHelp}>You can pay the shop after your laundry service is confirmed.</Text>) : (
-                <Text style={styles.addressHelp}>The shop has not added its GCash account yet. Pay at the shop is available.</Text>
+              ) : <Text style={styles.addressHelp}>Pay during the initial laundry handoff after the shop confirms your request.</Text>) : (
+                <Text style={styles.addressHelp}>The shop has not added its GCash account yet. Payment during handoff is available.</Text>
               )}
             </View>
 
@@ -770,42 +1003,95 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut })
               <Text style={styles.noteCount}>{notes.length}/255</Text>
               <View style={styles.estimateRow}><Text style={styles.estimateLabel}>Estimated total</Text><Text style={styles.estimateValue}>{money(estimate)}</Text></View>
               <Pressable onPress={bookService} disabled={sending || estimate <= 0 || (paymentMethod === 'gcash' && gcashReference.trim().length < 6)} style={[styles.bookButton, (sending || estimate <= 0 || (paymentMethod === 'gcash' && gcashReference.trim().length < 6)) && styles.bookButtonDisabled]}>
-                {sending ? <ActivityIndicator color={COLORS.white} /> : <Text style={styles.bookButtonText}>➤  Book Service</Text>}
+                {sending ? <ActivityIndicator color={COLORS.white} /> : <Text style={styles.bookButtonText}>Book Service</Text>}
               </Pressable>
-              <Text style={styles.estimateNote}>This is an estimate. The shop will confirm your service, price, and {fulfillment === 'delivery' ? 'delivery' : 'pickup'} schedule.</Text>
+              <Text style={styles.estimateNote}>This is an estimate. The shop will confirm your service, price, and handoff and final delivery schedule.</Text>
+            </View>
+          </View>
+        </ScrollView>
+      ) : tab === 'track' ? (
+        <ScrollView contentContainerStyle={styles.homeScroll}>
+          <View style={styles.pageWidth}>
+            <HeroBanner compact />
+            <View style={styles.ticketHeadingRow}>
+              <View><Text style={styles.greeting}>My service tickets</Text><Text style={styles.welcomeCopy}>Track the status of your laundry bookings.</Text></View>
+              <Pressable onPress={() => loadShopData()} style={styles.refreshButton}><Text style={styles.refreshText}>↻</Text></Pressable>
+            </View>
+            {toast ? <Text style={styles.successBox}>{toast}</Text> : null}
+            {error ? <Text style={styles.errorBox}>{error}</Text> : null}
+            {loading ? <View style={styles.inlineLoading}><ActivityIndicator color={COLORS.purple} /><Text style={styles.mutedText}>Loading your tickets…</Text></View> : null}
+            {!loading && tickets.length === 0 ? <View style={styles.emptyCard}><Text style={styles.emptyEmoji}>📋</Text><Text style={styles.emptyTitle}>No service tickets yet</Text><Text style={styles.mutedText}>Your bookings will appear here after you book a service.</Text><Pressable onPress={() => navigateTo('offers')} style={styles.smallPrimary}><Text style={styles.smallPrimaryText}>Browse services</Text></Pressable></View> : null}
+            {tickets.map((ticket) => <TicketCard key={ticket.id || ticket.order_number} ticket={ticket} onShareLocation={() => updateCustomerLocation(ticket, 'share')} onRevokeLocation={() => updateCustomerLocation(ticket, 'revoke')} locationBusy={Boolean(locationBusy[String(ticket.id)])} locationError={locationError[String(ticket.id)]} retryReference={retryReferences[String(ticket.id)] || ''} onRetryReferenceChange={(value) => setRetryReferences((current) => ({ ...current, [String(ticket.id)]: value }))} onResubmitGcash={() => resubmitGcashReference(ticket)} retryBusy={Boolean(retryBusy[String(ticket.id)])} />)}
+          </View>
+        </ScrollView>
+      ) : tab === 'about' ? (
+        <ScrollView contentContainerStyle={styles.homeScroll}>
+          <View style={styles.pageWidth}>
+            <HeroBanner />
+            <View style={styles.contentCard}>
+              <Text style={styles.contentEyebrow}>ABOUT US</Text>
+              <Text style={styles.contentTitle}>Clean clothes and convenient service for every customer.</Text>
+              <Text style={styles.contentText}>Pia&apos;s Laundry Shop provides reliable laundry care with online booking, shop confirmation, pickup or delivery choices, and service ticket tracking.</Text>
+            </View>
+            <View style={styles.aboutGrid}>
+              <View style={styles.aboutCard}><Text style={styles.aboutIcon}>📍</Text><Text style={styles.aboutTitle}>Visit us</Text><Text style={styles.aboutText}>Blk. 2, Brgy. San Jose, Tarlac City</Text></View>
+              <View style={styles.aboutCard}><Text style={styles.aboutIcon}>☎️</Text><Text style={styles.aboutTitle}>Contact us</Text><Text style={styles.aboutText}>0918-967-9623</Text></View>
+              <View style={styles.aboutCard}><Text style={styles.aboutIcon}>✅</Text><Text style={styles.aboutTitle}>Shop confirmed</Text><Text style={styles.aboutText}>The shop confirms the final service, price, and schedule.</Text></View>
+              <View style={styles.aboutCard}><Text style={styles.aboutIcon}>📱</Text><Text style={styles.aboutTitle}>Track online</Text><Text style={styles.aboutText}>Follow the latest status of every service ticket.</Text></View>
             </View>
           </View>
         </ScrollView>
       ) : (
         <ScrollView contentContainerStyle={styles.homeScroll}>
           <View style={styles.pageWidth}>
-            <HeroBanner compact />
-            <View style={styles.ticketHeadingRow}>
-              <View><Text style={styles.greeting}>My service tickets</Text><Text style={styles.welcomeCopy}>Track the status of your laundry bookings.</Text></View>
-              <Pressable onPress={loadShopData} style={styles.refreshButton}><Text style={styles.refreshText}>↻</Text></Pressable>
+            <View style={styles.profileHeader}>
+              <View style={styles.profileAvatar}><Text style={styles.profileAvatarText}>{String(customer.name || 'C').charAt(0).toUpperCase()}</Text></View>
+              <Text style={styles.profileName}>{customer.name || 'Customer'}</Text>
+              <Text style={styles.profileEmail}>{customer.email || ''}</Text>
             </View>
-            {toast ? <Text style={styles.successBox}>{toast}</Text> : null}
-            {error ? <Text style={styles.errorBox}>{error}</Text> : null}
-            {loading ? <View style={styles.inlineLoading}><ActivityIndicator color={COLORS.purple} /><Text style={styles.mutedText}>Loading your tickets…</Text></View> : null}
-            {!loading && tickets.length === 0 ? <View style={styles.emptyCard}><Text style={styles.emptyEmoji}>📋</Text><Text style={styles.emptyTitle}>No service tickets yet</Text><Text style={styles.mutedText}>Your bookings will appear here after you book a service.</Text><Pressable onPress={() => navigateTo('book')} style={styles.smallPrimary}><Text style={styles.smallPrimaryText}>Browse services</Text></Pressable></View> : null}
-            {tickets.map((ticket) => <TicketCard key={ticket.id || ticket.order_number} ticket={ticket} onShareLocation={() => updateCustomerLocation(ticket, 'share')} onRevokeLocation={() => updateCustomerLocation(ticket, 'revoke')} locationBusy={Boolean(locationBusy[String(ticket.id)])} locationError={locationError[String(ticket.id)]} retryReference={retryReferences[String(ticket.id)] || ''} onRetryReferenceChange={(value) => setRetryReferences((current) => ({ ...current, [String(ticket.id)]: value }))} onResubmitGcash={() => resubmitGcashReference(ticket)} retryBusy={Boolean(retryBusy[String(ticket.id)])} />)}
+            <View style={styles.profileCard}>
+              <ProfileRow icon="👤" label="Full name" value={customer.name} />
+              <ProfileRow icon="✉️" label="Email address" value={customer.email} />
+              <ProfileRow icon="☎️" label="Phone number" value={customer.phone} />
+              <ProfileRow icon="📍" label="Pickup address" value={customer.address} last />
+            </View>
+            <Pressable onPress={onSignOut} style={styles.signOutButton}><Text style={styles.signOutButtonText}>Sign out</Text></Pressable>
           </View>
         </ScrollView>
       )}
 
       <View style={styles.bottomNav}>
-        <Pressable onPress={() => navigateTo('book')} style={[styles.navItem, tab === 'book' && styles.navItemActive]}><Text style={styles.navEmoji}>🧺</Text><Text style={[styles.navLabel, tab === 'book' && styles.navLabelActive]}>Book</Text></Pressable>
-        <Pressable onPress={() => navigateTo('track')} style={[styles.navItem, tab === 'track' && styles.navItemActive]}><Text style={styles.navEmoji}>📋</Text><Text style={[styles.navLabel, tab === 'track' && styles.navLabelActive]}>Track</Text></Pressable>
+        <NavItem icon="⌂" label="Home" active={tab === 'home'} onPress={() => navigateTo('home')} />
+        <NavItem icon="▣" label="Track" active={tab === 'track'} onPress={() => navigateTo('track')} />
+        <NavItem icon="🧺" label="Offers" active={tab === 'offers'} onPress={() => navigateTo('offers')} />
+        <NavItem icon="ⓘ" label="About" active={tab === 'about'} onPress={() => navigateTo('about')} />
+        <NavItem icon="♙" label="Profile" active={tab === 'profile'} onPress={() => navigateTo('profile')} />
       </View>
 
       <Modal transparent visible={pickupModal} animationType="fade" onRequestClose={() => setPickupModal(false)}>
         <View style={styles.modalShade}>
           <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Suggest a {fulfillment === 'delivery' ? 'delivery' : 'pickup'} time</Text>
-            <Text style={styles.modalCopy}>The shop will confirm your requested schedule.</Text>
+            <Text style={styles.modalTitle}>{fulfillment === 'pickup_delivery' ? 'Pickup Date & Time' : 'Drop-off Date & Time'}</Text>
+            <Text style={styles.modalCopy}>Choose a future schedule within shop hours, 8:00 AM to 6:00 PM.</Text>
             {pickupError ? <Text style={styles.modalError}>{pickupError}</Text> : null}
-            <Field label="Date (YYYY-MM-DD)" value={pickupDate} onChangeText={setPickupDate} placeholder="2026-10-08" />
-            <Field label="Time (24-hour format)" value={pickupTime} onChangeText={setPickupTime} placeholder="09:00" />
+            <Text style={styles.scheduleSectionTitle}>Choose a date</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.scheduleDateRow}>
+              {scheduleDates.map((date) => (
+                <Pressable key={date.value} onPress={() => { setPickupDate(date.value); setPickupError(''); }} style={[styles.scheduleDateCard, pickupDate === date.value && styles.scheduleSelected]}>
+                  <Text style={[styles.scheduleMonth, pickupDate === date.value && styles.scheduleSelectedText]}>{date.month}</Text>
+                  <Text style={[styles.scheduleDay, pickupDate === date.value && styles.scheduleSelectedText]}>{date.day}</Text>
+                  <Text style={[styles.scheduleWeekday, pickupDate === date.value && styles.scheduleSelectedText]}>{date.weekday}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+            <Text style={styles.scheduleSectionTitle}>Available time slots</Text>
+            <View style={styles.scheduleSlotGrid}>
+              {scheduleSlots.map((slot) => {
+                const slotDate = pickupDate ? new Date(pickupDate + 'T' + slot.value + ':00') : null;
+                const unavailable = !pickupDate || (slotDate && slotDate <= new Date());
+                return <Pressable key={slot.value} disabled={unavailable} onPress={() => { setPickupTime(slot.value); setPickupError(''); }} style={[styles.scheduleSlot, pickupTime === slot.value && !unavailable && styles.scheduleSelected, unavailable && styles.scheduleDisabled]}><Text style={[styles.scheduleSlotText, pickupTime === slot.value && !unavailable && styles.scheduleSelectedText]}>{slot.label}</Text></Pressable>;
+              })}
+            </View>
             <View style={styles.modalActions}>
               <Pressable onPress={() => setPickupModal(false)} style={styles.secondaryButton}><Text style={styles.secondaryButtonText}>Cancel</Text></Pressable>
               <Pressable onPress={confirmPickup} style={styles.primaryButton}><Text style={styles.primaryButtonText}>Save time</Text></Pressable>
@@ -816,6 +1102,13 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut })
 
     </View>
   );
+}
+
+function NavItem({ icon, label, active, onPress }) {
+  return <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={[styles.navItem, active && styles.navItemActive]}><Text style={[styles.navEmoji, active && styles.navEmojiActive]}>{icon}</Text><Text style={[styles.navLabel, active && styles.navLabelActive]}>{label}</Text></Pressable>;
+}
+function ProfileRow({ icon, label, value, last = false }) {
+  return <View style={[styles.profileRow, last && styles.profileRowLast]}><Text style={styles.profileRowIcon}>{icon}</Text><View style={styles.flexOne}><Text style={styles.profileRowLabel}>{label}</Text><Text style={styles.profileRowValue}>{value || 'Not provided'}</Text></View></View>;
 }
 
 function ServiceCard({ service, quantity, onQuantityChange, wide, index }) {
@@ -841,17 +1134,13 @@ function ServiceCard({ service, quantity, onQuantityChange, wide, index }) {
             <Text style={styles.serviceDescription} numberOfLines={2}>{description}</Text>
             <Text style={styles.servicePrice}>{money(service.price)} <Text style={styles.serviceUnit}>/ {service.unit || 'unit'}</Text></Text>
           </View>
-          <View style={styles.quantityBox}>
-            <TextInput
-              value={String(quantity)}
-              onChangeText={onQuantityChange}
-              keyboardType="decimal-pad"
-              placeholder="0"
-              placeholderTextColor="#9d929c"
-              style={styles.quantityInput}
-              accessibilityLabel={`Quantity for ${service.name}`}
-            />
-            <Text style={styles.quantityUnit}>{service.unit || 'unit'}</Text>
+          <View style={styles.quantityControl}>
+            <Pressable accessibilityLabel={'Remove one ' + service.name} onPress={() => onQuantityChange(String(Math.max(0, (Number(quantity) || 0) - 1)))} style={styles.quantityButton}><Text style={styles.quantityButtonText}>−</Text></Pressable>
+            <View style={styles.quantityBox}>
+              <TextInput value={String(quantity)} onChangeText={onQuantityChange} keyboardType="decimal-pad" placeholder="0" placeholderTextColor="#9d929c" style={styles.quantityInput} accessibilityLabel={'Quantity for ' + service.name} />
+              <Text style={styles.quantityUnit}>{service.unit || 'unit'}</Text>
+            </View>
+            <Pressable accessibilityLabel={'Add one ' + service.name} onPress={() => onQuantityChange(String((Number(quantity) || 0) + 1))} style={styles.quantityButton}><Text style={styles.quantityButtonText}>+</Text></Pressable>
           </View>
         </View>
       </View>
@@ -859,6 +1148,50 @@ function ServiceCard({ service, quantity, onQuantityChange, wide, index }) {
   );
 }
 
+function OrderProgress({ ticket }) {
+  const isPickup = ticket.handoff_type === 'pickup_delivery';
+  const steps = [
+    { key: 'pending', icon: '🧾', label: 'Requested', detail: 'Booking sent to the shop.' },
+    { key: 'confirmed', icon: '✅', label: 'Confirmed', detail: 'The shop accepted your request.' },
+    ...(isPickup ? [{ key: 'picked_up_for_service', icon: '🚚', label: 'Picked up', detail: 'Driver collected your laundry.' }] : []),
+    { key: 'received', icon: '📦', label: 'Received', detail: 'Laundry arrived at the shop.' },
+    { key: 'processing', icon: '🫧', label: 'In process', detail: 'Laundry service is in progress.' },
+    { key: 'ready_for_pickup', icon: '🧺', label: 'Ready', detail: 'Laundry is ready for delivery.' },
+    { key: 'out_for_delivery', icon: '🚐', label: 'Out for delivery', detail: 'Driver is bringing it to you.' },
+    { key: 'completed', icon: '🏠', label: 'Delivered', detail: 'Laundry was delivered successfully.' },
+  ];
+  const statusToStep = { pending: 'pending', confirmed: 'confirmed', picked_up_for_service: 'picked_up_for_service', received: 'received', weighing: 'processing', washing: 'processing', drying: 'processing', folding: 'processing', ready: 'ready_for_pickup', ready_for_pickup: 'ready_for_pickup', out_for_delivery: 'out_for_delivery', completed: 'completed', picked_up: 'completed' };
+  const currentKey = statusToStep[ticket.status] || 'pending';
+  const currentIndex = Math.max(0, steps.findIndex((step) => step.key === currentKey));
+  const history = Array.isArray(ticket.history) ? ticket.history : [];
+  const historyFor = (key) => history.find((item) => key === 'processing' ? ['weighing', 'washing', 'drying', 'folding'].includes(item.status) : item.status === key);
+  if (['cancelled', 'rejected'].includes(ticket.status)) {
+    return <View style={styles.progressCard}><Text style={styles.progressCancelled}>{ticket.status === 'cancelled' ? 'Order cancelled' : 'Request declined'}</Text></View>;
+  }
+  return (
+    <View style={styles.progressCard}>
+      <Text style={styles.progressHeading}>Laundry journey</Text>
+      {steps.map((step, index) => {
+        const done = index <= currentIndex;
+        const current = index === currentIndex;
+        const event = historyFor(step.key);
+        return (
+          <View key={step.key} style={styles.progressRow}>
+            <View style={styles.progressRail}>
+              <View style={[styles.progressDot, done && styles.progressDotDone]}><Text style={styles.progressIcon}>{step.icon}</Text></View>
+              {index < steps.length - 1 ? <View style={[styles.progressLine, index < currentIndex && styles.progressLineDone]} /> : null}
+            </View>
+            <View style={styles.progressText}>
+              <Text style={[styles.progressLabel, !done && styles.progressLabelFuture]}>{step.label}{current ? ' · Current' : ''}</Text>
+              <Text style={[styles.progressDetail, !done && styles.progressDetailFuture]}>{step.detail}</Text>
+              {event?.created_at ? <Text style={styles.progressTime}>{formatDate(event.created_at)}</Text> : null}
+            </View>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
 function TicketCard({ ticket, onShareLocation, onRevokeLocation, locationBusy, locationError, retryReference, onRetryReferenceChange, onResubmitGcash, retryBusy }) {
   const lines = (ticket.services || []).map((line) => `${line.service_name} (${line.quantity} ${line.unit})`).join(' · ');
   const status = ticket.order_type === 'delivery_request' && ticket.status === 'ready_for_pickup' ? 'Ready for delivery' : statusLabel(ticket.status);
@@ -872,6 +1205,8 @@ function TicketCard({ ticket, onShareLocation, onRevokeLocation, locationBusy, l
       <View style={styles.ticketBody}>
         <View style={styles.ticketStatusRow}><Text style={styles.ticketDate}>{formatDate(ticket.created_at)}</Text><Text style={[styles.statusPill, statusColors]}>{status}</Text></View>
         {lines ? <Text style={styles.ticketLines}>{lines}</Text> : null}
+        <Text style={styles.ticketDetail}>{ticket.handoff_type === 'pickup_delivery' ? 'Pickup & Delivery' : ticket.handoff_type === 'dropoff_delivery' ? 'Drop-off & Delivery' : 'Drop-off & Pick-up'}</Text>
+        <OrderProgress ticket={ticket} />
         {ticket.expected_pickup ? <Text style={styles.ticketDetail}>🗓  Suggested {ticket.order_type === 'delivery_request' ? 'delivery' : 'pickup'}: {formatDate(ticket.expected_pickup)}</Text> : null}
         {ticket.gcash_payment_status ? (
           <View style={styles.ticketPaymentPanel}>
@@ -894,7 +1229,7 @@ function TicketCard({ ticket, onShareLocation, onRevokeLocation, locationBusy, l
             {ticket.delivery_address ? <Text style={styles.ticketDetail}>{ticket.delivery_address}</Text> : null}
             {ticket.status === 'out_for_delivery' ? (
               <View style={styles.customerLocationPanel}>
-                <Text style={styles.ticketDetail}>Live location sharing is optional. When enabled, your location updates while this app is open and stops when delivery ends. You can revoke it any time.</Text>
+                <Text style={styles.ticketDetail}>Location sharing is optional and updates while this app is open and connected.</Text>
                 {ticket.tracking?.customer_location_shared ? <Text style={styles.locationSharedText}>Your location is shared. Last updated: {formatDate(ticket.tracking.customer_location_updated_at)}</Text> : null}
                 {locationError ? <Text style={styles.errorBox}>{locationError}</Text> : null}
                 <Pressable disabled={locationBusy} onPress={onShareLocation} style={[styles.locationShareButton, locationBusy && styles.disabledButton]}>
@@ -926,6 +1261,24 @@ function TicketCard({ ticket, onShareLocation, onRevokeLocation, locationBusy, l
 }
 
 const styles = StyleSheet.create({
+
+  welcomeRoot: { flex: 1, overflow: 'hidden', alignItems: 'center', justifyContent: 'center', padding: 24 },
+  welcomeContent: { width: '100%', maxWidth: 520, alignItems: 'center', zIndex: 2 },
+  welcomeLogoShell: { width: 168, height: 168, borderRadius: 48, backgroundColor: COLORS.white, padding: 14, marginBottom: 24, shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 18, shadowOffset: { width: 0, height: 10 }, elevation: 8 },
+  welcomeLogo: { width: '100%', height: '100%' },
+  welcomeBrand: { color: COLORS.white, fontSize: 34, lineHeight: 40, fontWeight: '900', textAlign: 'center' },
+  welcomeTagline: { color: '#f3d4f7', fontSize: 19, fontWeight: '700', marginTop: 8, textAlign: 'center' },
+  welcomeDescription: { color: '#f3e8f4', fontSize: 15, lineHeight: 23, textAlign: 'center', maxWidth: 440, marginTop: 14 },
+  welcomeFeatureRow: { width: '100%', flexDirection: 'row', gap: 8, marginVertical: 26 },
+  welcomeFeature: { flex: 1, minHeight: 85, borderRadius: 16, backgroundColor: '#ffffff17', borderColor: '#ffffff2d', borderWidth: 1, alignItems: 'center', justifyContent: 'center', padding: 8 },
+  welcomeFeatureIcon: { fontSize: 25, marginBottom: 5 },
+  welcomeFeatureText: { color: COLORS.white, fontSize: 11, lineHeight: 15, fontWeight: '700', textAlign: 'center' },
+  welcomeStart: { width: '100%', minHeight: 56, borderRadius: 28, paddingHorizontal: 22, backgroundColor: COLORS.cream, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
+  welcomeStartText: { color: COLORS.plum, fontWeight: '900', fontSize: 16 },
+  welcomeStartArrow: { position: 'absolute', right: 22, color: COLORS.plum, fontSize: 25 },
+  welcomeAddress: { color: '#decce2', fontSize: 11, textAlign: 'center', marginTop: 20 },
+  welcomeBubbleOne: { position: 'absolute', width: 340, height: 340, borderRadius: 170, backgroundColor: '#ffffff09', right: -155, top: -80 },
+  welcomeBubbleTwo: { position: 'absolute', width: 270, height: 270, borderRadius: 135, backgroundColor: '#e5a6ed0c', left: -150, bottom: -65 },
   app: { flex: 1, backgroundColor: COLORS.dark },
   loadingScreen: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 18, backgroundColor: COLORS.dark },
   brandMark: { fontSize: 44 },
@@ -939,8 +1292,10 @@ const styles = StyleSheet.create({
   headerButton: { width: 38, height: 38, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: '#362c39' },
   headerButtonText: { color: '#f6eaf9', fontSize: 22, fontWeight: '700' },
   authRoot: { flex: 1, backgroundColor: COLORS.dark },
+  authScrollView: { flex: 1 },
   authScroll: { flexGrow: 1, padding: 16, alignItems: 'center', justifyContent: 'center' },
-  authContainer: { maxWidth: 520, alignSelf: 'center', gap: 16, paddingBottom: 16 },
+  authContainer: { width: '100%', maxWidth: 520, alignSelf: 'center', gap: 16, paddingBottom: 16 },
+  authContainerCompact: { gap: 12, paddingBottom: 8 },
   hero: { minHeight: 184, borderRadius: 20, overflow: 'hidden', justifyContent: 'center', paddingHorizontal: 24, marginTop: 16, marginBottom: 20 },
   heroCompact: { minHeight: 145, marginTop: 4, marginBottom: 4, paddingHorizontal: 20 },
   heroContent: { flexDirection: 'row', alignItems: 'center', gap: 16, zIndex: 1 },
@@ -955,17 +1310,19 @@ const styles = StyleSheet.create({
   authIntro: { alignItems: 'center', paddingHorizontal: 16 },
   authTitle: { color: COLORS.cream, fontSize: 25, fontWeight: '800', textAlign: 'center' },
   authDescription: { color: '#c7bac8', textAlign: 'center', marginTop: 6, lineHeight: 21, maxWidth: 410 },
-  authCard: { borderRadius: 20, backgroundColor: COLORS.cream, borderColor: '#eadfed', borderWidth: 1, padding: 20, gap: 12, ...(Platform.OS === 'web' ? { boxShadow: '0px 8px 16px rgba(0,0,0,0.22)' } : { shadowColor: '#000', shadowOpacity: 0.22, shadowRadius: 16, shadowOffset: { width: 0, height: 8 }, elevation: 6 }) },
-  authSwitch: { flexDirection: 'row', borderRadius: 15, borderColor: COLORS.line, borderWidth: 1, padding: 4, backgroundColor: '#f2ebf3', marginBottom: 2 },
+  authCard: { width: '100%', borderRadius: 20, backgroundColor: COLORS.cream, borderColor: '#eadfed', borderWidth: 1, padding: 20, gap: 12, ...(Platform.OS === 'web' ? { boxShadow: '0px 8px 16px rgba(0,0,0,0.22)' } : { shadowColor: '#000', shadowOpacity: 0.22, shadowRadius: 16, shadowOffset: { width: 0, height: 8 }, elevation: 6 }) },
+  authCardCompact: { padding: 14, borderRadius: 16 },
+  authSwitch: { width: '100%', flexDirection: 'row', borderRadius: 15, borderColor: COLORS.line, borderWidth: 1, padding: 4, backgroundColor: '#f2ebf3', marginBottom: 2 },
   authSwitchButton: { flex: 1, minHeight: 42, alignItems: 'center', justifyContent: 'center', borderRadius: 12 },
   authSwitchSelected: { backgroundColor: COLORS.plum },
   authSwitchText: { color: COLORS.muted, fontWeight: '700', fontSize: 14 },
   authSwitchSelectedText: { color: COLORS.white },
-  fieldWrap: { gap: 6, marginBottom: 2 },
+  fieldWrap: { width: '100%', gap: 6, marginBottom: 2 },
   fieldLabel: { color: '#514653', fontSize: 13, fontWeight: '700' },
-  inputShell: { flexDirection: 'row', alignItems: 'center', borderRadius: 12, borderColor: '#cfc2d1', borderWidth: 1, backgroundColor: '#fffdf9', minHeight: 47 },
-  input: { flex: 1, minWidth: 0, paddingHorizontal: 13, paddingVertical: 11, color: COLORS.ink, fontSize: 15, outlineStyle: 'none' },
-  inputRight: { paddingHorizontal: 12 },
+  inputShell: { width: '100%', flexDirection: 'row', overflow: 'hidden', alignItems: 'center', borderRadius: 12, borderColor: '#cfc2d1', borderWidth: 1, backgroundColor: '#fffdf9', minHeight: 47 },
+  input: { flexGrow: 1, flexShrink: 1, flexBasis: 0, minWidth: 0, paddingHorizontal: 13, paddingVertical: 11, color: COLORS.ink, fontSize: 15, outlineStyle: 'none' },
+  inputRight: { flexShrink: 0, minWidth: 62, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 },
+  passwordVisibilityButton: { minWidth: 52, minHeight: 42, alignItems: 'center', justifyContent: 'center' },
   showPassword: { color: COLORS.plum, fontWeight: '700', fontSize: 13 },
   primaryButton: { flex: 1, minHeight: 46, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.plum, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12 },
   primaryButtonText: { color: COLORS.white, fontSize: 15, fontWeight: '800' },
@@ -977,6 +1334,14 @@ const styles = StyleSheet.create({
   driverSignInLink: { alignSelf: 'center', paddingVertical: 5 },
   driverSignInText: { color: COLORS.plum, fontWeight: '700', fontSize: 13 },
   errorBox: { color: '#7d1d2b', backgroundColor: '#fbe6e8', borderRadius: 12, paddingHorizontal: 13, paddingVertical: 11, fontSize: 14, lineHeight: 20, marginVertical: 8 },
+  locationPinPanel: { marginBottom: 12, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: '#d5c8d7', backgroundColor: '#f7eff8' },
+  locationPinTitle: { color: COLORS.plum, fontSize: 13, fontWeight: '800' },
+  locationPinCopy: { color: COLORS.muted, fontSize: 11, lineHeight: 16, marginTop: 3 },
+  locationPinButton: { minHeight: 40, borderRadius: 11, backgroundColor: COLORS.plum, alignItems: 'center', justifyContent: 'center', marginTop: 10 },
+  locationPinButtonText: { color: COLORS.white, fontWeight: '800', fontSize: 13 },
+  locationPinSuccess: { color: '#315c3b', fontSize: 11, fontWeight: '700', marginTop: 8 },
+  locationPinWarning: { color: '#8a3c47' },
+  registrationMap: { marginTop: 10 },
   successBox: { color: '#314e39', backgroundColor: '#e3f0e5', borderRadius: 12, paddingHorizontal: 13, paddingVertical: 11, fontSize: 14, lineHeight: 20, marginVertical: 8 },
   homeRoot: { flex: 1, backgroundColor: COLORS.dark },
   homeScroll: { paddingHorizontal: 16, paddingBottom: 22, alignItems: 'center' },
@@ -996,7 +1361,9 @@ const styles = StyleSheet.create({
   filterChipActive: { backgroundColor: COLORS.purple, borderColor: COLORS.purple },
   filterText: { color: '#d2c7d2', fontSize: 13, fontWeight: '600' },
   filterTextActive: { color: COLORS.white, fontWeight: '800' },
-  serviceGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 16, paddingBottom: 18 },
+  serviceRuleNote: { borderRadius: 13, backgroundColor: '#2b2330', borderColor: '#554359', borderWidth: 1, padding: 12, marginBottom: 14 },
+  serviceRuleTitle: { color: '#f4e7f6', fontSize: 13, fontWeight: '900' },
+  serviceRuleCopy: { color: '#cfc0d1', fontSize: 11, lineHeight: 17, marginTop: 3 },  serviceGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 16, paddingBottom: 18 },
   serviceCard: { borderRadius: 17, overflow: 'hidden', backgroundColor: COLORS.cream, borderColor: '#ddd2df', borderWidth: 1, ...(Platform.OS === 'web' ? { boxShadow: '0px 3px 8px rgba(0,0,0,0.14)' } : { shadowColor: '#000', shadowOpacity: 0.14, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 2 }) },
   serviceCardWide: { width: '48.8%' },
   serviceCardNarrow: { width: '100%' },
@@ -1011,7 +1378,10 @@ const styles = StyleSheet.create({
   serviceDescription: { color: '#716974', fontSize: 12, minHeight: 17, lineHeight: 16 },
   servicePrice: { color: COLORS.copper, fontSize: 15, fontWeight: '900', marginTop: 4 },
   serviceUnit: { color: '#786f78', fontSize: 12, fontWeight: '600' },
-  quantityBox: { width: 82, borderRadius: 12, borderWidth: 1, borderColor: '#d5c8d7', backgroundColor: '#fffdf9', alignItems: 'center', padding: 6 },
+  quantityControl: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  quantityButton: { width: 34, height: 42, borderRadius: 11, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.purpleLight, borderColor: '#d5c8d7', borderWidth: 1 },
+  quantityButtonText: { color: COLORS.plum, fontSize: 22, fontWeight: '800', lineHeight: 24 },
+  quantityBox: { width: 62, borderRadius: 12, borderWidth: 1, borderColor: '#d5c8d7', backgroundColor: '#fffdf9', alignItems: 'center', padding: 4 },
   quantityInput: { width: '100%', color: COLORS.ink, textAlign: 'center', fontWeight: '800', fontSize: 16, padding: 4, outlineStyle: 'none' },
   quantityUnit: { color: COLORS.muted, fontSize: 10, marginTop: 1 },
   inlineLoading: { paddingVertical: 36, alignItems: 'center', justifyContent: 'center', gap: 10 },
@@ -1028,6 +1398,18 @@ const styles = StyleSheet.create({
   gcashAmountRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderTopColor: '#514454', borderTopWidth: 1, paddingTop: 10, marginTop: 2 },
   gcashAmount: { color: '#e2b378', fontSize: 19, fontWeight: '900' },
   fulfillmentRow: { flexDirection: 'row', gap: 10, marginVertical: 10 },
+  handoffChoices: { gap: 10, marginVertical: 12 },
+  handoffCard: { minHeight: 82, flexDirection: 'row', alignItems: 'center', gap: 12, borderRadius: 15, borderWidth: 1, borderColor: '#6e4a78', padding: 13, backgroundColor: '#211c23' },
+  handoffCardActive: { backgroundColor: COLORS.plum, borderColor: '#bd87c7' },
+  handoffCardDisabled: { opacity: 0.42 },
+  deliveryRestriction: { borderRadius: 12, borderWidth: 1, borderColor: '#a95e65', backgroundColor: '#3b2027', padding: 11, marginTop: 10 },
+  deliveryRestrictionTitle: { color: '#ffd4d7', fontWeight: '900', fontSize: 13 },
+  deliveryRestrictionCopy: { color: '#f0c6cb', fontSize: 11, lineHeight: 16, marginTop: 3 },
+  handoffIcon: { fontSize: 28 },
+  handoffTitle: { color: '#d9bce0', fontSize: 14, fontWeight: '900' },
+  handoffTitleActive: { color: COLORS.white },
+  handoffCopy: { color: '#bcaebe', fontSize: 11, lineHeight: 16, marginTop: 3 },
+  handoffCopyActive: { color: '#f0dff3' },
   fulfillmentChoice: { flex: 1, minHeight: 42, borderRadius: 13, borderWidth: 1, borderColor: '#6e4a78', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 },
   fulfillmentChoiceActive: { backgroundColor: COLORS.plum, borderColor: COLORS.plum },
   fulfillmentChoiceText: { color: '#d9bce0', fontWeight: '700', fontSize: 13, textAlign: 'center' },
@@ -1053,12 +1435,64 @@ const styles = StyleSheet.create({
   bookButtonDisabled: { backgroundColor: '#777078' },
   bookButtonText: { color: COLORS.white, fontSize: 15, fontWeight: '800' },
   estimateNote: { color: COLORS.muted, fontSize: 11, lineHeight: 16, textAlign: 'center', marginTop: 9 },
-  bottomNav: { minHeight: 62, backgroundColor: COLORS.cream, borderTopColor: '#ded3df', borderTopWidth: 1, flexDirection: 'row', justifyContent: 'center', gap: 24, paddingHorizontal: 20, zIndex: 3 },
-  navItem: { minWidth: 120, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderTopWidth: 3, borderTopColor: 'transparent' },
-  navItemActive: { borderTopColor: COLORS.copper },
-  navEmoji: { fontSize: 18 },
-  navLabel: { color: '#776c78', fontSize: 13, fontWeight: '700' },
+  bottomNav: { minHeight: 68, paddingBottom: Platform.OS === 'ios' ? 8 : 2, backgroundColor: COLORS.cream, borderTopColor: '#ded3df', borderTopWidth: 1, flexDirection: 'row', paddingHorizontal: 3, zIndex: 3 },
+  navItem: { flex: 1, minWidth: 0, alignItems: 'center', justifyContent: 'center', gap: 2, borderTopWidth: 3, borderTopColor: 'transparent', paddingVertical: 5 },
+  navItemActive: { borderTopColor: COLORS.copper, backgroundColor: '#fbf2e9' },
+  navEmoji: { color: '#8a8089', fontSize: 21, lineHeight: 24 },
+  navEmojiActive: { color: COLORS.plum },
+  navLabel: { color: '#776c78', fontSize: 10, fontWeight: '700' },
   navLabelActive: { color: COLORS.plum },
+  homeWelcomeCard: { borderRadius: 20, padding: 20, backgroundColor: COLORS.cream, borderColor: '#eadfed', borderWidth: 1, marginBottom: 14 },
+  homeEyebrow: { color: COLORS.copper, fontSize: 11, fontWeight: '900', letterSpacing: 1.4 },
+  homeHeadline: { color: COLORS.ink, fontSize: 25, fontWeight: '900', marginTop: 6 },
+  homeLead: { color: COLORS.muted, fontSize: 14, lineHeight: 21, marginTop: 7 },
+  homeCta: { minHeight: 48, borderRadius: 15, marginTop: 16, paddingHorizontal: 17, backgroundColor: COLORS.plum, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  homeCtaText: { color: COLORS.white, fontWeight: '800', fontSize: 15 },
+  homeCtaArrow: { color: COLORS.white, fontSize: 23 },
+  homeTrackCta: { minHeight: 45, borderRadius: 15, marginTop: 10, paddingHorizontal: 17, borderColor: '#d9bddf', borderWidth: 1, backgroundColor: '#251e28', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  homeTrackCtaText: { color: '#f1e3f2', fontWeight: '800', fontSize: 14 },
+  homeTrackCtaArrow: { color: '#e5b4ec', fontSize: 20 },
+  homeStatsRow: { flexDirection: 'row', gap: 10, marginBottom: 22 },
+  homeStat: { flex: 1, padding: 15, borderRadius: 16, backgroundColor: COLORS.darkPanel, borderColor: '#493b4c', borderWidth: 1 },
+  homeStatValue: { color: COLORS.cream, fontSize: 25, fontWeight: '900' },
+  homeStatLabel: { color: '#c7bac8', fontSize: 11, marginTop: 3 },
+  sectionHeadingRow: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 12 },
+  sectionHeading: { color: COLORS.cream, fontSize: 20, fontWeight: '900' },
+  sectionCopy: { color: '#bdb0bf', fontSize: 12, marginTop: 3 },
+  sectionLink: { color: '#deb4e5', fontWeight: '800', fontSize: 12, padding: 7 },
+  homeServiceGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 18 },
+  homeServiceCard: { width: '48%', flexGrow: 1, minHeight: 156, padding: 14, borderRadius: 17, backgroundColor: COLORS.cream, borderColor: '#e1d6e3', borderWidth: 1 },
+  homeServiceIcon: { width: 58, height: 58, borderRadius: 29, alignItems: 'center', justifyContent: 'center', backgroundColor: '#eee2f1', marginBottom: 10 },
+  homeServiceEmoji: { fontSize: 28 },
+  homeServiceName: { color: COLORS.ink, fontSize: 14, lineHeight: 18, fontWeight: '800' },
+  homeServicePrice: { color: COLORS.copper, fontSize: 11, fontWeight: '800', marginTop: 5 },
+  homeInfoRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 8 },
+  homeInfoCard: { minWidth: 150, flex: 1, borderRadius: 17, padding: 16, backgroundColor: COLORS.darkPanel, borderColor: '#493b4c', borderWidth: 1 },
+  homeInfoIcon: { fontSize: 28 },
+  homeInfoTitle: { color: COLORS.cream, fontWeight: '800', fontSize: 14, marginTop: 9 },
+  homeInfoCopy: { color: '#bdb0bf', fontSize: 11, lineHeight: 17, marginTop: 4 },
+  contentCard: { padding: 20, borderRadius: 18, backgroundColor: COLORS.cream, marginBottom: 12 },
+  contentEyebrow: { color: COLORS.copper, fontWeight: '900', fontSize: 11, letterSpacing: 1.3 },
+  contentTitle: { color: COLORS.ink, fontSize: 22, lineHeight: 29, fontWeight: '900', marginTop: 7 },
+  contentText: { color: COLORS.muted, fontSize: 14, lineHeight: 22, marginTop: 10 },
+  aboutGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  aboutCard: { flexGrow: 1, width: '48%', minHeight: 145, borderRadius: 17, padding: 16, backgroundColor: COLORS.darkPanel, borderColor: '#493b4c', borderWidth: 1 },
+  aboutIcon: { fontSize: 27 },
+  aboutTitle: { color: COLORS.cream, fontSize: 15, fontWeight: '800', marginTop: 9 },
+  aboutText: { color: '#c7bac8', fontSize: 12, lineHeight: 18, marginTop: 5 },
+  profileHeader: { alignItems: 'center', paddingVertical: 32 },
+  profileAvatar: { width: 88, height: 88, borderRadius: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.purple, borderColor: '#d7b7dd', borderWidth: 3 },
+  profileAvatarText: { color: COLORS.white, fontSize: 37, fontWeight: '900' },
+  profileName: { color: COLORS.cream, fontSize: 23, fontWeight: '900', marginTop: 13 },
+  profileEmail: { color: '#bdb0bf', fontSize: 13, marginTop: 3 },
+  profileCard: { borderRadius: 18, backgroundColor: COLORS.cream, paddingHorizontal: 16, marginBottom: 14 },
+  profileRow: { minHeight: 72, flexDirection: 'row', alignItems: 'center', gap: 13, borderBottomColor: '#e5dce6', borderBottomWidth: 1 },
+  profileRowLast: { borderBottomWidth: 0 },
+  profileRowIcon: { width: 32, fontSize: 22, textAlign: 'center' },
+  profileRowLabel: { color: COLORS.muted, fontSize: 11, fontWeight: '700' },
+  profileRowValue: { color: COLORS.ink, fontSize: 14, lineHeight: 19, fontWeight: '700', marginTop: 3 },
+  signOutButton: { minHeight: 50, borderRadius: 15, borderColor: '#9b6472', borderWidth: 1, alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
+  signOutButtonText: { color: '#f0b8c3', fontSize: 14, fontWeight: '800' },
   ticketHeadingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4, marginBottom: 14 },
   ticketCard: { borderRadius: 17, overflow: 'hidden', backgroundColor: COLORS.cream, borderColor: '#ddd2df', borderWidth: 1, marginBottom: 14 },
   ticketBand: { minHeight: 53, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 15, gap: 10 },
@@ -1081,6 +1515,22 @@ const styles = StyleSheet.create({
   statusGreen: { color: '#305438', backgroundColor: '#e1eee1' },
   statusRed: { color: '#8d2936', backgroundColor: '#f9e2e4' },
   ticketLines: { color: COLORS.ink, fontSize: 14, lineHeight: 21, marginTop: 12 },
+  progressCard: { borderRadius: 14, borderColor: '#e0d2e5', borderWidth: 1, backgroundColor: '#fbf7fc', padding: 13, marginTop: 13 },
+  progressHeading: { color: COLORS.plum, fontSize: 15, fontWeight: '900', marginBottom: 12 },
+  progressRow: { minHeight: 72, flexDirection: 'row' },
+  progressRail: { width: 42, alignItems: 'center' },
+  progressDot: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: '#e7e1e7', borderColor: '#d4cbd5', borderWidth: 1 },
+  progressDotDone: { backgroundColor: '#e2f0e3', borderColor: '#83b189' },
+  progressIcon: { fontSize: 17 },
+  progressLine: { width: 2, flex: 1, backgroundColor: '#ddd5de', marginVertical: 3 },
+  progressLineDone: { backgroundColor: '#69a471' },
+  progressText: { flex: 1, paddingLeft: 8, paddingBottom: 12 },
+  progressLabel: { color: COLORS.ink, fontSize: 13, fontWeight: '900' },
+  progressLabelFuture: { color: '#aaa1aa' },
+  progressDetail: { color: COLORS.muted, fontSize: 11, lineHeight: 16, marginTop: 2 },
+  progressDetailFuture: { color: '#bbb3bb' },
+  progressTime: { color: COLORS.green, fontSize: 10, fontWeight: '700', marginTop: 3 },
+  progressCancelled: { color: COLORS.red, fontSize: 14, fontWeight: '900' },
   ticketPaymentPanel: { gap: 5, borderRadius: 12, backgroundColor: '#f3eaf4', padding: 12, marginTop: 12 },
   retryReferenceInput: { minHeight: 44, paddingHorizontal: 11, borderRadius: 10, borderColor: '#cfc2d1', borderWidth: 1, color: COLORS.ink, backgroundColor: '#fffdf9', marginTop: 5, outlineStyle: 'none' },
   ticketDetail: { color: '#665d67', fontSize: 12, marginTop: 8 },
@@ -1091,9 +1541,22 @@ const styles = StyleSheet.create({
   smallPrimary: { paddingVertical: 11, paddingHorizontal: 17, borderRadius: 13, backgroundColor: COLORS.plum, marginTop: 8 },
   smallPrimaryText: { color: COLORS.white, fontWeight: '800', fontSize: 13 },
   modalShade: { flex: 1, backgroundColor: '#09070bcc', alignItems: 'center', justifyContent: 'center', padding: 18 },
+  verificationModalKeyboard: { width: '100%', maxWidth: 460 },
   modalCard: { width: '100%', maxWidth: 460, borderRadius: 20, backgroundColor: COLORS.cream, padding: 20, gap: 12, borderColor: '#ded3df', borderWidth: 1 },
   modalTitle: { color: COLORS.ink, fontSize: 20, fontWeight: '900' },
   modalCopy: { color: COLORS.muted, fontSize: 13, lineHeight: 19, marginBottom: 2 },
   modalError: { color: COLORS.red, fontSize: 13, fontWeight: '700' },
+  scheduleSectionTitle: { color: COLORS.ink, fontSize: 15, fontWeight: '900', marginTop: 3 },
+  scheduleDateRow: { gap: 8, paddingVertical: 4 },
+  scheduleDateCard: { width: 68, minHeight: 92, borderRadius: 14, borderColor: COLORS.line, borderWidth: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#fffdf9' },
+  scheduleMonth: { color: COLORS.muted, fontSize: 11 },
+  scheduleDay: { color: COLORS.ink, fontSize: 22, fontWeight: '900', marginVertical: 3 },
+  scheduleWeekday: { color: COLORS.muted, fontSize: 11 },
+  scheduleSlotGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  scheduleSlot: { width: '48%', flexGrow: 1, minHeight: 46, borderRadius: 12, borderColor: COLORS.line, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8, backgroundColor: '#fffdf9' },
+  scheduleSlotText: { color: COLORS.ink, fontSize: 12, fontWeight: '700', textAlign: 'center' },
+  scheduleSelected: { backgroundColor: COLORS.plum, borderColor: COLORS.plum },
+  scheduleSelectedText: { color: COLORS.white },
+  scheduleDisabled: { opacity: 0.35, backgroundColor: '#e7e1e7' },
   modalActions: { flexDirection: 'row', gap: 10, marginTop: 5 },
 });

@@ -1,0 +1,12 @@
+.git
+.github
+.vscode
+mobile_app
+docs
+database
+*.zip
+*.docx
+install.bat
+README.md
+.env
+.env.*

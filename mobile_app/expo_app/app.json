@@ -3,9 +3,9 @@
     "name": "Pia's Laundry Shop",
     "slug": "pias-laundry-shop-customer",
     "scheme": "piaslaundry",
-    "version": "1.0.0",
+    "version": "1.0.4",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/pias-logo-app-icon.png",
     "userInterfaceStyle": "dark",
     "ios": {
       "bundleIdentifier": "com.piaslaundry.customer",
@@ -13,12 +13,10 @@
     },
     "android": {
       "package": "com.piaslaundry.customer",
-      "versionCode": 1,
+      "versionCode": 5,
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
+        "backgroundColor": "#FFFFFF",
+        "foregroundImage": "./assets/pias-logo-app-icon.png"
       },
       "permissions": [
         "android.permission.ACCESS_COARSE_LOCATION",
@@ -60,6 +58,9 @@
       "eas": {
         "projectId": "38b99452-bab6-40e2-8882-5f1c503667c8"
       }
+    },
+    "cli": {
+      "appVersionSource": "local"
     }
   }
 }

@@ -1,15 +1,28 @@
-/* Shared JavaScript for the Laundry Shop Management System. */
+/* Shared JavaScript for the Laundry POS system. */
 
 document.addEventListener('DOMContentLoaded', function () {
-  // Mobile sidebar toggle
+  // Mobile sidebar drawer
   const toggle = document.getElementById('menuToggle');
   const sidebar = document.getElementById('sidebar');
+  const backdrop = document.getElementById('sidebarBackdrop');
   if (toggle && sidebar) {
-    toggle.addEventListener('click', () => sidebar.classList.toggle('open'));
-    document.addEventListener('click', (ev) => {
-      if (sidebar.classList.contains('open') && !sidebar.contains(ev.target) && !toggle.contains(ev.target)) {
-        sidebar.classList.remove('open');
-      }
+    const closeSidebar = () => {
+      sidebar.classList.remove('open');
+      document.body.classList.remove('nav-open');
+      toggle.setAttribute('aria-expanded', 'false');
+      toggle.setAttribute('aria-label', 'Open navigation menu');
+    };
+    const openSidebar = () => {
+      sidebar.classList.add('open');
+      document.body.classList.add('nav-open');
+      toggle.setAttribute('aria-expanded', 'true');
+      toggle.setAttribute('aria-label', 'Close navigation menu');
+    };
+    toggle.addEventListener('click', () => sidebar.classList.contains('open') ? closeSidebar() : openSidebar());
+    backdrop?.addEventListener('click', closeSidebar);
+    sidebar.querySelectorAll('a').forEach((link) => link.addEventListener('click', closeSidebar));
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && sidebar.classList.contains('open')) closeSidebar();
     });
   }
 

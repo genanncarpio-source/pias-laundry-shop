@@ -53,14 +53,18 @@ To develop a Point-of-Sale and laundry shop management system for Pia's Laundry 
 | Module | Capabilities |
 |---|---|
 | Authentication & roles | Login, logout, session management, Admin and Staff roles |
+| Customer accounts | Customer registration and sign-in, private customer order history |
 | Point of Sale | Service catalogue, cart, walk-in and drop-off, four payment methods, discount, change, printable receipt |
 | Order management | Order list with filters, order detail, status workflow, status timeline, receipt reprint |
 | Customers | Records with contact details, order count and total spent |
 | Services | Price list maintenance, activate/deactivate |
 | Expenses | Recording by category and date |
 | Reports | Sales, expenses, net income, top services, payment-method breakdown, 7-day revenue chart |
+| Inventory | Supplies on hand, low-stock alerts, movement history, restock expenses |
+| Daily cash closing | Cashier opening float, cash sales, refunds, counted cash and variance |
 | Refund controls | Cancellation reasons and administrator-recorded refunds |
 | Customer status lookup | Public order status lookup using receipt number and registered phone |
+| Customer web ordering | Signed-in customers request active services; requests enter the shared order queue unpaid |
 | Backup & restore | Administrator JSON backup download and guarded restore |
 | Employees | User account management (admin only) |
 | Settings | Shop information and receipt footer |
@@ -71,7 +75,9 @@ To develop a Point-of-Sale and laundry shop management system for Pia's Laundry 
    phone's messaging app; staff review and send it. No SMS provider is connected.
 2. **Single-branch.** The system models one shop location.
 3. **No online payment.** Payment methods are recorded, not processed.
-4. **Local-network deployment.** The system is designed to run on the shop computer
+4. **No email verification or password recovery for customer accounts.** Customers
+   register with an email and password; account verification and email reset are not connected.
+5. **Local-network deployment.** The system is designed to run on the shop computer
    under XAMPP or Laragon; it is not hardened for exposure to the public internet.
 
 ---
@@ -85,9 +91,9 @@ reports, and may delete records.
 
 ### 4.2 Staff / Cashier
 
-Operational access. Creates service tickets, updates ticket status, and manages
-customers. Staff cannot access expenses, reports, employee management,
-backup/restore or settings.
+Operational access. Creates transactions, updates order status, manages customers,
+and views orders. Can open and close their own cash session, but cannot access
+expenses, reports, inventory, employee management, backup/restore or settings.
 
 ### 4.3 Permission matrix
 
@@ -153,7 +159,8 @@ backup/restore or settings.
                      ┌─────────▼──────────┐
                      │  MySQL / MariaDB   │
                      │  `laundry_pos`     │
-                     │  12 tables         │
+                     │  12 core tables +  │
+                     │ customer_accounts  │
                      └────────────────────┘
 ```
 
@@ -315,9 +322,9 @@ web root, or from a sub-folder of either.
 | Item | Value |
 |---|---|
 | Target platform | XAMPP or Laragon on Windows (Apache + MySQL + PHP) |
-| Document root | `C:\xampp\htdocs\laundry-pos` (XAMPP) or `C:\laragon\www\laundry-pos` (Laragon) |
-| Application URL | `http://localhost/laundry-pos/` |
-| Database | `laundry_pos` (12 tables) |
+| Document root | `C:\xampp\htdocs\laundry-pias` (XAMPP) or `C:\laragon\www\laundry-pias` (Laragon) |
+| Application URL | `http://localhost/laundry-pias/` |
+| Database | `laundry_pos` (12 core tables; `customer_accounts` is added by the feature upgrade) |
 | Installation steps | Copy files → import `database/laundry_pos.sql` (phpMyAdmin or `install.bat`) → start Apache and MySQL |
 | External dependency | None |
 | Build step | None — no Composer, no bundler, no compilation |

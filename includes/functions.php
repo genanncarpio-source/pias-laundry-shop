@@ -188,11 +188,88 @@ function order_status_labels(): array
 {
     return [
         'pending'   => 'Pending',
-        'washing'   => 'In Progress',
+        'confirmed' => 'Accepted',
+        'picked_up_for_service' => 'Picked Up by Driver',
+        'received' => 'Received at Shop',
+        'weighing' => 'Weighing',
+        'washing'   => 'Washing',
+        'drying' => 'Drying',
+        'folding' => 'Folding',
+        'ready_for_pickup' => 'Ready for Pickup',
+        'out_for_delivery' => 'Out for Delivery',
+        'completed' => 'Completed',
         'ready'     => 'Ready for Pickup',
-        'picked_up' => 'Picked Up',
+        'picked_up' => 'Completed',
         'cancelled' => 'Cancelled',
+        'rejected' => 'Rejected',
     ];
+}
+
+function order_process_statuses(array $items): array
+{
+    $needsWash = false;
+    $needsDry = false;
+    foreach ($items as $item) {
+        $category = strtolower(trim((string)($item['category'] ?? '')));
+        $serviceName = strtolower(trim((string)($item['service_name'] ?? '')));
+        if ($category === 'wash') $needsWash = true;
+        if ($category === 'dry') $needsDry = true;
+        if (in_array($category, ['full service', 'wash & fold'], true)
+            || strpos($serviceName, 'full service') !== false
+            || strpos($serviceName, 'wash, dry') !== false
+            || strpos($serviceName, 'wash & fold') !== false
+            || strpos($serviceName, 'wash and fold') !== false) {
+            return ['washing', 'drying', 'folding'];
+        }
+    }
+    if ($needsWash || $needsDry) {
+        $stages = [];
+        if ($needsWash) $stages[] = 'washing';
+        if ($needsDry) $stages[] = 'drying';
+        return $stages;
+    }
+    return ['washing', 'drying'];
+}
+
+function order_next_statuses(string $status, array $items = []): array
+{
+    $processStages = order_process_statuses($items);
+    $firstProcessStage = $processStages[0] ?? 'washing';
+    $stageTransitions = [];
+    foreach ($processStages as $index => $stage) {
+        $nextStage = $processStages[$index + 1] ?? 'ready_for_pickup';
+        $stageTransitions[$stage] = [$nextStage === 'folding' ? 'ready_for_pickup' : $nextStage];
+    }
+    $flow = [
+        'pending' => ['confirmed', 'rejected'],
+        'confirmed' => ['received', 'picked_up_for_service'],
+        'picked_up_for_service' => ['received'],
+        'received' => [$firstProcessStage],
+        'weighing' => [$firstProcessStage],
+        'folding' => ['ready_for_pickup'],
+        'ready_for_pickup' => ['out_for_delivery', 'completed'],
+        'out_for_delivery' => ['completed'],
+        'ready' => ['completed'], // legacy states already in use
+    ];
+    $flow = array_merge($flow, $stageTransitions);
+    return $flow[$status] ?? [];
+}
+
+/** Identify orders containing the Full Service (wash, dry, fold) process. */
+function order_has_full_service(array $items): bool
+{
+    foreach ($items as $item) {
+        $category = strtolower(trim((string)($item['category'] ?? '')));
+        $serviceName = strtolower(trim((string)($item['service_name'] ?? '')));
+        if (in_array($category, ['full service', 'wash & fold'], true)
+            || strpos($serviceName, 'full service') !== false
+            || strpos($serviceName, 'wash, dry') !== false
+            || strpos($serviceName, 'wash & fold') !== false
+            || strpos($serviceName, 'wash and fold') !== false) {
+            return true;
+        }
+    }
+    return false;
 }
 
 /** Append an entry to the order status timeline. */
@@ -202,6 +279,28 @@ function add_order_history(int $orderId, string $status, string $note = '', ?int
         "INSERT INTO order_history (order_id, status, note, changed_by) VALUES (?, ?, ?, ?)"
     );
     $stmt->execute([$orderId, $status, $note !== '' ? $note : null, $userId]);
+}
+
+/** Add an in-app notification for a customer or staff account. */
+function add_notification(string $audience, int $audienceId, ?int $orderId, string $title, string $message, string $type = 'info'): void
+{
+    if (!in_array($audience, ['customer', 'staff'], true) || $audienceId < 1) return;
+    $stmt = db()->prepare('INSERT INTO notifications (audience, audience_id, order_id, title, message, type) VALUES (?, ?, ?, ?, ?, ?)');
+    $stmt->execute([$audience, $audienceId, $orderId, $title, $message, $type]);
+}
+
+/** Record an auditable change without storing secrets. */
+function add_audit_log(string $action, string $module, ?int $recordId = null, $oldValue = null, $newValue = null): void
+{
+    $user = function_exists('current_user') ? current_user() : null;
+    $stmt = db()->prepare('INSERT INTO audit_logs (user_id, role, action, module, record_id, old_value, new_value, ip_address) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+    $stmt->execute([
+        $user['id'] ?? null, $user['role'] ?? (!empty($_SESSION['customer_id']) ? 'customer' : null),
+        $action, $module, $recordId,
+        $oldValue === null ? null : (is_scalar($oldValue) ? (string)$oldValue : json_encode($oldValue)),
+        $newValue === null ? null : (is_scalar($newValue) ? (string)$newValue : json_encode($newValue)),
+        substr((string)($_SERVER['REMOTE_ADDR'] ?? ''), 0, 45) ?: null,
+    ]);
 }
 
 /** Full status timeline for one order (oldest first). */

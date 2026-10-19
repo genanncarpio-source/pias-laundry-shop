@@ -1,9 +1,9 @@
 # Database Design
 
-**System:** Laundry Shop Management System for Pia's Laundry Shop
+**System:** P.O.S. and Laundry Shop Management System for Pia's Laundry Shop
 **Database:** `laundry_pos`
 **Engine:** InnoDB · **Charset:** utf8mb4 / utf8mb4_unicode_ci
-**Tables:** 10
+**Tables:** 12 core tables in the base SQL file; `customer_accounts` is added by the feature upgrade (13 total after upgrade)
 
 ---
 
@@ -50,6 +50,7 @@
 | `orders` | `order_items.order_id` | 1 : N | CASCADE |
 | `orders` | `order_history.order_id` | 1 : N | CASCADE |
 | `services` | `order_items.service_id` | 1 : N | (nullable, no FK constraint) |
+| `customers` | `customer_accounts.customer_id` | 1 : 0..1 | CASCADE |
 
 `order_items.service_id` intentionally has no foreign key: a line item keeps its own
 `service_name`, `unit` and `unit_price` snapshot so that historical receipts stay
@@ -77,16 +78,15 @@ correct even if the service is later renamed, repriced or deleted.
 
 ---
 
-### 2.2 `customers` — customer records and mobile account credentials
+### 2.2 `customers` — customer records
 
 | Column | Type | Null | Key | Default | Notes |
 |---|---|---|---|---|---|
 | `id` | int unsigned | NO | PRI | auto_increment | |
 | `name` | varchar(100) | NO | MUL | | |
-| `phone` | varchar(30) | YES | | | Used for service updates and customer records |
+| `phone` | varchar(30) | YES | | | Shown on the POS customer selector |
 | `email` | varchar(120) | YES | UNI | | Optional; unique when present |
 | `address` | varchar(255) | YES | | | |
-| `password_hash` | varchar(255) | YES | | NULL | Customer app password hash; NULL for staff-entered guest records |
 | `is_active` | tinyint(1) | NO | | 1 | |
 | `created_at` | datetime | NO | | current_timestamp | |
 
@@ -103,11 +103,11 @@ correct even if the service is later renamed, repriced or deleted.
 |---|---|---|---|---|---|
 | `id` | int unsigned | NO | PRI | auto_increment | |
 | `name` | varchar(120) | NO | | | |
-| `category` | varchar(60) | NO | | 'Wash & Fold' | Groups services in the staff and customer apps |
+| `category` | varchar(60) | NO | | 'Wash & Fold' | Groups the POS catalogue |
 | `unit` | enum('kg','piece') | NO | | 'kg' | Pricing basis |
 | `price` | decimal(10,2) | NO | | 0.00 | |
 | `description` | varchar(255) | YES | | | |
-| `is_active` | tinyint(1) | NO | | 1 | Inactive services are hidden from service intake |
+| `is_active` | tinyint(1) | NO | | 1 | Inactive services are hidden from the POS |
 | `created_at` | datetime | NO | | current_timestamp | |
 
 Seeded with 8 services across 3 categories.
@@ -119,8 +119,8 @@ Seeded with 8 services across 3 categories.
 | Column | Type | Null | Key | Default | Notes |
 |---|---|---|---|---|---|
 | `id` | int unsigned | NO | PRI | auto_increment | |
-| `order_number` | varchar(40) | NO | UNI | | Staff tickets use `ORD-…`; mobile requests use `TKT-…` |
-| `customer_id` | int unsigned | YES | MUL | NULL | Customer who requested the service, when linked |
+| `order_number` | varchar(40) | NO | UNI | | Format `ORD-YYYYMMDD-NNN` |
+| `customer_id` | int unsigned | YES | MUL | NULL | NULL = walk-in |
 | `customer_name` | varchar(100) | YES | | | Denormalised name snapshot |
 | `order_type` | enum('walk_in','drop_off') | NO | | 'walk_in' | |
 | `status` | enum('pending','washing','ready','picked_up','cancelled') | NO | MUL | 'pending' | Workflow state |
@@ -129,8 +129,7 @@ Seeded with 8 services across 3 categories.
 | `total` | decimal(10,2) | NO | | 0.00 | subtotal − discount |
 | `amount_paid` | decimal(10,2) | NO | | 0.00 | |
 | `change_due` | decimal(10,2) | NO | | 0.00 | |
-| `payment_method` | varchar(30) | NO | | 'cash' | cash / gcash / maya / card / unpaid |
-| `paid_at` | datetime | YES | | NULL | When payment was recorded; NULL for unpaid tickets |
+| `payment_method` | varchar(30) | NO | | 'cash' | cash / gcash / maya / card |
 | `expected_pickup` | datetime | YES | | NULL | Drop-off orders |
 | `notes` | varchar(255) | YES | | | |
 | `created_by` | int unsigned | YES | MUL | NULL | FK → `users.id` |
@@ -139,7 +138,7 @@ Seeded with 8 services across 3 categories.
 
 **Indexes:** `PRIMARY`, `UNIQUE uq_orders_number`, `idx_orders_status`, `idx_orders_created`
 
-**Ticket-number generation.** The staff intake form computes
+**Order-number generation.** The POS computes
 `MAX(CAST(SUBSTRING(order_number, 14) AS UNSIGNED)) + 1` for today's prefix,
 rather than `COUNT(*)`. This keeps numbering collision-free when orders are
 deleted or when the database was seeded with sample rows.
@@ -214,16 +213,29 @@ Writes use `INSERT … ON DUPLICATE KEY UPDATE` so saving an unchanged value is 
 
 ---
 
-### 2.9 `order_adjustments`
+### 2.9 `inventory_items` and `inventory_movements`
+
+`inventory_items` stores supply names, units, current stock and alert thresholds.
+`inventory_movements` records received/used quantities, optional unit costs, notes,
+timestamps and the staff account. A priced restock is also added to `expenses`.
+
+### 2.10 `cash_closings`
+
+Stores one cashier session per user and business date: opening float, counted cash,
+expected drawer, variance, notes and open/closed timestamps. Cash expected is based on
+that cashier's cash orders and cash refunds during the session.
+
+### 2.11 `order_adjustments`
 
 Stores cancellation reasons and refund amount, method, reason, staff account and time.
 Reports subtract refunds from active orders; cancelled orders are excluded from sales.
 
-### 2.10 `customer_sessions`
+### 2.12 `customer_accounts`
 
-Stores SHA-256 hashes of random customer app bearer tokens with expiry dates. Raw
-tokens are returned to the app at registration or login and are not stored in the
-database or included in backups. Deleting a customer deletes their sessions.
+Stores the customer's unique login email and password hash. Each account belongs
+to one `customers` record; deleting the customer cascades to its account. This
+table is created by the additive feature upgrade or when a customer account page
+is opened. Existing customer records do not receive login accounts automatically.
 
 ## 3. Seed data
 

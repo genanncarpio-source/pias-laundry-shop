@@ -52,6 +52,8 @@ if (session_status() === PHP_SESSION_NONE) {
 
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/functions.php';
+require_once __DIR__ . '/feature_schema.php';
+ensure_workflow_schema();
 
 date_default_timezone_set('Asia/Manila');
 
@@ -63,7 +65,7 @@ function current_user(): ?array
     }
     static $user = null;
     if ($user === null) {
-        $stmt = db()->prepare("SELECT * FROM users WHERE id = ?");
+        $stmt = db()->prepare("SELECT * FROM users WHERE id = ? AND is_active = 1");
         $stmt->execute([$_SESSION['user_id']]);
         $user = $stmt->fetch() ?: null;
     }

@@ -3,7 +3,7 @@ require_once __DIR__ . '/includes/auth.php';
 require_admin();
 require_once __DIR__ . '/includes/feature_schema.php';
 ensure_feature_schema();
-ensure_customer_auth_schema();
+ensure_workflow_schema();
 
 $pdo = db();
 
@@ -15,20 +15,39 @@ if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $to))   $to   = date('Y-m-d');
 
 $params = [$from, $to . ' 23:59:59'];
 
-/* Revenue includes only payments actually collected. */
+/* Overall sales */
 $stmt = $pdo->prepare(
     "SELECT COUNT(*) AS orders,
-            COALESCE(SUM(total),0) AS billed,
+            COALESCE(SUM(total),0) AS revenue,
             COALESCE(SUM(discount),0) AS discounts
      FROM orders
-     WHERE status <> 'cancelled' AND created_at BETWEEN ? AND ?"
+     WHERE status NOT IN ('cancelled','rejected') AND payment_method <> 'pending' AND created_at BETWEEN ? AND ?"
 );
 $stmt->execute($params);
 $summary = $stmt->fetch();
-$collectionStmt = $pdo->prepare("SELECT COALESCE(SUM(GREATEST(amount_paid - change_due, 0)),0) FROM orders WHERE status <> 'cancelled' AND GREATEST(amount_paid - change_due, 0) > 0 AND COALESCE(paid_at, created_at) BETWEEN ? AND ?");
-$collectionStmt->execute($params);
-$summary['revenue'] = (float)$collectionStmt->fetchColumn();
-$avgOrder = $summary['orders'] > 0 ? $summary['billed'] / $summary['orders'] : 0;
+$avgOrder = $summary['orders'] > 0 ? $summary['revenue'] / $summary['orders'] : 0;
+$paidStmt = $pdo->prepare(
+    "SELECT COALESCE(SUM(
+       CASE WHEN EXISTS (SELECT 1 FROM payments p WHERE p.order_id = o.id)
+            THEN (SELECT COALESCE(SUM(p2.amount),0) FROM payments p2 WHERE p2.order_id = o.id AND p2.status = 'paid')
+            ELSE GREATEST(0, o.amount_paid - o.change_due) END
+     ),0)
+     FROM orders o
+     WHERE o.status <> 'cancelled' AND o.created_at BETWEEN ? AND ?"
+);
+$paidStmt->execute($params);
+$paidTotal = (float)$paidStmt->fetchColumn();
+$balanceStmt = $pdo->prepare(
+    "SELECT COALESCE(SUM(GREATEST(0, o.total -
+       CASE WHEN EXISTS (SELECT 1 FROM payments p WHERE p.order_id = o.id)
+            THEN (SELECT COALESCE(SUM(p2.amount),0) FROM payments p2 WHERE p2.order_id = o.id AND p2.status = 'paid')
+            ELSE GREATEST(0, o.amount_paid - o.change_due) END
+     )),0)
+     FROM orders o
+     WHERE o.status NOT IN ('cancelled','rejected') AND o.created_at BETWEEN ? AND ?"
+);
+$balanceStmt->execute($params);
+$outstandingTotal = (float)$balanceStmt->fetchColumn();
 $refundStmt = $pdo->prepare("SELECT COALESCE(SUM(a.amount),0) FROM order_adjustments a JOIN orders o ON o.id = a.order_id WHERE a.adjustment_type = 'refund' AND o.status <> 'cancelled' AND a.created_at BETWEEN ? AND ?");
 $refundStmt->execute($params);
 $refundTotal = (float)$refundStmt->fetchColumn();
@@ -36,12 +55,19 @@ $netSales = (float)$summary['revenue'] - $refundTotal;
 
 /* Payment method breakdown */
 $stmt = $pdo->prepare(
-    "SELECT payment_method, COUNT(*) AS cnt, COALESCE(SUM(GREATEST(amount_paid - change_due, 0)),0) AS total
-     FROM orders
-     WHERE status <> 'cancelled' AND COALESCE(paid_at, created_at) BETWEEN ? AND ? AND GREATEST(amount_paid - change_due, 0) > 0
+    "SELECT payment_method, COUNT(*) AS cnt, COALESCE(SUM(amount),0) AS total
+     FROM (
+       SELECT p.payment_method, p.amount
+       FROM payments p JOIN orders o ON o.id = p.order_id
+       WHERE p.status = 'paid' AND o.status NOT IN ('cancelled','rejected') AND o.created_at BETWEEN ? AND ?
+       UNION ALL
+       SELECT o.payment_method, o.total AS amount FROM orders o
+       WHERE o.status NOT IN ('cancelled','rejected') AND o.payment_method <> 'pending' AND o.created_at BETWEEN ? AND ?
+         AND NOT EXISTS (SELECT 1 FROM payments p2 WHERE p2.order_id = o.id)
+     ) payment_rows
      GROUP BY payment_method"
 );
-$stmt->execute($params);
+$stmt->execute(array_merge($params, $params));
 $payments = $stmt->fetchAll();
 
 /* Top services */
@@ -49,7 +75,7 @@ $stmt = $pdo->prepare(
     "SELECT oi.service_name, SUM(oi.quantity) AS qty, SUM(oi.subtotal) AS revenue
      FROM order_items oi
      JOIN orders o ON o.id = oi.order_id
-     WHERE o.status <> 'cancelled' AND COALESCE(o.paid_at, o.created_at) BETWEEN ? AND ? AND GREATEST(o.amount_paid - o.change_due, 0) >= o.total
+     WHERE o.status NOT IN ('cancelled','rejected') AND o.payment_method <> 'pending' AND o.created_at BETWEEN ? AND ?
      GROUP BY oi.service_name
      ORDER BY revenue DESC
      LIMIT 10"
@@ -59,10 +85,10 @@ $topServices = $stmt->fetchAll();
 
 /* Daily breakdown */
 $stmt = $pdo->prepare(
-    "SELECT DATE(COALESCE(paid_at, created_at)) d, COUNT(*) AS orders, COALESCE(SUM(GREATEST(amount_paid - change_due, 0)),0) AS revenue
+    "SELECT DATE(created_at) d, COUNT(*) AS orders, COALESCE(SUM(total),0) AS revenue
      FROM orders
-     WHERE status <> 'cancelled' AND GREATEST(amount_paid - change_due, 0) > 0 AND COALESCE(paid_at, created_at) BETWEEN ? AND ?
-     GROUP BY DATE(COALESCE(paid_at, created_at))
+     WHERE status NOT IN ('cancelled','rejected') AND payment_method <> 'pending' AND created_at BETWEEN ? AND ?
+     GROUP BY DATE(created_at)
      ORDER BY d"
 );
 $stmt->execute($params);
@@ -81,6 +107,40 @@ $expenseTotal = (float)$stmt->fetchColumn();
 
 $net = $netSales - $expenseTotal;
 
+if (($_GET['export'] ?? '') === 'csv') {
+    $csvOrders = $pdo->prepare("SELECT o.order_number, o.customer_name, o.status, o.total, o.created_at,
+        CASE WHEN EXISTS (SELECT 1 FROM payments p WHERE p.order_id = o.id)
+             THEN (SELECT COALESCE(SUM(p2.amount),0) FROM payments p2 WHERE p2.order_id = o.id AND p2.status = 'paid')
+             ELSE GREATEST(0, o.amount_paid - o.change_due) END AS paid_amount
+        FROM orders o WHERE o.created_at BETWEEN ? AND ? ORDER BY o.created_at, o.id");
+    $csvOrders->execute($params);
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename="laundry-sales-' . $from . '-to-' . $to . '.csv"');
+    $out = fopen('php://output', 'w');
+    fputcsv($out, ['Laundry Shop Sales Report', $from, $to]);
+    fputcsv($out, ['Orders', (int)$summary['orders']]);
+    fputcsv($out, ['Gross Sales', (float)$summary['revenue']]);
+    fputcsv($out, ['Payments Received', $paidTotal]);
+    fputcsv($out, ['Outstanding Balance', $outstandingTotal]);
+    fputcsv($out, ['Refunds', $refundTotal]);
+    fputcsv($out, []);
+    fputcsv($out, ['Order Number', 'Customer', 'Status', 'Total', 'Paid', 'Created At']);
+    foreach ($csvOrders->fetchAll() as $row) {
+        $customerName = (string)($row['customer_name'] ?? '');
+        if (preg_match('/^[=+\-@]/', $customerName)) $customerName = "'" . $customerName;
+        fputcsv($out, [$row['order_number'], $customerName, $row['status'], $row['total'], $row['paid_amount'], $row['created_at']]);
+    }
+    fputcsv($out, []);
+    fputcsv($out, ['Service', 'Quantity', 'Gross Sales']);
+    foreach ($topServices as $service) {
+        $serviceName = (string)$service['service_name'];
+        if (preg_match('/^[=+\-@]/', $serviceName)) $serviceName = "'" . $serviceName;
+        fputcsv($out, [$serviceName, $service['qty'], $service['revenue']]);
+    }
+    fclose($out);
+    exit;
+}
+
 $pageTitle = 'Reports';
 $pageSubtitle = 'Sales and performance reports';
 include __DIR__ . '/includes/header.php';
@@ -98,33 +158,33 @@ include __DIR__ . '/includes/header.php';
         <input type="date" id="to" name="to" value="<?= e($to) ?>">
       </div>
       <div style="align-self:flex-end;">
-        <button type="submit" class="btn btn-primary">Apply</button>
+        <button type="submit" class="btn btn-primary">Apply Filters</button>
       </div>
     </div>
-    <button type="button" class="btn btn-outline" data-print>🖨️ Print Report</button>
+    <div class="form-actions"><button type="button" class="btn btn-outline" data-print>Print Report</button><a class="btn btn-outline" href="reports.php?from=<?= e($from) ?>&amp;to=<?= e($to) ?>&amp;export=csv">Export CSV</a></div>
   </form>
 </div>
 
 <div class="grid stats">
   <div class="card stat-card">
     <span class="stat-icon">💰</span>
-    <div class="stat-label">Payments Collected</div>
+    <div class="stat-label">Gross Sales</div>
     <div class="stat-value"><?= money($summary['revenue']) ?></div>
   </div>
   <div class="card stat-card">
     <span class="stat-icon">↩</span>
     <div class="stat-label">Refunds</div>
     <div class="stat-value"><?= money($refundTotal) ?></div>
-    <div class="stat-sub">Refunds recorded for active service tickets</div>
+    <div class="stat-sub">For active orders in this date range</div>
   </div>
   <div class="card stat-card">
     <span class="stat-icon">🧾</span>
-    <div class="stat-label">Service Tickets</div>
+    <div class="stat-label">Orders</div>
     <div class="stat-value"><?= (int)$summary['orders'] ?></div>
   </div>
   <div class="card stat-card">
     <span class="stat-icon">📐</span>
-    <div class="stat-label">Average Ticket Charge</div>
+    <div class="stat-label">Average Order Value</div>
     <div class="stat-value"><?= money($avgOrder) ?></div>
   </div>
   <div class="card stat-card">
@@ -133,6 +193,11 @@ include __DIR__ . '/includes/header.php';
     <div class="stat-value" style="color:<?= $net >= 0 ? 'var(--green)' : 'var(--red)' ?>"><?= money($net) ?></div>
     <div class="stat-sub">After <?= money($refundTotal) ?> refunds and <?= money($expenseTotal) ?> expenses</div>
   </div>
+</div>
+
+<div class="grid two mt-16">
+  <div class="card"><h2>Payments received</h2><p class="stat-value"><?= money($paidTotal) ?></p></div>
+  <div class="card"><h2>Outstanding balances</h2><p class="stat-value"><?= money($outstandingTotal) ?></p></div>
 </div>
 
 <div class="grid two mt-16">
@@ -156,10 +221,10 @@ include __DIR__ . '/includes/header.php';
   </div>
 
   <div class="card">
-    <h2>Payments by Method</h2>
+    <h2>Payment Methods (gross sales)</h2>
     <div class="table-wrap">
       <table>
-      <thead><tr><th>Method</th><th class="num">Payments</th><th class="num">Collected</th></tr></thead>
+        <thead><tr><th>Method</th><th class="num">Transactions</th><th class="num">Total</th></tr></thead>
         <tbody>
           <?php foreach ($payments as $p): ?>
           <tr>
@@ -178,7 +243,7 @@ include __DIR__ . '/includes/header.php';
   <h2>Daily Breakdown</h2>
   <div class="table-wrap">
     <table>
-      <thead><tr><th>Date</th><th class="num">Service Tickets</th><th class="num">Payments Collected</th><th class="num">Refunds</th><th class="num">Net Collected</th></tr></thead>
+      <thead><tr><th>Date</th><th class="num">Orders</th><th class="num">Gross Sales</th><th class="num">Refunds</th><th class="num">Net Sales</th></tr></thead>
       <tbody>
         <?php if (!$daily): ?><tr><td colspan="5" class="empty-state">No data in range.</td></tr><?php endif; ?>
         <?php foreach ($daily as $d): ?>

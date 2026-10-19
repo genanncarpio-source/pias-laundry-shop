@@ -27,7 +27,7 @@ This guide is written for the people who will actually operate the shop: the
 
 ## 1. Signing in
 
-1. Open the browser and go to `http://localhost/laundry-pos/`
+1. Open the browser and go to `http://localhost/laundry-pias/`
 2. Enter your username and password.
 3. Click the 👁️ icon to reveal the password if you want to check it.
 4. Click **Sign In**.
@@ -287,7 +287,7 @@ Go to **💸 Expenses**.
 2. Choose or type a **Category**, e.g. Supplies, Utilities, Rent, Salaries,
    Repairs, Transportation.
 3. Enter the **Amount**, **Expense date** and **Paid using** method. Choose Cash when
-   paying from the till so the payment method is recorded accurately.
+   paying from the till so cash closing includes it.
 4. Click **Save**.
 
 The page groups the month's expenses by category and shows the monthly total. Use the
@@ -386,6 +386,21 @@ Open **Backup & Restore** and download a JSON backup regularly. Keep the file in
 separate, private location. Restoring replaces the current database records, so make
 a fresh backup first. Select the file and type `RESTORE` to confirm.
 
+### Inventory (Admin)
+
+Open **Inventory** and add supplies with a unit and low-stock alert level. Record stock
+received or used whenever supplies change. For a purchase, enter its cost per unit;
+the system also records the cost as a Supplies expense. Leave cost blank if that
+purchase was already entered as an expense. Low-stock items are marked in the list.
+
+### Daily cash closing
+
+At the start of a shift, open **Cash Closing** and enter the cash float. At closing,
+count the drawer and compare it with the expected amount. The calculation includes
+cash orders made by your account during the session, less cash refunds and cash
+expenses recorded by your account, plus the opening float. Record a note if the drawer differs. Each staff account can
+open one session per day.
+
 ### Cancellations and refunds
 
 When cancelling an order, enter a reason. Administrators can also record a refund at
@@ -393,13 +408,10 @@ that time, or record a partial refund from the order page later. Each refund req
 an amount, method and reason. The order page keeps the adjustment history; Reports
 subtract refunds from active-order sales and exclude cancelled orders.
 
-### Customer notifications and order lookup
+### Customer app, notifications and order tracking
+Customers register, sign in, book pickup or delivery, and follow their service tickets in the Expo mobile app. The app uses the shop's PHP JSON API and shared database. Customer accounts, order records, and status history remain available to the mobile app and staff; staff manage these bookings from **Orders** and collect payment at the shop.
 
-When an order is **Ready for Pickup**, open it and choose **Open SMS app**. Review and
-send the prepared message from the phone's messaging app; the system does not send
-texts automatically. The receipt also shows the order lookup page. Customers enter
-the order number and the phone number linked to the order to see its status. The shop
-website must be reachable from the customer's phone for lookup to work.
+When an order is **Ready for Pickup**, open it and choose **Open SMS app**. Review and send the prepared message from the phone's messaging app; the system does not send texts automatically. Customers can follow order status and delivery location in the mobile app.
 
 ## 12. Daily routine
 
@@ -408,7 +420,7 @@ website must be reachable from the customer's phone for lookup to work.
 1. Start the stack:
    - **XAMPP** — open the XAMPP Control Panel and click **Start** next to Apache and MySQL.
    - **Laragon** — click **Start All**.
-2. Open `http://localhost/laundry-pos/` and sign in.
+2. Open `http://localhost/laundry-pias/` and sign in.
 3. Check the **Dashboard** — note any orders left **Pending** or **Ready for Pickup**
    from yesterday.
 

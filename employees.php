@@ -1,13 +1,15 @@
 <?php
 require_once __DIR__ . '/includes/auth.php';
 require_admin();
+require_once __DIR__ . '/includes/feature_schema.php';
+ensure_workflow_schema();
 
 $pdo = db();
 
 /* ---------- Add employee ---------- */
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add'])) {
     if (!csrf_verify($_POST['csrf'] ?? null)) {
-        flash_set('error', 'Invalid request.');
+        flash_set('error', 'This form has expired. Refresh the page and try again.');
     } else {
         $fullName = trim($_POST['full_name'] ?? '');
         $username = trim($_POST['username'] ?? '');
@@ -16,18 +18,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add'])) {
         $phone    = trim($_POST['phone'] ?? '');
         $role     = ($_POST['role'] ?? 'staff') === 'admin' ? 'admin' : 'staff';
 
-        if ($fullName === '' || $username === '' || strlen($password) < 6) {
-            flash_set('error', 'Full name, username and a password of at least 6 characters are required.');
+        if ($fullName === '' || $username === '' || strlen($password) < 8) {
+            flash_set('error', 'Full name, username and a password of at least 8 characters are required.');
         } else {
             try {
                 $stmt = $pdo->prepare("INSERT INTO users (full_name, username, password, email, phone, role) VALUES (?, ?, ?, ?, ?, ?)");
                 $stmt->execute([$fullName, $username, password_hash($password, PASSWORD_DEFAULT), $email, $phone, $role]);
+                add_audit_log('Staff account created', 'users', (int)$pdo->lastInsertId(), null, ['username' => $username, 'role' => $role]);
                 flash_set('success', 'Employee account created.');
             } catch (PDOException $ex) {
                 if ($ex->getCode() == 23000) {
                     flash_set('error', 'That username is already taken.');
                 } else {
-                    flash_set('error', 'Could not create the account.');
+                    flash_set('error', 'Unable to create this account. Check the details and try again.');
                 }
             }
         }
@@ -38,7 +41,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add'])) {
 /* ---------- Toggle active ---------- */
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['toggle'])) {
     if (!csrf_verify($_POST['csrf'] ?? null)) {
-        flash_set('error', 'Invalid request.');
+        flash_set('error', 'This form has expired. Refresh the page and try again.');
     } else {
         $id = (int)$_POST['id'];
         if ($id === (int)$_SESSION['user_id']) {
@@ -46,6 +49,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['toggle'])) {
         } else {
             $stmt = $pdo->prepare("UPDATE users SET is_active = 1 - is_active WHERE id = ?");
             $stmt->execute([$id]);
+            add_audit_log('User active status toggled', 'users', $id);
             flash_set('success', 'Account status updated.');
         }
     }
@@ -55,14 +59,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['toggle'])) {
 /* ---------- Reset password ---------- */
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['reset_password'])) {
     if (!csrf_verify($_POST['csrf'] ?? null)) {
-        flash_set('error', 'Invalid request.');
+        flash_set('error', 'This form has expired. Refresh the page and try again.');
     } else {
         $newPass = (string)($_POST['new_password'] ?? '');
-        if (strlen($newPass) < 6) {
-            flash_set('error', 'New password must be at least 6 characters.');
+        if (strlen($newPass) < 8) {
+            flash_set('error', 'New password must be at least 8 characters.');
         } else {
             $stmt = $pdo->prepare("UPDATE users SET password = ? WHERE id = ?");
             $stmt->execute([password_hash($newPass, PASSWORD_DEFAULT), (int)$_POST['id']]);
+            add_audit_log('User password reset by administrator', 'users', (int)$_POST['id']);
             flash_set('success', 'Password reset.');
         }
     }
@@ -72,15 +77,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['reset_password'])) {
 /* ---------- Delete ---------- */
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete'])) {
     if (!csrf_verify($_POST['csrf'] ?? null)) {
-        flash_set('error', 'Invalid request.');
+        flash_set('error', 'This form has expired. Refresh the page and try again.');
     } else {
         $id = (int)$_POST['id'];
         if ($id === (int)$_SESSION['user_id']) {
             flash_set('error', 'You cannot delete your own account.');
         } else {
-            $stmt = $pdo->prepare("DELETE FROM users WHERE id = ?");
+            $stmt = $pdo->prepare("UPDATE users SET is_active = 0 WHERE id = ?");
             $stmt->execute([$id]);
-            flash_set('success', 'Account deleted.');
+            flash_set('success', 'Account deactivated. Historical records are preserved.');
         }
     }
     redirect('employees.php');
@@ -109,7 +114,7 @@ include __DIR__ . '/includes/header.php';
       <div class="form-row">
         <div>
           <label for="password">Password *</label>
-          <input type="password" id="password" name="password" required minlength="6">
+          <input type="password" id="password" name="password" required minlength="8">
         </div>
         <div>
           <label for="role">Role</label>
@@ -146,20 +151,13 @@ include __DIR__ . '/includes/header.php';
             <td><span class="badge badge-<?= $u['is_active'] ? 'active' : 'inactive' ?>"><?= $u['is_active'] ? 'Active' : 'Inactive' ?></span></td>
             <td class="right" style="white-space:nowrap;">
               <?php if ($u['id'] != $_SESSION['user_id']): ?>
-                <form method="post" action="employees.php" style="display:inline;">
+                <form method="post" action="employees.php" style="display:inline;" data-confirm="<?= $u['is_active'] ? 'Deactivate this staff account?' : 'Activate this staff account?' ?>">
                   <?= csrf_field() ?>
                   <input type="hidden" name="toggle" value="1">
                   <input type="hidden" name="id" value="<?= (int)$u['id'] ?>">
-                  <button class="btn btn-outline btn-sm" type="submit"><?= $u['is_active'] ? 'Deactivate' : 'Activate' ?></button>
+                  <button class="btn <?= $u['is_active'] ? 'btn-danger' : 'btn-outline' ?> btn-sm" type="submit"><?= $u['is_active'] ? 'Deactivate' : 'Activate' ?></button>
                 </form>
-                <button class="btn btn-outline btn-sm" data-modal-open="resetModal-<?= (int)$u['id'] ?>">Reset PW</button>
-                <form method="post" action="employees.php" style="display:inline;"
-                      onsubmit="return confirm('Delete this account?');">
-                  <?= csrf_field() ?>
-                  <input type="hidden" name="delete" value="1">
-                  <input type="hidden" name="id" value="<?= (int)$u['id'] ?>">
-                  <button class="btn btn-danger btn-sm" type="submit">Delete</button>
-                </form>
+                <button class="btn btn-outline btn-sm" data-modal-open="resetModal-<?= (int)$u['id'] ?>">Reset Password</button>
               <?php else: ?>
                 <span class="muted">—</span>
               <?php endif; ?>
@@ -179,7 +177,7 @@ include __DIR__ . '/includes/header.php';
                 <input type="hidden" name="reset_password" value="1">
                 <input type="hidden" name="id" value="<?= (int)$u['id'] ?>">
                 <label for="new_password_<?= (int)$u['id'] ?>">New Password</label>
-                <input type="password" id="new_password_<?= (int)$u['id'] ?>" name="new_password" required minlength="6">
+                <input type="password" id="new_password_<?= (int)$u['id'] ?>" name="new_password" required minlength="8">
                 <div class="form-actions">
                   <button type="submit" class="btn btn-primary">Reset Password</button>
                   <button type="button" class="btn btn-outline" data-modal-close>Cancel</button>

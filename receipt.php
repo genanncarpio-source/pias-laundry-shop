@@ -1,15 +1,19 @@
 <?php
 require_once __DIR__ . '/includes/auth.php';
-require_login();
+require_once __DIR__ . '/includes/feature_schema.php';
+ensure_workflow_schema();
+$staffUser = current_user();
+if (!$staffUser) redirect('index.php');
 
 $pdo = db();
 $id = (int)($_GET['id'] ?? 0);
 
-$stmt = $pdo->prepare("SELECT o.*, c.phone AS customer_phone FROM orders o LEFT JOIN customers c ON c.id = o.customer_id WHERE o.id = ?");
+$stmt = $pdo->prepare('SELECT o.*, c.phone AS customer_phone FROM orders o LEFT JOIN customers c ON c.id = o.customer_id WHERE o.id = ?');
 $stmt->execute([$id]);
 $order = $stmt->fetch();
 
 if (!$order) {
+    http_response_code(404);
     echo '<p style="padding:30px;text-align:center;">Order not found.</p>';
     exit;
 }
@@ -17,21 +21,17 @@ if (!$order) {
 $items = $pdo->prepare("SELECT * FROM order_items WHERE order_id = ?");
 $items->execute([$id]);
 $lines = $items->fetchAll();
+$paidStmt = $pdo->prepare("SELECT COALESCE(SUM(amount), 0) FROM payments WHERE order_id = ? AND status = 'paid'");
+$paidStmt->execute([$id]);
+$paidTotal = (float)$paidStmt->fetchColumn();
+if ($paidTotal <= 0) $paidTotal = max(0, (float)$order['amount_paid'] - (float)$order['change_due']);
+$balance = max(0, (float)$order['total'] - $paidTotal);
 
 $shopName    = get_setting('shop_name', "Pia's Laundry Shop");
 $shopAddress = get_setting('shop_address');
 $shopPhone   = get_setting('shop_phone');
 $receiptNote = get_setting('receipt_note');
-$paidTotal = max(0, (float)$order['amount_paid'] - (float)$order['change_due']);
-$balanceDue = max(0, round((float)$order['total'] - $paidTotal, 2));
-
 $isNew = isset($_GET['new']);
-$trackUrl = get_setting('tracking_url');
-if ($trackUrl === '') {
-    $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-    $basePath = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
-    $trackUrl = $scheme . '://' . ($_SERVER['HTTP_HOST'] ?? 'localhost') . $basePath . '/track.php';
-}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -39,9 +39,9 @@ if ($trackUrl === '') {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Receipt · <?= e($order['order_number']) ?></title>
-<link rel="stylesheet" href="assets/css/style.css?v=5">
+<link rel="stylesheet" href="assets/css/style.css?v=8">
 </head>
-<body style="background:#fff8fb;padding:30px 12px;">
+<body style="background:#fffaf2;padding:30px 12px;">
 
 <div class="receipt">
   <div class="rc-center rc-shop"><?= e($shopName) ?></div>
@@ -50,7 +50,7 @@ if ($trackUrl === '') {
 
   <div class="rc-divider"></div>
 
-  <div class="rc-line"><span>Ticket #:</span><span><?= e($order['order_number']) ?></span></div>
+  <div class="rc-line"><span>Order #:</span><span><?= e($order['order_number']) ?></span></div>
   <div class="rc-line"><span>Date:</span><span><?= e(date('M j, Y g:i A', strtotime($order['created_at']))) ?></span></div>
   <div class="rc-line"><span>Type:</span><span><?= $order['order_type'] === 'drop_off' ? 'Drop-off' : 'Walk-in' ?></span></div>
   <?php if ($order['customer_name']): ?>
@@ -85,18 +85,18 @@ if ($trackUrl === '') {
   <?php endif; ?>
   <div class="rc-line rc-bold"><span>TOTAL</span><span><?= money($order['total']) ?></span></div>
   <div class="rc-line"><span>Payment</span><span><?= e(strtoupper($order['payment_method'])) ?></span></div>
-  <div class="rc-line"><span>Paid</span><span><?= money($paidTotal) ?></span></div>
-  <?php if ($balanceDue > 0): ?><div class="rc-line rc-bold"><span>Balance Due</span><span><?= money($balanceDue) ?></span></div><?php endif; ?>
   <?php if ($order['payment_method'] === 'cash'): ?>
     <div class="rc-line"><span>Amount Tendered</span><span><?= money($order['amount_paid']) ?></span></div>
     <div class="rc-line"><span>Change</span><span><?= money($order['change_due']) ?></span></div>
+    <div class="rc-line"><span>Amount Paid</span><span><?= money($paidTotal) ?></span></div>
+    <div class="rc-line"><span>Balance</span><span><?= money($balance) ?></span></div>
   <?php endif; ?>
 
   <div class="rc-divider"></div>
 
   <div class="rc-center"><?= e($receiptNote) ?></div>
-  <?php if (!empty($order['customer_phone'])): ?><div class="rc-divider"></div><div class="rc-center rc-track-url">Check ticket status: <?= e($trackUrl) ?><br>Use this ticket number and your phone number.</div><?php endif; ?>
-  <div class="rc-center muted" style="font-size:11px;"><?= e($shopName) ?> · Laundry Shop Management</div>
+  <?php if (!empty($order['customer_phone'])): ?><div class="rc-divider"></div><div class="rc-center rc-track-url">Use the Pia's Laundry Shop mobile app to track this order.</div><?php endif; ?>
+  <div class="rc-center muted" style="font-size:11px;"><?= e($shopName) ?> · Laundry Service</div>
 </div>
 
 <div class="no-print">
@@ -104,7 +104,7 @@ if ($trackUrl === '') {
   <?php if (!$isNew): ?>
     <a class="btn btn-outline" href="order_view.php?id=<?= (int)$id ?>">← Back to order</a>
   <?php endif; ?>
-  <a class="btn btn-outline" href="pos.php">New Service Ticket</a>
+  <a class="btn btn-outline" href="orders.php">Back to Orders</a>
 </div>
 
 <?php if ($isNew): ?>

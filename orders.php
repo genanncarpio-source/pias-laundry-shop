@@ -1,6 +1,8 @@
 <?php
 require_once __DIR__ . '/includes/auth.php';
 require_login();
+require_once __DIR__ . '/includes/feature_schema.php';
+ensure_workflow_schema();
 
 $pdo = db();
 
@@ -19,7 +21,18 @@ $offset  = ($page - 1) * $perPage;
 $where  = [];
 $params = [];
 
-if (in_array($status, ['pending', 'washing', 'ready', 'picked_up', 'cancelled'], true)) {
+if ($status === 'expected') {
+    $where[] = "o.status IN ('pending','confirmed','received','weighing','washing','drying','folding','ready','ready_for_pickup','out_for_delivery')";
+} elseif ($status === 'completed_today') {
+    $where[] = "o.status IN ('completed','picked_up') AND DATE(o.completed_at) = CURDATE()";
+} elseif ($status === 'cash_unpaid_pickup') {
+    $where[] = "o.status IN ('ready','ready_for_pickup') AND o.payment_method = 'cash' AND
+      (CASE WHEN EXISTS (SELECT 1 FROM payments p WHERE p.order_id = o.id)
+            THEN (SELECT COALESCE(SUM(p2.amount),0) FROM payments p2 WHERE p2.order_id = o.id AND p2.status = 'paid')
+            ELSE GREATEST(0, o.amount_paid - o.change_due) END) < o.total";
+} elseif (in_array($status, ['ready', 'ready_for_pickup'], true)) {
+    $where[] = "o.status IN ('ready','ready_for_pickup')";
+} elseif (in_array($status, array_keys(order_status_labels()), true)) {
     $where[] = "o.status = ?";
     $params[] = $status;
 } else { $status = ''; }
@@ -28,7 +41,7 @@ if ($search !== '') {
     $params[] = "%$search%";
     $params[] = "%$search%";
 }
-if (in_array($type, ['walk_in', 'drop_off'], true)) {
+if (in_array($type, ['walk_in', 'drop_off', 'pickup_request', 'delivery_request'], true)) {
     $where[] = 'o.order_type = ?';
     $params[] = $type;
 } else { $type = ''; }
@@ -56,22 +69,22 @@ $totalPages = max(1, (int)ceil($total / $perPage));
 $tabs = [
     ''          => 'All',
     'pending'   => 'Pending',
-    'washing'   => 'In Progress',
+    'expected'  => 'Services in Process',
+    'confirmed' => 'Accepted',
+    'received'  => 'Received',
+    'washing'   => 'Washing',
+    'drying'    => 'Drying',
+    'folding'   => 'Folding',
     'ready'     => 'Ready for Pickup',
-    'picked_up' => 'Picked Up',
+    'completed' => 'Completed',
+    'completed_today' => 'Completed Today',
     'cancelled' => 'Cancelled',
 ];
 
-$statusLabels = [
-    'pending'   => 'Pending',
-    'washing'   => 'In Progress',
-    'ready'     => 'Ready for Pickup',
-    'picked_up' => 'Picked Up',
-    'cancelled' => 'Cancelled',
-];
+$statusLabels = order_status_labels();
 
-$pageTitle = 'Laundry Tickets';
-$pageSubtitle = 'Track laundry service from drop-off through pickup';
+$pageTitle = 'Avail Service';
+$pageSubtitle = 'Track and manage service requests';
 include __DIR__ . '/includes/header.php';
 ?>
 
@@ -88,8 +101,8 @@ include __DIR__ . '/includes/header.php';
 
 <form method="get" action="orders.php" class="card order-filters mb-16">
   <input type="hidden" name="status" value="<?= e($status) ?>">
-  <div><label for="orderSearch">Search ticket or customer</label><input id="orderSearch" type="search" name="search" placeholder="Ticket number or customer name" value="<?= e($search) ?>"></div>
-  <div><label for="orderTypeFilter">Service intake</label><select id="orderTypeFilter" name="type"><option value="">All types</option><option value="walk_in" <?= $type === 'walk_in' ? 'selected' : '' ?>>Walk-in</option><option value="drop_off" <?= $type === 'drop_off' ? 'selected' : '' ?>>Drop-off</option></select></div>
+  <div><label for="orderSearch">Search order or customer</label><input id="orderSearch" type="search" name="search" placeholder="Order number or customer name" value="<?= e($search) ?>"></div>
+  <div><label for="orderTypeFilter">Order type</label><select id="orderTypeFilter" name="type"><option value="">All types</option><option value="walk_in" <?= $type === 'walk_in' ? 'selected' : '' ?>>Walk-in</option><option value="pickup_request" <?= $type === 'pickup_request' ? 'selected' : '' ?>>Pick-up Request</option><option value="delivery_request" <?= $type === 'delivery_request' ? 'selected' : '' ?>>Delivery Request</option><option value="drop_off" <?= $type === 'drop_off' ? 'selected' : '' ?>>Drop-off</option></select></div>
   <div><label for="dateFrom">From date</label><input type="date" id="dateFrom" name="date_from" value="<?= e($dateFrom) ?>"></div>
   <div><label for="dateTo">To date</label><input type="date" id="dateTo" name="date_to" value="<?= e($dateTo) ?>"></div>
   <div class="filter-actions"><button class="btn btn-primary btn-sm" type="submit">Apply filters</button><a class="btn btn-outline btn-sm" href="orders.php">Clear</a></div>
@@ -100,23 +113,22 @@ include __DIR__ . '/includes/header.php';
     <table>
       <thead>
         <tr>
-          <th>Ticket #</th><th>Customer</th><th>Intake</th><th>Services</th>
-          <th class="num">Total</th><th>Payment</th><th>Status</th><th>Date</th><th></th>
+          <th>Order #</th><th>Customer</th><th>Type</th><th>Items</th>
+          <th class="num">Total</th><th>Status</th><th>Date</th><th></th>
         </tr>
       </thead>
       <tbody>
         <?php if (!$orders): ?>
-          <tr><td colspan="9" class="empty-state">No service tickets found.</td></tr>
+          <tr><td colspan="8" class="empty-state">No orders found.</td></tr>
         <?php endif; ?>
         <?php foreach ($orders as $o): ?>
         <tr>
           <td><a href="order_view.php?id=<?= (int)$o['id'] ?>"><?= e($o['order_number']) ?></a></td>
           <td><?= e($o['customer_name'] ?: 'Walk-in') ?></td>
-          <td><span class="badge badge-<?= e($o['order_type']) ?>"><?= $o['order_type'] === 'drop_off' ? 'Drop-off' : 'Walk-in' ?></span></td>
+          <td><span class="badge badge-<?= e($o['order_type']) ?>"><?= $o['order_type'] === 'pickup_request' ? 'Pick-up Request' : ($o['order_type'] === 'delivery_request' ? 'Delivery Request' : ($o['order_type'] === 'drop_off' ? 'Drop-off' : 'Walk-in')) ?></span></td>
           <td><?= (int)$o['item_count'] ?></td>
           <td class="num"><?= money($o['total']) ?></td>
-          <td><?= e($o['payment_method'] === 'unpaid' ? 'Unpaid' : strtoupper($o['payment_method'])) ?></td>
-          <td><span class="badge badge-<?= e($o['status']) ?>"><?= e($statusLabels[$o['status']] ?? $o['status']) ?></span></td>
+          <td><span class="badge badge-<?= e($o['status']) ?>"><?= e($o['status'] === 'ready_for_pickup' && $o['order_type'] === 'delivery_request' ? 'Ready for Delivery' : ($statusLabels[$o['status']] ?? $o['status'])) ?></span></td>
           <td class="muted"><?= e(date('M j, Y', strtotime($o['created_at']))) ?></td>
           <td class="right">
             <a class="btn btn-outline btn-sm" href="order_view.php?id=<?= (int)$o['id'] ?>">View</a>
