@@ -1183,17 +1183,31 @@ function ServiceCard({ service, quantity, onQuantityChange, wide, index }) {
 
 function OrderProgress({ ticket }) {
   const isPickup = ticket.handoff_type === 'pickup_delivery';
+  const hasDelivery = ['pickup_delivery', 'dropoff_delivery'].includes(ticket.handoff_type);
+  const isDropoffPickup = ticket.handoff_type === 'dropoff_pickup';
   const steps = [
     { key: 'pending', icon: '🧾', label: 'Requested', detail: 'Booking sent to the shop.' },
     { key: 'confirmed', icon: '✅', label: 'Confirmed', detail: 'The shop accepted your request.' },
     ...(isPickup ? [{ key: 'picked_up_for_service', icon: '🚚', label: 'Picked up', detail: 'Driver collected your laundry.' }] : []),
     { key: 'received', icon: '📦', label: 'Received', detail: 'Laundry arrived at the shop.' },
     { key: 'processing', icon: '🫧', label: 'In process', detail: 'Laundry service is in progress.' },
-    { key: 'ready_for_pickup', icon: '🧺', label: 'Ready', detail: 'Laundry is ready for delivery.' },
-    { key: 'out_for_delivery', icon: '🚐', label: 'Out for delivery', detail: 'Driver is bringing it to you.' },
-    { key: 'completed', icon: '🏠', label: 'Delivered', detail: 'Laundry was delivered successfully.' },
+    {
+      key: 'ready_for_pickup',
+      icon: '🧺',
+      label: isDropoffPickup ? 'Ready to claim' : 'Ready',
+      detail: isDropoffPickup ? 'Your laundry is ready for collection at the shop.' : 'Laundry is ready for delivery.',
+    },
+    ...(hasDelivery ? [
+      { key: 'out_for_delivery', icon: '🚐', label: 'Out for delivery', detail: 'Driver is bringing it to you.' },
+      { key: 'completed', icon: '🏠', label: 'Delivered', detail: 'Laundry was delivered successfully.' },
+    ] : []),
   ];
-  const statusToStep = { pending: 'pending', confirmed: 'confirmed', picked_up_for_service: 'picked_up_for_service', received: 'received', weighing: 'processing', washing: 'processing', drying: 'processing', folding: 'processing', ready: 'ready_for_pickup', ready_for_pickup: 'ready_for_pickup', out_for_delivery: 'out_for_delivery', completed: 'completed', picked_up: 'completed' };
+  const statusToStep = {
+    pending: 'pending', confirmed: 'confirmed', picked_up_for_service: 'picked_up_for_service', received: 'received',
+    weighing: 'processing', washing: 'processing', drying: 'processing', folding: 'processing', ready: 'ready_for_pickup',
+    ready_for_pickup: 'ready_for_pickup', out_for_delivery: hasDelivery ? 'out_for_delivery' : 'ready_for_pickup',
+    completed: hasDelivery ? 'completed' : 'ready_for_pickup', picked_up: hasDelivery ? 'completed' : 'ready_for_pickup',
+  };
   const currentKey = statusToStep[ticket.status] || 'pending';
   const currentIndex = Math.max(0, steps.findIndex((step) => step.key === currentKey));
   const history = Array.isArray(ticket.history) ? ticket.history : [];
@@ -1227,7 +1241,9 @@ function OrderProgress({ ticket }) {
 }
 function TicketCard({ ticket, onShareLocation, onRevokeLocation, locationBusy, locationError, retryReference, onRetryReferenceChange, onResubmitGcash, retryBusy }) {
   const lines = (ticket.services || []).map((line) => `${line.service_name} (${line.quantity} ${line.unit})`).join(' · ');
-  const status = ticket.order_type === 'delivery_request' && ticket.status === 'ready_for_pickup' ? 'Ready for delivery' : statusLabel(ticket.status);
+  const status = ticket.handoff_type === 'dropoff_pickup' && ['ready', 'ready_for_pickup'].includes(ticket.status)
+    ? 'Ready to claim'
+    : ticket.order_type === 'delivery_request' && ticket.status === 'ready_for_pickup' ? 'Ready for delivery' : statusLabel(ticket.status);
   const statusColors = /complete|picked_up|delivered/.test(status) ? styles.statusGreen : /cancel/.test(status) ? styles.statusRed : styles.statusPurple;
   return (
     <View style={styles.ticketCard}>
