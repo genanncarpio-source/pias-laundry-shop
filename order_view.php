@@ -102,7 +102,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['update_status']) || 
                 $amount = round((float)($_POST['payment_amount'] ?? 0), 2);
                 $method = $_POST['payment_method'] ?? '';
                 $reference = trim((string)($_POST['reference_number'] ?? ''));
-                $validMethods = ['cash', 'gcash', 'maya', 'card', 'bank_transfer', 'other'];
+                $validMethods = ['cash', 'gcash'];
                 $alreadyPaid = max(0, (float)$currentOrder['amount_paid'] - (float)$currentOrder['change_due']);
                 $balance = max(0, (float)$currentOrder['total'] - $alreadyPaid);
                 if (!in_array($method, $validMethods, true) || $amount <= 0 || $amount > $balance || strlen($reference) > 120) throw new InvalidArgumentException('Enter a valid payment up to the remaining balance.');
@@ -161,7 +161,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['update_status']) || 
                 $amount = round((float)($_POST['refund_amount'] ?? 0), 2);
                 $reason = trim($_POST['refund_reason'] ?? '');
                 $refundMethod = $_POST['refund_method'] ?? $currentOrder['payment_method'];
-                if (!in_array($refundMethod, ['cash', 'gcash', 'maya', 'card'], true)) throw new InvalidArgumentException('Choose a valid refund method.');
+                if (!in_array($refundMethod, ['cash', 'gcash'], true)) throw new InvalidArgumentException('Choose a valid refund method.');
                 $sum = $pdo->prepare("SELECT COALESCE(SUM(amount),0) FROM order_adjustments WHERE order_id = ? AND adjustment_type = 'refund'");
                 $sum->execute([$id]);
                 $ledger = $pdo->prepare("SELECT COUNT(*), COALESCE(SUM(CASE WHEN status = 'paid' THEN amount ELSE 0 END),0) FROM payments WHERE order_id = ?");
@@ -487,7 +487,7 @@ include __DIR__ . '/includes/header.php';
   <form method="post" action="order_view.php?id=<?= (int)$id ?>" class="form-row mt-16">
     <?= csrf_field() ?><input type="hidden" name="record_payment" value="1">
     <div><label for="paymentAmount">Amount (balance <?= money($remainingBalance) ?>)</label><input id="paymentAmount" name="payment_amount" type="number" min="0.01" max="<?= e($remainingBalance) ?>" step="0.01" required></div>
-    <div><label for="paymentMethod">Payment Method</label><select id="paymentMethod" name="payment_method" required><?php foreach (['cash' => 'Cash', 'gcash' => 'GCash', 'maya' => 'Maya', 'card' => 'Card', 'bank_transfer' => 'Bank Transfer', 'other' => 'Other'] as $value => $label): ?><option value="<?= e($value) ?>" <?= $value === $order['payment_method'] ? 'selected' : '' ?>><?= e($label) ?></option><?php endforeach; ?></select></div>
+    <div><label for="paymentMethod">Payment Method</label><select id="paymentMethod" name="payment_method" required><?php foreach (['cash' => 'Cash', 'gcash' => 'GCash'] as $value => $label): ?><option value="<?= e($value) ?>" <?= $value === $order['payment_method'] ? 'selected' : '' ?>><?= e($label) ?></option><?php endforeach; ?></select></div>
     <div><label for="referenceNumber">Reference number (optional)</label><input id="referenceNumber" name="reference_number" maxlength="120"></div>
     <div class="form-actions"><button class="btn btn-primary" type="submit">Record Payment</button></div>
   </form>
@@ -523,7 +523,7 @@ include __DIR__ . '/includes/header.php';
           onsubmit="return confirm('Cancel this order? This cannot be undone.');">
       <?= csrf_field() ?><input type="hidden" name="cancel_order" value="1">
       <label for="cancelReason">Cancellation reason</label><input id="cancelReason" name="cancel_reason" maxlength="255" required placeholder="Reason for cancellation">
-      <?php if (is_admin()): ?><label for="cancelRefund">Refund now (optional)</label><input id="cancelRefund" name="cancel_refund" type="number" min="0" max="<?= e($order['total']) ?>" step="0.01" value="0"><label for="cancelRefundMethod">Refund method</label><select id="cancelRefundMethod" name="cancel_refund_method"><?php foreach (['cash' => 'Cash', 'gcash' => 'GCash', 'maya' => 'Maya', 'card' => 'Card'] as $method => $methodLabel): ?><option value="<?= e($method) ?>" <?= $method === $order['payment_method'] ? 'selected' : '' ?>><?= e($methodLabel) ?></option><?php endforeach; ?></select><?php endif; ?>
+      <?php if (is_admin()): ?><label for="cancelRefund">Refund now (optional)</label><input id="cancelRefund" name="cancel_refund" type="number" min="0" max="<?= e($order['total']) ?>" step="0.01" value="0"><label for="cancelRefundMethod">Refund method</label><select id="cancelRefundMethod" name="cancel_refund_method"><?php foreach (['cash' => 'Cash', 'gcash' => 'GCash'] as $method => $methodLabel): ?><option value="<?= e($method) ?>" <?= $method === $order['payment_method'] ? 'selected' : '' ?>><?= e($methodLabel) ?></option><?php endforeach; ?></select><?php endif; ?>
       <button type="submit" class="btn btn-danger btn-sm">✕ Cancel order</button>
     </form><?php endif; ?>
   </div>

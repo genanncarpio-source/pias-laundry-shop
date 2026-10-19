@@ -49,6 +49,21 @@ document.addEventListener('DOMContentLoaded', function () {
     el.addEventListener('click', () => window.print());
   });
 
+  // Open an order when any non-control part of its table row is selected.
+  document.querySelectorAll('.order-row[data-order-url]').forEach((row) => {
+    const openOrder = () => { window.location.href = row.dataset.orderUrl; };
+    row.addEventListener('click', (event) => {
+      if (event.target.closest('a, button, input, select, textarea, label')) return;
+      openOrder();
+    });
+    row.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        openOrder();
+      }
+    });
+  });
+
   // Generic modal open/close helpers
   document.querySelectorAll('[data-modal-open]').forEach((el) => {
     el.addEventListener('click', () => {

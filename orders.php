@@ -122,7 +122,7 @@ include __DIR__ . '/includes/header.php';
           <tr><td colspan="8" class="empty-state">No orders found.</td></tr>
         <?php endif; ?>
         <?php foreach ($orders as $o): ?>
-        <tr>
+        <tr class="order-row" data-order-url="order_view.php?id=<?= (int)$o['id'] ?>" tabindex="0" role="link" aria-label="Open order <?= e($o['order_number']) ?>">
           <td><a href="order_view.php?id=<?= (int)$o['id'] ?>"><?= e($o['order_number']) ?></a></td>
           <td><?= e($o['customer_name'] ?: 'Walk-in') ?></td>
           <td><span class="badge badge-<?= e($o['order_type']) ?>"><?= $o['order_type'] === 'pickup_request' ? 'Pick-up Request' : ($o['order_type'] === 'delivery_request' ? 'Delivery Request' : ($o['order_type'] === 'drop_off' ? 'Drop-off' : 'Walk-in')) ?></span></td>

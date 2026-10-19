@@ -180,6 +180,8 @@ table { width: 100%; border-collapse: collapse; }
 th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--line); }
 th { font-size: 12px; text-transform: uppercase; letter-spacing: .4px; color: var(--muted); font-weight: 600; }
 tbody tr:hover { background: rgba(88,38,95,.05); }
+tbody tr.order-row { cursor: pointer; }
+tbody tr.order-row:focus-visible { outline: 3px solid var(--pink); outline-offset: -3px; }
 thead th { background: rgba(255,255,255,.02); }
 td.num, th.num { text-align: right; }
 
