@@ -599,6 +599,10 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut })
   const [pickupTime, setPickupTime] = useState('09:00');
   const [pickupError, setPickupError] = useState('');
   const [pickupModal, setPickupModal] = useState(false);
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const today = new Date();
+    return new Date(today.getFullYear(), today.getMonth(), 1);
+  });
   const [sending, setSending] = useState(false);
   const [locationBusy, setLocationBusy] = useState({});
   const [locationError, setLocationError] = useState({});
@@ -828,17 +832,26 @@ if (['pickup_delivery', 'dropoff_delivery'].includes(fulfillment) && !deliveryAv
   };
 
   const filters = ['All', 'Wash', 'Dry', 'Full service', 'Add-ons'];
-  const scheduleDates = useMemo(() => Array.from({ length: 7 }, (_, offset) => {
-    const date = new Date();
-    date.setHours(12, 0, 0, 0);
-    date.setDate(date.getDate() + offset);
-    return {
-      value: [date.getFullYear(), String(date.getMonth() + 1).padStart(2, '0'), String(date.getDate()).padStart(2, '0')].join('-'),
-      month: date.toLocaleDateString(undefined, { month: 'short' }),
-      day: date.getDate(),
-      weekday: date.toLocaleDateString(undefined, { weekday: 'short' }),
-    };
-  }), []);
+  const todayForSchedule = new Date();
+  todayForSchedule.setHours(0, 0, 0, 0);
+  const scheduleCalendarDays = (() => {
+    const year = calendarMonth.getFullYear();
+    const month = calendarMonth.getMonth();
+    const firstWeekday = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    return Array.from({ length: firstWeekday + daysInMonth }, (_, index) => {
+      if (index < firstWeekday) return null;
+      const day = index - firstWeekday + 1;
+      const date = new Date(year, month, day);
+      return {
+        value: [year, String(month + 1).padStart(2, '0'), String(day).padStart(2, '0')].join('-'),
+        day,
+        isPast: date < todayForSchedule,
+      };
+    });
+  })();
+  const canShowPreviousScheduleMonth = calendarMonth.getFullYear() > todayForSchedule.getFullYear()
+    || (calendarMonth.getFullYear() === todayForSchedule.getFullYear() && calendarMonth.getMonth() > todayForSchedule.getMonth());
   const scheduleSlots = [
     { value: '08:00', label: '8:00 AM – 10:00 AM' },
     { value: '10:00', label: '10:00 AM – 12:00 PM' },
@@ -960,10 +973,12 @@ if (['pickup_delivery', 'dropoff_delivery'].includes(fulfillment) && !deliveryAv
                 <Text style={styles.pickupBadgeText}>OPTIONAL</Text>
               </View>
               <Pressable onPress={() => {
-                const tomorrow = new Date();
-                const localDate = [tomorrow.getFullYear(), String(tomorrow.getMonth() + 1).padStart(2, '0'), String(tomorrow.getDate()).padStart(2, '0')].join('-');
+                const savedSchedule = pickupAt ? new Date(pickupAt) : null;
+                const initialDate = savedSchedule && savedSchedule > new Date() ? savedSchedule : new Date();
+                const localDate = [initialDate.getFullYear(), String(initialDate.getMonth() + 1).padStart(2, '0'), String(initialDate.getDate()).padStart(2, '0')].join('-');
                 setPickupDate(localDate);
-                setPickupTime('08:00');
+                setPickupTime(savedSchedule && savedSchedule > new Date() ? String(initialDate.getHours()).padStart(2, '0') + ':00' : '08:00');
+                setCalendarMonth(new Date(initialDate.getFullYear(), initialDate.getMonth(), 1));
                 setPickupError('');
                 setPickupModal(true);
               }} style={styles.pickupButton}>
@@ -1075,15 +1090,33 @@ if (['pickup_delivery', 'dropoff_delivery'].includes(fulfillment) && !deliveryAv
             <Text style={styles.modalCopy}>Choose a future schedule within shop hours, 8:00 AM to 6:00 PM.</Text>
             {pickupError ? <Text style={styles.modalError}>{pickupError}</Text> : null}
             <Text style={styles.scheduleSectionTitle}>Choose a date</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.scheduleDateRow}>
-              {scheduleDates.map((date) => (
-                <Pressable key={date.value} onPress={() => { setPickupDate(date.value); setPickupError(''); }} style={[styles.scheduleDateCard, pickupDate === date.value && styles.scheduleSelected]}>
-                  <Text style={[styles.scheduleMonth, pickupDate === date.value && styles.scheduleSelectedText]}>{date.month}</Text>
-                  <Text style={[styles.scheduleDay, pickupDate === date.value && styles.scheduleSelectedText]}>{date.day}</Text>
-                  <Text style={[styles.scheduleWeekday, pickupDate === date.value && styles.scheduleSelectedText]}>{date.weekday}</Text>
-                </Pressable>
-              ))}
-            </ScrollView>
+            <View style={styles.scheduleCalendar}>
+              <View style={styles.scheduleCalendarHeader}>
+                <Pressable
+                  accessibilityLabel="Previous month"
+                  disabled={!canShowPreviousScheduleMonth}
+                  onPress={() => setCalendarMonth((current) => new Date(current.getFullYear(), current.getMonth() - 1, 1))}
+                  style={[styles.calendarArrow, !canShowPreviousScheduleMonth && styles.calendarArrowDisabled]}
+                ><Text style={styles.calendarArrowText}>{'<'}</Text></Pressable>
+                <Text style={styles.calendarMonthLabel}>{calendarMonth.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</Text>
+                <Pressable
+                  accessibilityLabel="Next month"
+                  onPress={() => setCalendarMonth((current) => new Date(current.getFullYear(), current.getMonth() + 1, 1))}
+                  style={styles.calendarArrow}
+                ><Text style={styles.calendarArrowText}>{'>'}</Text></Pressable>
+              </View>
+              <View style={styles.calendarWeekdayRow}>{['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => <Text key={day} style={styles.calendarWeekday}>{day}</Text>)}</View>
+              <View style={styles.calendarGrid}>
+                {scheduleCalendarDays.map((date, index) => date ? (
+                  <Pressable
+                    key={date.value}
+                    disabled={date.isPast}
+                    onPress={() => { setPickupDate(date.value); setPickupError(''); }}
+                    style={[styles.calendarDay, pickupDate === date.value && styles.calendarDaySelected, date.isPast && styles.calendarDayDisabled]}
+                  ><Text style={[styles.calendarDayText, pickupDate === date.value && styles.calendarDaySelectedText, date.isPast && styles.calendarDayDisabledText]}>{date.day}</Text></Pressable>
+                ) : <View key={'blank-' + index} style={styles.calendarDay} />)}
+              </View>
+            </View>
             <Text style={styles.scheduleSectionTitle}>Available time slots</Text>
             <View style={styles.scheduleSlotGrid}>
               {scheduleSlots.map((slot) => {
@@ -1547,11 +1580,21 @@ const styles = StyleSheet.create({
   modalCopy: { color: COLORS.muted, fontSize: 13, lineHeight: 19, marginBottom: 2 },
   modalError: { color: COLORS.red, fontSize: 13, fontWeight: '700' },
   scheduleSectionTitle: { color: COLORS.ink, fontSize: 15, fontWeight: '900', marginTop: 3 },
-  scheduleDateRow: { gap: 8, paddingVertical: 4 },
-  scheduleDateCard: { width: 68, minHeight: 92, borderRadius: 14, borderColor: COLORS.line, borderWidth: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#fffdf9' },
-  scheduleMonth: { color: COLORS.muted, fontSize: 11 },
-  scheduleDay: { color: COLORS.ink, fontSize: 22, fontWeight: '900', marginVertical: 3 },
-  scheduleWeekday: { color: COLORS.muted, fontSize: 11 },
+  scheduleCalendar: { borderWidth: 1, borderColor: COLORS.line, borderRadius: 14, padding: 10, backgroundColor: '#fffdf9' },
+  scheduleCalendarHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
+  calendarArrow: { width: 32, height: 32, borderRadius: 16, borderWidth: 1, borderColor: COLORS.line, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.cream },
+  calendarArrowDisabled: { opacity: 0.35 },
+  calendarArrowText: { color: COLORS.plum, fontSize: 20, fontWeight: '900', lineHeight: 22 },
+  calendarMonthLabel: { color: COLORS.ink, fontSize: 15, fontWeight: '900' },
+  calendarWeekdayRow: { flexDirection: 'row', marginBottom: 4 },
+  calendarWeekday: { width: '14.2857%', color: COLORS.muted, fontSize: 10, fontWeight: '800', textAlign: 'center' },
+  calendarGrid: { flexDirection: 'row', flexWrap: 'wrap' },
+  calendarDay: { width: '14.2857%', aspectRatio: 1, alignItems: 'center', justifyContent: 'center', borderRadius: 10, marginVertical: 1 },
+  calendarDaySelected: { backgroundColor: COLORS.plum },
+  calendarDayDisabled: { opacity: 0.28 },
+  calendarDayText: { color: COLORS.ink, fontSize: 13, fontWeight: '800' },
+  calendarDaySelectedText: { color: COLORS.white },
+  calendarDayDisabledText: { color: COLORS.muted },
   scheduleSlotGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   scheduleSlot: { width: '48%', flexGrow: 1, minHeight: 46, borderRadius: 12, borderColor: COLORS.line, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8, backgroundColor: '#fffdf9' },
   scheduleSlotText: { color: COLORS.ink, fontSize: 12, fontWeight: '700', textAlign: 'center' },
