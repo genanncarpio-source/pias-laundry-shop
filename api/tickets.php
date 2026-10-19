@@ -93,9 +93,9 @@ $fulfillment = api_text($data, 'fulfillment_type') ?: 'pickup_delivery';
 if (!in_array($fulfillment, ['pickup_delivery', 'dropoff_delivery', 'dropoff_pickup'], true)) mobile_booking_json(422, ['success' => false, 'error' => 'Choose a valid service handoff option.']);
 $customerLatitude = isset($customer['location_latitude']) ? (float)$customer['location_latitude'] : 0.0;
 $customerLongitude = isset($customer['location_longitude']) ? (float)$customer['location_longitude'] : 0.0;
-$deliveryAvailable = $customerLatitude !== 0.0 && $customerLongitude !== 0.0 && api_is_delivery_area($customerLatitude, $customerLongitude) && api_is_san_manuel_tarlac_address((string)$customer['address']);
+$deliveryAvailable = $customerLatitude !== 0.0 && $customerLongitude !== 0.0 && api_is_delivery_area($customerLatitude, $customerLongitude);
 if (in_array($fulfillment, ['pickup_delivery', 'dropoff_delivery'], true) && !$deliveryAvailable) {
-    mobile_booking_json(422, ['success' => false, 'error' => "Free pickup and delivery are available only for complete addresses in San Manuel, Tarlac City. You may still choose Drop-off & Pick-up."]);
+    mobile_booking_json(422, ['success' => false, 'error' => "Free pickup and delivery are available only from San Jose to Balingcanaway, Tarlac City. You may still choose Drop-off & Pick-up."]);
 }
 $deliveryAddress = api_text($data, 'delivery_address');
 if ($fulfillment !== 'dropoff_pickup' && (!api_is_complete_address($deliveryAddress) || strlen($deliveryAddress) > 255)) {
