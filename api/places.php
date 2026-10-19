@@ -33,6 +33,9 @@ foreach (($http_response_header ?? []) as $line) if (preg_match('/^HTTP\/\S+\s+(
 $payload = is_string($response) ? json_decode($response, true) : null;
 if ($status < 200 || $status >= 300 || !is_array($payload)) {
     error_log('Geoapify address search failed with HTTP ' . $status);
+    if ($status === 401 || $status === 403) api_json(503, ['success' => false, 'error' => 'Geoapify rejected the address-search key. Check GEOAPIFY_API_KEY and its restrictions in Railway.']);
+    if ($status === 429) api_json(429, ['success' => false, 'error' => 'Address search reached its Geoapify request limit. Please try again later.']);
+    if ($status === 0) api_json(503, ['success' => false, 'error' => 'Could not connect to Geoapify address search. Please try again.']);
     api_json(503, ['success' => false, 'error' => 'Address search is temporarily unavailable. Please try again.']);
 }
 
