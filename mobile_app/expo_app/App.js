@@ -294,9 +294,10 @@ function PlaceAddressSearch({ apiBase, value, onChangeText, onPlaceSelected, dis
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState('');
   const requestId = useRef(0);
+  const selectedAddress = useRef('');
   useEffect(() => {
     const input = value.trim();
-    if (input.length < 3 || disabled) { setSuggestions([]); setSearchError(''); return undefined; }
+    if (input.length < 3 || disabled || input === selectedAddress.current) { setSuggestions([]); setSearchError(''); return undefined; }
     const id = ++requestId.current;
     const timer = setTimeout(async () => {
       setSearching(true); setSearchError('');
@@ -310,6 +311,7 @@ function PlaceAddressSearch({ apiBase, value, onChangeText, onPlaceSelected, dis
     return () => clearTimeout(timer);
   }, [apiBase, value, disabled]);
   const choosePlace = (suggestion) => {
+    selectedAddress.current = suggestion.address;
     setSuggestions([]);
     setSearchError('');
     onPlaceSelected(suggestion);
