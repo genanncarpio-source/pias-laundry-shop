@@ -11,6 +11,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Image,
+  Linking,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -308,19 +309,17 @@ function PlaceAddressSearch({ apiBase, value, onChangeText, onPlaceSelected, dis
     }, 350);
     return () => clearTimeout(timer);
   }, [apiBase, value, disabled]);
-  const choosePlace = async (suggestion) => {
-    setSearching(true); setSearchError('');
-    try {
-      const data = await apiRequest(apiBase, 'places.php', { method: 'POST', body: { action: 'details', place_id: suggestion.place_id }, timeoutMs: 8000 });
-      setSuggestions([]); onPlaceSelected(data.place);
-    } catch (problem) { setSearchError(problem.message || 'Could not select this address.'); }
-    finally { setSearching(false); }
+  const choosePlace = (suggestion) => {
+    setSuggestions([]);
+    setSearchError('');
+    onPlaceSelected(suggestion);
   };
   return <View style={styles.placeSearchWrap}>
     <Text style={styles.fieldLabel}>Search address</Text>
     <View style={styles.inputShell}><TextInput value={value} onChangeText={onChangeText} editable={!disabled} placeholder="Type your street, barangay, or landmark" placeholderTextColor="#988d99" style={styles.input} autoCapitalize="words" maxLength={180} returnKeyType="search" />{searching ? <View style={styles.inputRight}><ActivityIndicator color={COLORS.plum} size="small" /></View> : null}</View>
     {suggestions.length > 0 ? <View style={styles.placeSuggestions}>{suggestions.map((suggestion) => <Pressable key={suggestion.place_id} onPress={() => choosePlace(suggestion)} style={styles.placeSuggestion}><Text style={styles.placeSuggestionPrimary}>{suggestion.primary_text}</Text>{suggestion.secondary_text ? <Text style={styles.placeSuggestionSecondary}>{suggestion.secondary_text}</Text> : null}</Pressable>)}</View> : null}
     {searchError ? <Text style={styles.placeSearchError}>{searchError}</Text> : null}
+    <Text style={styles.placeAttribution} onPress={() => Linking.openURL('https://www.geoapify.com/')}>Powered by Geoapify | OpenStreetMap contributors</Text>
   </View>;
 }
 
@@ -547,7 +546,7 @@ function AuthScreen({ apiBase, onSignedIn, sessionNotice }) {
             {registering ? <Field label="Phone number" value={phone} onChangeText={(value) => setPhone(value.replace(/\D/g, '').slice(0, 11))} placeholder="09xx xxx xxxx" keyboardType="phone-pad" maxLength={11} returnKeyType="next" /> : null}
             {registering ? <><PlaceAddressSearch apiBase={apiBase} value={address} onChangeText={(value) => { setAddress(value); setLocationPin(null); }} onPlaceSelected={selectRegistrationPlace} />
               <Field label="Address details (required)" value={addressDetails} onChangeText={setAddressDetails} placeholder="House/Blk/Lot No., Street, subdivision or landmark" autoCapitalize="words" maxLength={180} returnKeyType="next" />
-              <View style={styles.locationPinPanel}><Text style={styles.locationPinTitle}>Selected address</Text><Text style={styles.locationPinCopy}>Choose an exact address from Google Places. Free pickup and delivery cover San Jose through Balingcanaway, Tarlac City. Drop-off & Pick-up is available outside this area.</Text>{locationPin ? <><Text style={[styles.locationPinSuccess, !locationPin.deliveryAvailable && styles.locationPinWarning]}>{locationPin.deliveryAvailable ? 'Free pickup and delivery are available at this selected address.' : 'This address is outside the free pickup and delivery area. You can still use Drop-off & Pick-up.'}</Text><View style={styles.registrationMap}><DeliveryMap location={locationPin} label="Selected customer location" /></View></> : null}</View></> : null}
+              <View style={styles.locationPinPanel}><Text style={styles.locationPinTitle}>Selected address</Text><Text style={styles.locationPinCopy}>Choose an exact address from the address search. Free pickup and delivery cover San Jose through Balingcanaway, Tarlac City. Drop-off & Pick-up is available outside this area.</Text>{locationPin ? <><Text style={[styles.locationPinSuccess, !locationPin.deliveryAvailable && styles.locationPinWarning]}>{locationPin.deliveryAvailable ? 'Free pickup and delivery are available at this selected address.' : 'This address is outside the free pickup and delivery area. You can still use Drop-off & Pick-up.'}</Text><View style={styles.registrationMap}><DeliveryMap location={locationPin} label="Selected customer location" /></View></> : null}</View></> : null}
             <Field label="Email address" value={email} onChangeText={setEmail} placeholder="you@example.com" keyboardType="email-address" autoCapitalize="none" autoCorrect={false} maxLength={120} returnKeyType="next" />
             <Field
               label="Password"
@@ -1151,7 +1150,7 @@ if (['pickup_delivery', 'dropoff_delivery'].includes(fulfillment) && !deliveryAv
             </View>
             <View style={styles.profileLocationCard}>
               <Text style={styles.panelTitle}>Address and saved location</Text>
-              <Text style={styles.profileLocationCopy}>Choose your address using Google Places, then add complete details if needed. Free pickup and delivery cover San Jose through Balingcanaway, Tarlac City.</Text>
+              <Text style={styles.profileLocationCopy}>Choose your address using the address search, then add complete details if needed. Free pickup and delivery cover San Jose through Balingcanaway, Tarlac City.</Text>
               {editingLocation ? <>
                 <PlaceAddressSearch apiBase={apiBase} value={profileAddress} onChangeText={(value) => { setProfileAddress(value); setProfilePin(null); }} onPlaceSelected={selectProfilePlace} disabled={profileSaving} />
                 <Text style={styles.addressLabel}>Address details (required)</Text>
@@ -1480,6 +1479,7 @@ const styles = StyleSheet.create({
   placeSuggestionPrimary: { color: COLORS.ink, fontSize: 13, fontWeight: '700' },
   placeSuggestionSecondary: { color: COLORS.muted, fontSize: 11, marginTop: 2 },
   placeSearchError: { color: COLORS.red, fontSize: 11, marginTop: 5 },
+  placeAttribution: { color: COLORS.muted, fontSize: 10, marginTop: 5 },
   locationPinPanel: { marginBottom: 12, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: '#d5c8d7', backgroundColor: '#f7eff8' },
   locationPinTitle: { color: COLORS.plum, fontSize: 13, fontWeight: '800' },
   locationPinCopy: { color: COLORS.muted, fontSize: 11, lineHeight: 16, marginTop: 3 },
