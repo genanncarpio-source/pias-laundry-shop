@@ -88,11 +88,7 @@ function api_delivery_quote(float $latitude, float $longitude): array
 function api_is_complete_address(string $address): bool
 {
     $parts = array_values(array_filter(array_map('trim', explode(',', $address)), static fn ($part) => $part !== ''));
-    if (count($parts) < 4) return false;
-    foreach ($parts as $part) {
-        if (preg_match('/(?:brgy\\.?|barangay)/i', $part)) return true;
-    }
-    return false;
+    return count($parts) >= 3;
 }
 function api_is_san_manuel_tarlac_address(string $address): bool
 {
