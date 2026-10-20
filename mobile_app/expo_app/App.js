@@ -74,10 +74,6 @@ function isDeliveryArea(latitude, longitude) {
     && lon >= DELIVERY_BOUNDS.west && lon <= DELIVERY_BOUNDS.east;
 }
 
-function isCompleteAddress(address) {
-  const parts = String(address || '').split(',').map((part) => part.trim()).filter(Boolean);
-  return parts.length >= 3;
-}
 function normalizeApiUrl(url) {
   return url.trim().replace(/\/+$/, '');
 }
@@ -382,7 +378,7 @@ function AuthScreen({ apiBase, onSignedIn, sessionNotice }) {
     if (registering && !verificationPending && !name.trim()) return setError('Enter your full name.');
     if (registering && !verificationPending && !phone.trim()) return setError('Enter your phone number.');
     const completeRegistrationAddress = [addressDetails.trim(), address.trim()].filter(Boolean).join(', ');
-    if (registering && !verificationPending && !isCompleteAddress(completeRegistrationAddress)) return setError('Select a full address from the search results. You can add house, unit, or landmark details if needed.');
+    if (registering && !verificationPending && !address.trim()) return setError('Choose an address from the map search results. House, unit, or landmark details are optional.');
     if (registering && !verificationPending && !locationPin) return setError('Choose your address from the address search results.');
     if (registering && !verificationPending && !/^09\d{9}$/.test(phone)) return setError('Enter an 11-digit mobile number starting with 09.');
     if ((!registering || !verificationPending) && (!password || (registering && password.length < 10))) return setError(registering ? 'Use a password with at least 10 characters.' : 'Enter your password.');
@@ -875,7 +871,7 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
     }
     if (pickupAt && new Date(pickupAt) <= new Date()) return setError('Choose a future schedule or remove the suggested time.');
     if (['pickup_delivery', 'dropoff_delivery'].includes(fulfillment) && !deliveryAvailable && !deliveryQuote) return setError(deliveryQuoteError || 'Wait for the delivery fee to finish calculating before booking.');
-    if (fulfillment !== 'dropoff_pickup' && !isCompleteAddress(deliveryAddress)) return setError('Enter the complete delivery address: house or block, street, barangay, and city.');
+    if (fulfillment !== 'dropoff_pickup' && !deliveryAddress.trim()) return setError('Add an address to your profile and pin its location before booking delivery.');
     if (paymentMethod === 'gcash') {
       if (!gcashInfo?.configured) return setError('The shop has not configured GCash payments yet.');
       if (gcashReference.trim().length < 6) return setError('Enter the GCash reference from your completed transfer.');

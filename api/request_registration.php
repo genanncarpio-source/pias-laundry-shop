@@ -14,7 +14,7 @@ $password = is_string($data['password'] ?? null) ? $data['password'] : '';
 if ($name === '' || strlen($name) > 100) api_json(422, ['success' => false, 'error' => 'Enter your name (up to 100 characters).']);
 if (!filter_var($email, FILTER_VALIDATE_EMAIL) || strlen($email) > 120) api_json(422, ['success' => false, 'error' => 'Enter a valid email address.']);
 if ($phone === '' || strlen($phone) > 30) api_json(422, ['success' => false, 'error' => 'Enter a phone number for service updates.']);
-if (!api_is_complete_address($address) || strlen($address) > 255) api_json(422, ['success' => false, 'error' => 'Select a full address from the search results. You can add house, unit, or landmark details if needed.']);
+if (trim($address) === '' || strlen($address) > 255) api_json(422, ['success' => false, 'error' => 'Enter an address up to 255 characters.']);
 if ($latitude === false || $longitude === false || !is_finite((float)$latitude) || !is_finite((float)$longitude) || (float)$latitude < -90 || (float)$latitude > 90 || (float)$longitude < -180 || (float)$longitude > 180) api_json(422, ['success' => false, 'error' => 'Pin a valid location to check delivery coverage.']);
 if (strlen($password) < 10) api_json(422, ['success' => false, 'error' => 'Use a password with at least 10 characters.']);
 

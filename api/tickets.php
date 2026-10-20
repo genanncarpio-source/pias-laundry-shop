@@ -111,8 +111,8 @@ if ($paymentMethod === 'gcash') {
     if ($reportedAmount === false || round((float)$reportedAmount, 2) !== $grandTotal) mobile_booking_json(422, ['success' => false, 'error' => 'The payment amount must match the service subtotal and delivery fee.']);
 }
 $deliveryAddress = $hasDelivery ? trim((string)$customer['address']) : api_text($data, 'delivery_address');
-if ($fulfillment !== 'dropoff_pickup' && (!api_is_complete_address($deliveryAddress) || strlen($deliveryAddress) > 255)) {
-    mobile_booking_json(422, ['success' => false, 'error' => 'Enter the complete delivery address: house or block, street, barangay, and city.']);
+if ($hasDelivery && (trim($deliveryAddress) === '' || strlen($deliveryAddress) > 255)) {
+    mobile_booking_json(422, ['success' => false, 'error' => 'Add an address to your profile before booking delivery.']);
 }
 $orderType = $fulfillment === 'dropoff_pickup' ? 'drop_off' : 'delivery_request';
 $pickupAddress = $fulfillment === 'pickup_delivery' ? ($customer['address'] ?: $deliveryAddress) : null;
