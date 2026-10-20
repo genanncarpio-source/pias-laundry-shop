@@ -8,7 +8,8 @@ $address = api_text($data, 'address');
 $latitude = filter_var($data['latitude'] ?? null, FILTER_VALIDATE_FLOAT);
 $longitude = filter_var($data['longitude'] ?? null, FILTER_VALIDATE_FLOAT);
 
-if (trim($address) === '' || strlen($address) > 255) api_json(422, ['success' => false, 'error' => 'Enter an address up to 255 characters.']);
+// The selected map pin is the precise delivery location; a full street address is optional.
+if ($address === '' || strlen($address) > 255) api_json(422, ['success' => false, 'error' => 'Enter an address label (up to 255 characters). Complete street details are optional.']);
 if ($latitude === false || $longitude === false || !is_finite((float)$latitude) || !is_finite((float)$longitude) || (float)$latitude < -90 || (float)$latitude > 90 || (float)$longitude < -180 || (float)$longitude > 180) {
     api_json(422, ['success' => false, 'error' => 'Pin a valid location before saving.']);
 }
