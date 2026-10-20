@@ -276,11 +276,6 @@ INSERT INTO users (id, full_name, username, password, email, phone, role, is_act
   (1, 'Administrator', 'admin', '$2y$12$MPVmaS4xcm.sd0QWdnn45OvRCh7o1KYJCjikNbIBjyMh0Rx2.lg.q', 'admin@piaslaundry.com', '0917 000 0001', 'admin', 1),
   (2, 'Maria Santos',  'staff', '$2y$12$.87TirGnp.1pZuqglcX7oOehlOxYWt9f0xdilQTGDgVSCMXo/6m6i', 'maria@piaslaundry.com', '0917 000 0002', 'staff', 1);
 
-INSERT INTO customers (id, name, phone, email, address, is_active) VALUES
-  (1, 'Juan Dela Cruz', '0917 111 2233', 'juan@email.com', 'Quezon City', 1),
-  (2, 'Ana Reyes',      '0918 222 3344', 'ana@email.com',  'Caloocan City', 1),
-  (3, 'Pedro Lim',      '0919 333 4455', 'pedro@email.com','Pasig City', 1);
-
 INSERT INTO services (id, name, category, unit, price, description, is_active) VALUES
   (1, 'Wash & Fold',        'Full Service',     'kg',    35.00, 'Complete wash, dry and fold service',   1),
   (2, 'Wash, Dry & Fold',   'Full Service',     'kg',    45.00, 'Complete wash, dry and fold with softener', 1),
@@ -300,16 +295,16 @@ INSERT INTO orders
   (id, order_number, customer_id, customer_name, order_type, status,
    subtotal, discount, total, amount_paid, change_due, payment_method,
    expected_pickup, notes, created_by, created_at) VALUES
-  (1, CONCAT('ORD-', DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 2 DAY), '%Y%m%d'), '-001'), 1, 'Juan Dela Cruz', 'drop_off', 'picked_up',
+  (1, CONCAT('ORD-', DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 2 DAY), '%Y%m%d'), '-001'), NULL, 'Juan Dela Cruz', 'drop_off', 'picked_up',
        210.00, 0.00, 210.00, 250.00, 40.00, 'cash',
        DATE_ADD(CURDATE(), INTERVAL -1 DAY), NULL, 1, DATE_SUB(NOW(), INTERVAL 2 DAY)),
-  (2, CONCAT('ORD-', DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 1 DAY), '%Y%m%d'), '-001'), 2, 'Ana Reyes', 'drop_off', 'ready',
+  (2, CONCAT('ORD-', DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 1 DAY), '%Y%m%d'), '-001'), NULL, 'Ana Reyes', 'drop_off', 'ready',
        180.00, 0.00, 180.00, 200.00, 20.00, 'gcash',
        DATE_ADD(CURDATE(), INTERVAL 1 DAY), NULL, 2, DATE_SUB(NOW(), INTERVAL 1 DAY)),
-  (3, CONCAT('ORD-', DATE_FORMAT(CURDATE(), '%Y%m%d'), '-001'), 3, 'Pedro Lim', 'walk_in', 'washing',
+  (3, CONCAT('ORD-', DATE_FORMAT(CURDATE(), '%Y%m%d'), '-001'), NULL, 'Pedro Lim', 'walk_in', 'washing',
         90.00, 0.00,  90.00,  90.00,  0.00, 'cash',
        DATE_ADD(CURDATE(), INTERVAL 2 DAY), 'Handle with care - delicates', 2, NOW()),
-  (4, CONCAT('ORD-', DATE_FORMAT(CURDATE(), '%Y%m%d'), '-002'), 1, 'Juan Dela Cruz', 'drop_off', 'pending',
+  (4, CONCAT('ORD-', DATE_FORMAT(CURDATE(), '%Y%m%d'), '-002'), NULL, 'Juan Dela Cruz', 'drop_off', 'pending',
        350.00, 0.00, 350.00, 500.00, 150.00, 'maya',
        DATE_ADD(CURDATE(), INTERVAL 2 DAY), NULL, 1, NOW());
 
