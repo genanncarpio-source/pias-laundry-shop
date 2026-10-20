@@ -263,7 +263,9 @@ CREATE TABLE order_adjustments (
 
 INSERT INTO settings (`key`, `value`) VALUES
   ('shop_name',    'Pia''s Laundry Shop'),
-  ('shop_address', '123 Main Street, Quezon City, Metro Manila'),
+  ('shop_address', 'FMR7+6RC, Santa Rosa - Tarlac Rd, Tarlac City, Tarlac'),
+  ('shop_latitude', '15.4905338'),
+  ('shop_longitude', '120.6641949'),
   ('shop_phone',   '0912 345 6789'),
   ('receipt_note', 'Thank you for choosing Pia''s Laundry Shop! Please present this receipt when claiming your laundry.');
 

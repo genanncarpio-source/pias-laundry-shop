@@ -48,9 +48,42 @@ function api_require_method(string $method): void
 
 function api_is_delivery_area(float $latitude, float $longitude): bool
 {
-    // Delivery coverage spans the Tarlac City corridor from San Jose to Balingcanaway.
+    // Free delivery corridor covering San Jose, San Manuel, and Balingcanaway, Tarlac.
     return $latitude >= 15.4400 && $latitude <= 15.5350
         && $longitude >= 120.6000 && $longitude <= 120.7300;
+}
+function api_delivery_quote(float $latitude, float $longitude): array
+{
+    if (api_is_delivery_area($latitude, $longitude)) {
+        return ['free_delivery' => true, 'distance_km' => 0, 'delivery_fee' => 0.0];
+    }
+    $originLat = filter_var(get_setting('shop_latitude'), FILTER_VALIDATE_FLOAT);
+    $originLon = filter_var(get_setting('shop_longitude'), FILTER_VALIDATE_FLOAT);
+    if ($originLat === false || $originLon === false || $originLat < -90 || $originLat > 90 || $originLon < -180 || $originLon > 180) {
+        throw new RuntimeException('The shop delivery origin is not configured. Ask the shop to add its map coordinates in Settings.');
+    }
+    $apiKey = trim((string)getenv('GEOAPIFY_API_KEY'));
+    if ($apiKey === '') throw new RuntimeException('Distance-based delivery pricing is not configured yet.');
+    $query = http_build_query([
+        'waypoints' => $originLat . ',' . $originLon . '|' . $latitude . ',' . $longitude,
+        'mode' => 'drive', 'format' => 'json', 'apiKey' => $apiKey,
+    ]);
+    $context = stream_context_create(['http' => [
+        'method' => 'GET', 'header' => "Accept: application/json\r\nUser-Agent: PiasLaundryShop/1.0\r\n",
+        'timeout' => 8, 'ignore_errors' => true,
+    ]]);
+    $response = @file_get_contents('https://api.geoapify.com/v1/routing?' . $query, false, $context);
+    $status = 0;
+    foreach (($http_response_header ?? []) as $line) if (preg_match('/^HTTP\/\S+\s+(\d{3})/', $line, $match)) $status = (int)$match[1];
+    $payload = is_string($response) ? json_decode($response, true) : null;
+    $meters = $payload['results'][0]['distance'] ?? null;
+    if ($status < 200 || $status >= 300 || !is_numeric($meters) || (float)$meters <= 0) {
+        error_log('Geoapify delivery route failed with HTTP ' . $status);
+        throw new RuntimeException('Could not calculate the driving distance right now. Please try again.');
+    }
+    $billableKm = (int)ceil(((float)$meters / 1000) - 0.0000001);
+    $fee = 30 + max(0, $billableKm - 1) * 10;
+    return ['free_delivery' => false, 'distance_km' => round((float)$meters / 1000, 2), 'billable_km' => $billableKm, 'delivery_fee' => (float)$fee];
 }
 function api_is_complete_address(string $address): bool
 {
@@ -65,7 +98,7 @@ function api_is_san_manuel_tarlac_address(string $address): bool
 {
     return api_is_complete_address($address) && stripos($address, 'tarlac') !== false;
 }
-function api_delivery_area_error(): string { return 'Free pickup and delivery are available from San Jose to Balingcanaway, Tarlac City. Choose an address inside the service area.'; }
+function api_delivery_area_error(): string { return 'Free delivery covers San Jose, San Manuel, and Balingcanaway, Tarlac. Other locations may have a distance-based fee.'; }
 function api_send_transactional_email(string $email, string $subject, string $text): void
 {
     $apiKey = trim((string)getenv('BREVO_API_KEY'));

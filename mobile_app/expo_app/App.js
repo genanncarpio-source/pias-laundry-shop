@@ -548,7 +548,7 @@ function AuthScreen({ apiBase, onSignedIn, sessionNotice }) {
             {registering ? <Field label="Phone number" value={phone} onChangeText={(value) => setPhone(value.replace(/\D/g, '').slice(0, 11))} placeholder="09xx xxx xxxx" keyboardType="phone-pad" maxLength={11} returnKeyType="next" /> : null}
             {registering ? <><PlaceAddressSearch apiBase={apiBase} value={address} onChangeText={(value) => { setAddress(value); setLocationPin(null); }} onPlaceSelected={selectRegistrationPlace} />
               <Field label="Address details (required)" value={addressDetails} onChangeText={setAddressDetails} placeholder="House/Blk/Lot No., Street, subdivision or landmark" autoCapitalize="words" maxLength={180} returnKeyType="next" />
-              <View style={styles.locationPinPanel}><Text style={styles.locationPinTitle}>Selected address</Text><Text style={styles.locationPinCopy}>Choose an exact address from the address search. Free pickup and delivery cover San Jose through Balingcanaway, Tarlac City. Drop-off & Pick-up is available outside this area.</Text>{locationPin ? <><Text style={[styles.locationPinSuccess, !locationPin.deliveryAvailable && styles.locationPinWarning]}>{locationPin.deliveryAvailable ? 'Free pickup and delivery are available at this selected address.' : 'This address is outside the free pickup and delivery area. You can still use Drop-off & Pick-up.'}</Text><View style={styles.registrationMap}><DeliveryMap location={locationPin} label="Selected customer location" /></View></> : null}</View></> : null}
+              <View style={styles.locationPinPanel}><Text style={styles.locationPinTitle}>Selected address</Text><Text style={styles.locationPinCopy}>Search for and select your address. Confirm that the map pin marks the exact place where the driver should pick up or deliver your laundry. Delivery is free in San Jose, San Manuel, and Balingcanaway, Tarlac. Outside these areas, a distance-based fee applies.</Text>{locationPin ? <><Text style={[styles.locationPinSuccess, !locationPin.deliveryAvailable && styles.locationPinWarning]}>{locationPin.deliveryAvailable ? 'This pin is in the free delivery area.' : 'This pin is outside the free delivery area. You can still request delivery for a distance-based fee.'}</Text><View style={styles.registrationMap}><DeliveryMap location={locationPin} label="Selected customer location" /></View></> : null}</View></> : null}
             <Field label="Email address" value={email} onChangeText={setEmail} placeholder="you@example.com" keyboardType="email-address" autoCapitalize="none" autoCorrect={false} maxLength={120} returnKeyType="next" />
             <Field
               label="Password"
@@ -644,6 +644,27 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
   const [fulfillment, setFulfillment] = useState('pickup_delivery');
   const [deliveryAddress, setDeliveryAddress] = useState(customer.address || '');
   const deliveryAvailable = isDeliveryArea(customer.location_latitude, customer.location_longitude);
+  const [deliveryQuote, setDeliveryQuote] = useState(deliveryAvailable ? { delivery_fee: 0, distance_km: 0 } : null);
+  const [deliveryQuoteLoading, setDeliveryQuoteLoading] = useState(false);
+  const [deliveryQuoteError, setDeliveryQuoteError] = useState('');
+  useEffect(() => {
+    if (deliveryAvailable) {
+      setDeliveryQuote({ delivery_fee: 0, distance_km: 0 });
+      setDeliveryQuoteError('');
+      setDeliveryQuoteLoading(false);
+      return undefined;
+    }
+    let active = true;
+    setDeliveryQuote(null);
+    setDeliveryQuoteError('');
+    setDeliveryQuoteLoading(true);
+    apiRequest(apiBase, 'delivery_quote.php', { token, timeoutMs: 12000 })
+      .then((result) => { if (active) setDeliveryQuote(result.quote); })
+      .catch((problem) => { if (active) setDeliveryQuoteError(problem.message || 'Could not calculate the delivery fee.'); })
+      .finally(() => { if (active) setDeliveryQuoteLoading(false); });
+    return () => { active = false; };
+  }, [apiBase, token, deliveryAvailable, customer.location_latitude, customer.location_longitude]);
+  const deliveryFee = fulfillment === 'dropoff_pickup' || deliveryAvailable ? 0 : Number(deliveryQuote?.delivery_fee || 0);
   const [pickupAt, setPickupAt] = useState(null);
   const [pickupDate, setPickupDate] = useState('');
   const [pickupTime, setPickupTime] = useState('09:00');
@@ -695,7 +716,7 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
     setProfileSaving(true); setProfileLocationError('');
     try {
       const result = await apiRequest(apiBase, 'customer_profile.php', { method: 'POST', token, body: { address: completeProfileAddress, latitude: profilePin.latitude, longitude: profilePin.longitude } });
-      await onCustomerUpdated(result.customer); setEditingLocation(false);
+      await onCustomerUpdated(result.customer); setDeliveryAddress(completeProfileAddress); setEditingLocation(false);
     } catch (saveError) {
       if (saveError.status === 401) await onSessionExpired(); else setProfileLocationError(saveError.message || 'Could not save your location.');
     } finally { setProfileSaving(false); }
@@ -791,11 +812,12 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
     return matchesCategory && matchesSearch;
   }), [filter, search, services]);
 
-  const estimate = useMemo(() => services.reduce((total, service) => {
+  const serviceSubtotal = useMemo(() => services.reduce((total, service) => {
     const id = String(service.id);
     const quantity = Number(quantities[id] || 0);
     return total + (Number(service.price) || 0) * (Number.isFinite(quantity) ? quantity : 0);
   }, 0), [quantities, services]);
+  const estimate = serviceSubtotal + deliveryFee;
 
   const updateQuantity = (service, value) => {
     const clean = String(value).replace(/[^0-9.]/g, '');
@@ -846,7 +868,7 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
       return setError('Use up to 500 per service, with whole numbers for loads and pieces.');
     }
     if (pickupAt && new Date(pickupAt) <= new Date()) return setError('Choose a future schedule or remove the suggested time.');
-if (['pickup_delivery', 'dropoff_delivery'].includes(fulfillment) && !deliveryAvailable) return setError('Free pickup and delivery are available only from San Jose to Balingcanaway, Tarlac City. Choose Drop-off & Pick-up instead.');
+    if (['pickup_delivery', 'dropoff_delivery'].includes(fulfillment) && !deliveryAvailable && !deliveryQuote) return setError(deliveryQuoteError || 'Wait for the delivery fee to finish calculating before booking.');
     if (fulfillment !== 'dropoff_pickup' && !isCompleteAddress(deliveryAddress)) return setError('Enter the complete delivery address: house or block, street, barangay, and city.');
     if (paymentMethod === 'gcash') {
       if (!gcashInfo?.configured) return setError('The shop has not configured GCash payments yet.');
@@ -864,7 +886,7 @@ if (['pickup_delivery', 'dropoff_delivery'].includes(fulfillment) && !deliveryAv
           delivery_address: deliveryAddress.trim(),
           expected_pickup: pickupAt,
           notes: notes.trim(),
-          quoted_total: Number(estimate.toFixed(2)),
+          quoted_total: Number(serviceSubtotal.toFixed(2)),
           payment_method: paymentMethod,
           ...(paymentMethod === 'gcash' ? {
             payment_amount: Number(estimate.toFixed(2)),
@@ -1027,13 +1049,13 @@ if (['pickup_delivery', 'dropoff_delivery'].includes(fulfillment) && !deliveryAv
 
             <View style={styles.bookingPanel}>
               <Text style={styles.panelTitle}>Service handoff</Text>
-              {!deliveryAvailable ? <View style={styles.deliveryRestriction}><Text style={styles.deliveryRestrictionTitle}>Can’t reach this address for delivery</Text><Text style={styles.deliveryRestrictionCopy}>Free pickup and delivery are available only from San Jose to Balingcanaway, Tarlac City. You can still book using Drop-off & Pick-up.</Text></View> : null}
+              <View style={styles.deliveryRestriction}><Text style={styles.deliveryRestrictionTitle}>{deliveryAvailable ? 'Free delivery zone' : 'Delivery outside the free zone'}</Text><Text style={styles.deliveryRestrictionCopy}>Free delivery covers San Jose, San Manuel, and Balingcanaway, Tarlac. Outside the free zone, the fee is ₱30 for the first kilometer plus ₱10 per additional kilometer, measured by driving route from the shop.</Text>{!deliveryAvailable ? (deliveryQuoteLoading ? <Text style={styles.deliveryRestrictionCopy}>Calculating route and delivery fee…</Text> : deliveryQuote ? <Text style={styles.deliveryRestrictionCopy}>{deliveryQuote.distance_km} km driving distance · Delivery fee: {money(deliveryQuote.delivery_fee)}{deliveryQuote.billable_km ? ' (' + deliveryQuote.billable_km + ' km billed)' : ''}</Text> : <Text style={styles.deliveryRestrictionCopy}>{deliveryQuoteError || 'Delivery fee is unavailable right now.'}</Text>) : null}</View>
               <View style={styles.handoffChoices}>
-                <Pressable disabled={!deliveryAvailable} onPress={() => { setFulfillment('pickup_delivery'); setPaymentMethod('cash_on_handoff'); }} style={[styles.handoffCard, fulfillment === 'pickup_delivery' && styles.handoffCardActive, !deliveryAvailable && styles.handoffCardDisabled]}>
+                <Pressable onPress={() => { setFulfillment('pickup_delivery'); setPaymentMethod('cash_on_handoff'); }} style={[styles.handoffCard, fulfillment === 'pickup_delivery' && styles.handoffCardActive]}>
                   <Text style={styles.handoffIcon}>🚚</Text>
                   <View style={styles.flexOne}><Text style={[styles.handoffTitle, fulfillment === 'pickup_delivery' && styles.handoffTitleActive]}>Pickup & Delivery</Text><Text style={[styles.handoffCopy, fulfillment === 'pickup_delivery' && styles.handoffCopyActive]}>Driver collects your laundry and returns it after service.</Text></View>
                 </Pressable>
-                <Pressable disabled={!deliveryAvailable} onPress={() => { setFulfillment('dropoff_delivery'); setPaymentMethod('cash_on_handoff'); }} style={[styles.handoffCard, fulfillment === 'dropoff_delivery' && styles.handoffCardActive, !deliveryAvailable && styles.handoffCardDisabled]}>
+                <Pressable onPress={() => { setFulfillment('dropoff_delivery'); setPaymentMethod('cash_on_handoff'); }} style={[styles.handoffCard, fulfillment === 'dropoff_delivery' && styles.handoffCardActive]}>
                   <Text style={styles.handoffIcon}>🏪</Text>
                   <View style={styles.flexOne}><Text style={[styles.handoffTitle, fulfillment === 'dropoff_delivery' && styles.handoffTitleActive]}>Drop-off & Delivery</Text><Text style={[styles.handoffCopy, fulfillment === 'dropoff_delivery' && styles.handoffCopyActive]}>Bring laundry to the shop; a driver returns it when done.</Text></View>
                 </Pressable>
@@ -1044,8 +1066,8 @@ if (['pickup_delivery', 'dropoff_delivery'].includes(fulfillment) && !deliveryAv
               </View>
               {fulfillment !== 'dropoff_pickup' ? <View>
                 <Text style={styles.addressLabel}>Complete delivery address</Text>
-                <TextInput value={deliveryAddress} onChangeText={setDeliveryAddress} maxLength={255} placeholder="House/Blk/Lot No., Street, Barangay, Tarlac City" placeholderTextColor="#a59ba5" style={styles.deliveryAddressInput} />
-                <Text style={styles.addressHelp}>{fulfillment === 'pickup_delivery' ? 'This address is used for both collection and final delivery.' : 'The driver will deliver the finished laundry to this address.'}</Text>
+                <TextInput value={deliveryAddress} editable={false} onChangeText={setDeliveryAddress} maxLength={255} placeholder="House/Blk/Lot No., Street, Barangay, Tarlac City" placeholderTextColor="#a59ba5" style={styles.deliveryAddressInput} />
+                <Text style={styles.addressHelp}>{fulfillment === 'pickup_delivery' ? 'We use your saved address and pin for collection and final delivery. Change it in Profile before booking.' : 'We use your saved address and pin for delivery. Change it in Profile before booking.'}</Text>
               </View> : null}
               <View style={styles.panelTitleRow}>
                 <Text style={styles.panelIcon}>🗓</Text>
@@ -1096,8 +1118,9 @@ if (['pickup_delivery', 'dropoff_delivery'].includes(fulfillment) && !deliveryAv
               <Text style={styles.panelTitle}>Special instructions</Text>
               <TextInput value={notes} onChangeText={(value) => setNotes(value.slice(0, 255))} multiline maxLength={255} placeholder="Add a note for the shop (optional)" placeholderTextColor="#a59ba5" style={styles.notesInput} />
               <Text style={styles.noteCount}>{notes.length}/255</Text>
+              {fulfillment !== 'dropoff_pickup' ? <View style={styles.estimateRow}><Text style={styles.estimateLabel}>Delivery fee</Text><Text style={styles.estimateValue}>{deliveryQuoteLoading && !deliveryAvailable ? '…' : money(deliveryFee)}</Text></View> : null}
               <View style={styles.estimateRow}><Text style={styles.estimateLabel}>Estimated total</Text><Text style={styles.estimateValue}>{money(estimate)}</Text></View>
-              <Pressable onPress={bookService} disabled={sending || estimate <= 0 || (paymentMethod === 'gcash' && gcashReference.trim().length < 6)} style={[styles.bookButton, (sending || estimate <= 0 || (paymentMethod === 'gcash' && gcashReference.trim().length < 6)) && styles.bookButtonDisabled]}>
+              <Pressable onPress={bookService} disabled={sending || estimate <= 0 || (fulfillment !== 'dropoff_pickup' && !deliveryAvailable && !deliveryQuote) || (paymentMethod === 'gcash' && gcashReference.trim().length < 6)} style={[styles.bookButton, (sending || estimate <= 0 || (fulfillment !== 'dropoff_pickup' && !deliveryAvailable && !deliveryQuote) || (paymentMethod === 'gcash' && gcashReference.trim().length < 6)) && styles.bookButtonDisabled]}>
                 {sending ? <ActivityIndicator color={COLORS.white} /> : <Text style={styles.bookButtonText}>Book Service</Text>}
               </Pressable>
               <Text style={styles.estimateNote}>This is an estimate. The shop will confirm your service, price, and handoff and final delivery schedule.</Text>
@@ -1145,22 +1168,22 @@ if (['pickup_delivery', 'dropoff_delivery'].includes(fulfillment) && !deliveryAv
               <Text style={styles.profileEmail}>{customer.email || ''}</Text>
             </View>
             <View style={styles.profileCard}>
-              <ProfileRow icon="�" label="Full name" value={customer.name} />
-              <ProfileRow icon="�" label="Email address" value={customer.email} />
-              <ProfileRow icon="�" label="Phone number" value={customer.phone} />
-              <ProfileRow icon="�" label="Pickup address" value={customer.address} last />
+              <ProfileRow icon="�" label="Full name" value={customer.name} />
+              <ProfileRow icon="�" label="Email address" value={customer.email} />
+              <ProfileRow icon="�" label="Phone number" value={customer.phone} />
+              <ProfileRow icon="�" label="Pickup address" value={customer.address} last />
             </View>
             <View style={styles.profileLocationCard}>
               <Text style={styles.panelTitle}>Address and saved location</Text>
-              <Text style={styles.profileLocationCopy}>Choose your address using the address search, then add complete details if needed. Free pickup and delivery cover San Jose through Balingcanaway, Tarlac City.</Text>
+              <Text style={styles.profileLocationCopy}>Search for and select your address, add complete details, and confirm the pin on the map. Delivery is free in San Jose, San Manuel, and Balingcanaway, Tarlac; distance-based fees apply outside these areas.</Text>
               {editingLocation ? <>
                 <PlaceAddressSearch apiBase={apiBase} value={profileAddress} onChangeText={(value) => { setProfileAddress(value); setProfilePin(null); }} onPlaceSelected={selectProfilePlace} disabled={profileSaving} />
                 <Text style={styles.addressLabel}>Address details (required)</Text>
                 <TextInput value={profileAddressDetails} onChangeText={setProfileAddressDetails} maxLength={180} placeholder="House/Blk/Lot No., Street, subdivision or landmark" placeholderTextColor="#a59ba5" style={styles.deliveryAddressInput} />
-                {profilePin ? <><Text style={[styles.locationPinSuccess, !profilePin.deliveryAvailable && styles.locationPinWarning]}>{profilePin.deliveryAvailable ? 'Free pickup and delivery are available at this selected address.' : 'This address is outside the free pickup and delivery area. Drop-off & Pick-up is still available.'}</Text><View style={styles.registrationMap}><DeliveryMap location={profilePin} label="Saved customer location" /></View></> : null}
+                {profilePin ? <><Text style={[styles.locationPinSuccess, !profilePin.deliveryAvailable && styles.locationPinWarning]}>{profilePin.deliveryAvailable ? 'This pin is in the free delivery area.' : 'This pin is outside the free delivery area. Delivery is available for a distance-based fee.'}</Text><View style={styles.registrationMap}><DeliveryMap location={profilePin} label="Saved customer location" /></View></> : null}
                 {profileLocationError ? <Text style={styles.errorBox}>{profileLocationError}</Text> : null}
                 <View style={styles.profileLocationActions}><Pressable disabled={profileSaving} onPress={() => setEditingLocation(false)} style={styles.secondaryButton}><Text style={styles.secondaryButtonText}>Cancel</Text></Pressable><Pressable disabled={profileSaving} onPress={saveProfileLocation} style={[styles.primaryButton, profileSaving && styles.disabledButton]}>{profileSaving ? <ActivityIndicator color={COLORS.white} /> : <Text style={styles.primaryButtonText}>Save address</Text>}</Pressable></View>
-              </> : <><Text style={[styles.locationPinSuccess, !isDeliveryArea(customer.location_latitude, customer.location_longitude) && styles.locationPinWarning]}>{isDeliveryArea(customer.location_latitude, customer.location_longitude) ? 'Free pickup and delivery are available at your saved address.' : 'Free pickup and delivery are unavailable outside the San Jose to Balingcanaway, Tarlac City area.'}</Text><Pressable onPress={beginLocationEdit} style={styles.locationPinButton}><Text style={styles.locationPinButtonText}>Edit address</Text></Pressable></>}
+              </> : <><Text style={[styles.locationPinSuccess, !isDeliveryArea(customer.location_latitude, customer.location_longitude) && styles.locationPinWarning]}>{isDeliveryArea(customer.location_latitude, customer.location_longitude) ? 'Your saved pin is in the free delivery area.' : 'Your saved pin is outside the free delivery area. Delivery is available for a distance-based fee.'}</Text><Pressable onPress={beginLocationEdit} style={styles.locationPinButton}><Text style={styles.locationPinButtonText}>Edit address</Text></Pressable></>}
             </View>
             <Pressable onPress={onSignOut} style={styles.signOutButton}><Text style={styles.signOutButtonText}>Sign out</Text></Pressable>
           </View>
@@ -1392,7 +1415,7 @@ function TicketCard({ ticket, onShareLocation, onRevokeLocation, locationBusy, l
             )}
           </View>
         ) : null}
-        <View style={styles.ticketTotals}>
+        <View style={styles.ticketTotals}>{Number(ticket.delivery_fee) > 0 ? <Text style={styles.ticketDetail}>Distance-based delivery fee: {money(ticket.delivery_fee)}</Text> : null}
           <View><Text style={styles.ticketTotalLabel}>Estimated total</Text><Text style={styles.ticketTotalValue}>{money(ticket.total)}</Text></View>
           <View style={styles.ticketBalance}><Text style={styles.ticketTotalLabel}>Balance due</Text><Text style={styles.ticketTotalValue}>{money(ticket.balance_due)}</Text></View>
         </View>

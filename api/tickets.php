@@ -84,7 +84,7 @@ if ($paymentMethod === 'gcash') {
     if (trim(get_setting('gcash_account_name')) === '' || trim(get_setting('gcash_number')) === '') mobile_booking_json(409, ['success' => false, 'error' => 'The shop has not set up GCash payments yet. Choose payment during handoff or contact the shop.']);
     if (strlen($paymentReference) < 6 || strlen($paymentReference) > 120) mobile_booking_json(422, ['success' => false, 'error' => 'Enter the GCash reference number from your completed transfer.']);
     $reportedAmount = filter_var($data['payment_amount'] ?? null, FILTER_VALIDATE_FLOAT);
-    if ($reportedAmount === false || round((float)$reportedAmount, 2) !== $subtotal) mobile_booking_json(422, ['success' => false, 'error' => 'The payment amount must match the current booking total.']);
+
 }
 $orderPaymentMethod = $paymentMethod === 'gcash' ? 'gcash_pending' : 'cash_on_handoff';
 $notes = api_text($data, 'notes');
@@ -93,11 +93,24 @@ $fulfillment = api_text($data, 'fulfillment_type') ?: 'pickup_delivery';
 if (!in_array($fulfillment, ['pickup_delivery', 'dropoff_delivery', 'dropoff_pickup'], true)) mobile_booking_json(422, ['success' => false, 'error' => 'Choose a valid service handoff option.']);
 $customerLatitude = isset($customer['location_latitude']) ? (float)$customer['location_latitude'] : 0.0;
 $customerLongitude = isset($customer['location_longitude']) ? (float)$customer['location_longitude'] : 0.0;
-$deliveryAvailable = $customerLatitude !== 0.0 && $customerLongitude !== 0.0 && api_is_delivery_area($customerLatitude, $customerLongitude);
-if (in_array($fulfillment, ['pickup_delivery', 'dropoff_delivery'], true) && !$deliveryAvailable) {
-    mobile_booking_json(422, ['success' => false, 'error' => "Free pickup and delivery are available only from San Jose to Balingcanaway, Tarlac City. You may still choose Drop-off & Pick-up."]);
+$hasDelivery = in_array($fulfillment, ['pickup_delivery', 'dropoff_delivery'], true);
+$deliveryQuote = ['free_delivery' => true, 'distance_km' => 0, 'delivery_fee' => 0.0];
+if ($hasDelivery) {
+    if ($customerLatitude < -90 || $customerLatitude > 90 || $customerLongitude < -180 || $customerLongitude > 180 || ($customerLatitude === 0.0 && $customerLongitude === 0.0)) {
+        mobile_booking_json(422, ['success' => false, 'error' => 'Pin your delivery location in your account profile first.']);
+    }
+    try {
+        $deliveryQuote = api_delivery_quote($customerLatitude, $customerLongitude);
+    } catch (RuntimeException $e) {
+        mobile_booking_json(503, ['success' => false, 'error' => $e->getMessage()]);
+    }
 }
-$deliveryAddress = api_text($data, 'delivery_address');
+$deliveryFee = (float)$deliveryQuote['delivery_fee'];
+$grandTotal = round($subtotal + $deliveryFee, 2);
+if ($paymentMethod === 'gcash') {
+    if ($reportedAmount === false || round((float)$reportedAmount, 2) !== $grandTotal) mobile_booking_json(422, ['success' => false, 'error' => 'The payment amount must match the service subtotal and delivery fee.']);
+}
+$deliveryAddress = $hasDelivery ? trim((string)$customer['address']) : api_text($data, 'delivery_address');
 if ($fulfillment !== 'dropoff_pickup' && (!api_is_complete_address($deliveryAddress) || strlen($deliveryAddress) > 255)) {
     mobile_booking_json(422, ['success' => false, 'error' => 'Enter the complete delivery address: house or block, street, barangay, and city.']);
 }
@@ -127,14 +140,17 @@ if (!$pdo->inTransaction()) $pdo->beginTransaction();
 try {
     $insert = $pdo->prepare(
         "INSERT INTO orders
-            (order_number, customer_id, customer_name, pickup_address, delivery_address, order_type, handoff_type, status, subtotal, discount, total,
-             amount_paid, change_due, payment_method, expected_pickup, notes, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, 0, ?, 0, 0, ?, ?, ?, NULL)"
+            (order_number, customer_id, customer_name, pickup_address, delivery_address, delivery_latitude, delivery_longitude,
+             order_type, handoff_type, status, subtotal, delivery_fee, discount, total, amount_paid, change_due, payment_method,
+             expected_pickup, notes, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, 0, ?, 0, 0, ?, ?, ?, NULL)"
     );
-    $insert->execute([$ticketNumber, (int)$customer['id'], $customer['name'], $pickupAddress, $deliveryAddressValue, $orderType, $fulfillment, $subtotal, $subtotal, $orderPaymentMethod, $expectedPickup, $notes ?: null]);
+    $insert->execute([$ticketNumber, (int)$customer['id'], $customer['name'], $pickupAddress, $deliveryAddressValue,
+        $hasDelivery ? $customerLatitude : null, $hasDelivery ? $customerLongitude : null,
+        $orderType, $fulfillment, $subtotal, $deliveryFee, $grandTotal, $orderPaymentMethod, $expectedPickup, $notes ?: null]);
     $ticketId = (int)$pdo->lastInsertId();
     if ($paymentMethod === 'gcash') {
-        $pdo->prepare('INSERT INTO gcash_payment_submissions (order_id, amount, reference_number) VALUES (?, ?, ?)')->execute([$ticketId, $subtotal, $paymentReference]);
+        $pdo->prepare('INSERT INTO gcash_payment_submissions (order_id, amount, reference_number) VALUES (?, ?, ?)')->execute([$ticketId, $grandTotal, $paymentReference]);
     }
     $insertLine = $pdo->prepare('INSERT INTO order_items (order_id, service_id, service_name, unit, quantity, unit_price, subtotal) VALUES (?, ?, ?, ?, ?, ?, ?)');
     foreach ($lines as $line) {
@@ -149,7 +165,7 @@ try {
     foreach ($staffIds as $staffId) {
         $requestLabel = $fulfillment === 'pickup_delivery' ? 'pickup and delivery' : ($fulfillment === 'dropoff_delivery' ? 'drop-off and delivery' : 'drop-off and pickup');
         if ($paymentMethod === 'gcash') {
-            add_notification('staff', (int)$staffId, $ticketId, 'GCash payment needs verification', 'GCash reference ' . $paymentReference . ' was submitted for ' . $ticketNumber . ' (' . money($subtotal) . ').');
+            add_notification('staff', (int)$staffId, $ticketId, 'GCash payment needs verification', 'GCash reference ' . $paymentReference . ' was submitted for ' . $ticketNumber . ' (' . money($grandTotal) . ').');
         } else {
             add_notification('staff', (int)$staffId, $ticketId, 'New ' . $requestLabel . ' request', 'Mobile app ' . $requestLabel . ' request ' . $ticketNumber . ' from ' . $customer['name'] . '.');
         }
@@ -157,7 +173,7 @@ try {
 $response = [
     'success' => true,
     'message' => $paymentMethod === 'gcash' ? 'Your booking and GCash reference were submitted. The shop will verify the transfer before processing.' : 'Your laundry service request was submitted. The shop will confirm it.',
-    'ticket' => ['id' => $ticketId, 'ticket_number' => $ticketNumber, 'status' => 'pending', 'estimated_total' => $subtotal, 'payment_status' => $paymentMethod === 'gcash' ? 'pending_verification' : 'pay_during_handoff'],
+    'ticket' => ['id' => $ticketId, 'ticket_number' => $ticketNumber, 'status' => 'pending', 'estimated_total' => $grandTotal, 'service_subtotal' => $subtotal, 'delivery_fee' => $deliveryFee, 'delivery_distance_km' => $deliveryQuote['distance_km'], 'payment_status' => $paymentMethod === 'gcash' ? 'pending_verification' : 'pay_during_handoff'],
 ];
 
     if ($requestId !== null) {

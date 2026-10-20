@@ -144,7 +144,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['update_status']) || 
                     }
                 }
                 $newSubtotal = round($newSubtotal, 2);
-                $newTotal = round(max(0, $newSubtotal - (float)$currentOrder['discount']), 2);
+                $newTotal = round(max(0, $newSubtotal - (float)$currentOrder['discount']) + (float)$currentOrder['delivery_fee'], 2);
                 $alreadyPaid = max(0, (float)$currentOrder['amount_paid'] - (float)$currentOrder['change_due']);
                 if (!$hasKg) throw new InvalidArgumentException('This order has no weight-based service.');
                 if ($alreadyPaid > $newTotal) throw new InvalidArgumentException('The new total is below the amount already paid. The recorded weight was not changed.');
@@ -395,6 +395,12 @@ include __DIR__ . '/includes/header.php';
           <tr>
             <td colspan="3" class="right muted">Discount</td>
             <td class="num">-<?= money($order['discount']) ?></td>
+          </tr>
+          <?php endif; ?>
+          <?php if ((float)($order['delivery_fee'] ?? 0) > 0): ?>
+          <tr>
+            <td colspan="3" class="right muted">Delivery fee</td>
+            <td class="num"><?= money($order['delivery_fee']) ?></td>
           </tr>
           <?php endif; ?>
           <tr>

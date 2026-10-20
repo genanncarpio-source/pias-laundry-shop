@@ -75,6 +75,11 @@ function ensure_workflow_schema(): void
     static $ready = false;
     if ($ready) return;
     $pdo = db();
+    // Add the verified shop pin to existing databases without overwriting a
+    // shop location that an administrator has already configured.
+    $pdo->exec("INSERT IGNORE INTO settings (`key`, `value`) VALUES
+        ('shop_latitude', '15.4905338'),
+        ('shop_longitude', '120.6641949')");
     $pdo->exec("CREATE TABLE IF NOT EXISTS delivery_drivers (
         id INT UNSIGNED NOT NULL AUTO_INCREMENT,
         full_name VARCHAR(100) NOT NULL,
@@ -118,6 +123,9 @@ function ensure_workflow_schema(): void
         'handoff_type' => "ALTER TABLE orders ADD COLUMN handoff_type VARCHAR(30) NOT NULL DEFAULT 'dropoff_delivery' AFTER order_type",
         'staff_notes' => "ALTER TABLE orders ADD COLUMN staff_notes VARCHAR(1000) DEFAULT NULL AFTER notes",
         'completed_at' => "ALTER TABLE orders ADD COLUMN completed_at DATETIME DEFAULT NULL AFTER updated_at",
+        'delivery_fee' => "ALTER TABLE orders ADD COLUMN delivery_fee DECIMAL(10,2) NOT NULL DEFAULT 0.00 AFTER subtotal",
+        'delivery_latitude' => "ALTER TABLE orders ADD COLUMN delivery_latitude DECIMAL(10,7) DEFAULT NULL AFTER delivery_address",
+        'delivery_longitude' => "ALTER TABLE orders ADD COLUMN delivery_longitude DECIMAL(10,7) DEFAULT NULL AFTER delivery_latitude",
     ];
     $existingColumns = [];
     foreach ($pdo->query('SHOW COLUMNS FROM orders')->fetchAll(PDO::FETCH_ASSOC) as $columnInfo) $existingColumns[$columnInfo['Field']] = true;

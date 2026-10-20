@@ -23,6 +23,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         redirect('settings.php');
     }
 
+    $shopLatitude = trim((string)($_POST['shop_latitude'] ?? ''));
+    $shopLongitude = trim((string)($_POST['shop_longitude'] ?? ''));
+    if (($shopLatitude === '') !== ($shopLongitude === '')
+        || ($shopLatitude !== '' && (!is_numeric($shopLatitude) || !is_numeric($shopLongitude)
+            || (float)$shopLatitude < -90 || (float)$shopLatitude > 90
+            || (float)$shopLongitude < -180 || (float)$shopLongitude > 180))) {
+        flash_set('error', 'Enter valid latitude and longitude coordinates for the shop delivery origin, or leave both blank.');
+        redirect('settings.php');
+    }
     $upload = $_FILES['gcash_qr'] ?? null;
     if (is_array($upload) && ($upload['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
         if (($upload['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK || (int)($upload['size'] ?? 0) > 3 * 1024 * 1024 || !is_uploaded_file($upload['tmp_name'] ?? '')) {
@@ -51,6 +60,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     settings_update([
         'shop_name' => trim($_POST['shop_name'] ?? ''),
         'shop_address' => trim($_POST['shop_address'] ?? ''),
+        'shop_latitude' => trim($_POST['shop_latitude'] ?? ''),
+        'shop_longitude' => trim($_POST['shop_longitude'] ?? ''),
         'shop_phone' => trim($_POST['shop_phone'] ?? ''),
         'receipt_note' => trim($_POST['receipt_note'] ?? ''),
         'gcash_account_name' => $gcashName,
@@ -80,6 +91,11 @@ include __DIR__ . '/includes/header.php';
     <label for="shop_address">Address</label>
     <input type="text" id="shop_address" name="shop_address" maxlength="255" value="<?= e(get_setting('shop_address')) ?>">
     <p class="field-help">Printed on receipts so customers can identify the shop.</p>
+    <label for="shop_latitude">Delivery origin latitude</label>
+    <input type="number" id="shop_latitude" name="shop_latitude" step="any" min="-90" max="90" value="<?= e(get_setting('shop_latitude')) ?>" placeholder="Example: 15.48">
+    <label for="shop_longitude">Delivery origin longitude</label>
+    <input type="number" id="shop_longitude" name="shop_longitude" step="any" min="-180" max="180" value="<?= e(get_setting('shop_longitude')) ?>" placeholder="Example: 120.59">
+    <p class="field-help">Set both coordinates to the exact shop pin. Paid delivery uses driving distance from this point. You can copy coordinates from the shop pin in Google Maps.</p>
 
     <label for="shop_phone">Phone</label>
     <input type="tel" id="shop_phone" name="shop_phone" maxlength="40" value="<?= e(get_setting('shop_phone')) ?>">

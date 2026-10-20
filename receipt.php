@@ -83,6 +83,9 @@ $isNew = isset($_GET['new']);
   <?php if ($order['discount'] > 0): ?>
     <div class="rc-line"><span>Discount</span><span>-<?= money($order['discount']) ?></span></div>
   <?php endif; ?>
+  <?php if ((float)($order['delivery_fee'] ?? 0) > 0): ?>
+    <div class="rc-line"><span>Delivery fee</span><span><?= money($order['delivery_fee']) ?></span></div>
+  <?php endif; ?>
   <div class="rc-line rc-bold"><span>TOTAL</span><span><?= money($order['total']) ?></span></div>
   <div class="rc-line"><span>Payment</span><span><?= e(strtoupper($order['payment_method'])) ?></span></div>
   <?php if ($order['payment_method'] === 'cash'): ?>

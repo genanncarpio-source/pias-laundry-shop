@@ -3,7 +3,7 @@ require_once __DIR__ . '/bootstrap.php';
 api_require_method('GET');
 $driver = api_current_driver();
 $stmt = db()->prepare(
-    "SELECT o.id, o.order_number, o.customer_name, o.pickup_address, o.delivery_address, o.expected_pickup, o.status, o.handoff_type, o.payment_method, o.total,
+    "SELECT o.id, o.order_number, o.customer_name, o.pickup_address, o.delivery_address, o.delivery_latitude, o.delivery_longitude, o.expected_pickup, o.status, o.handoff_type, o.payment_method, o.total,
             c.name AS account_name, c.phone AS customer_phone,
             dt.latitude AS driver_latitude, dt.longitude AS driver_longitude, dt.updated_at AS driver_updated_at, dt.stopped_at,
             dt.customer_location_shared, dt.customer_latitude, dt.customer_longitude, dt.customer_accuracy, dt.customer_location_updated_at
@@ -43,6 +43,8 @@ foreach ($stmt->fetchAll() as $row) {
         'customer_phone' => $row['customer_phone'],
         'pickup_address' => $row['pickup_address'],
         'delivery_address' => $row['delivery_address'],
+        'delivery_latitude' => $row['delivery_latitude'] !== null ? (float)$row['delivery_latitude'] : null,
+        'delivery_longitude' => $row['delivery_longitude'] !== null ? (float)$row['delivery_longitude'] : null,
         'status' => $row['status'],
         'handoff_type' => $row['handoff_type'],
         'payment_method' => $row['payment_method'],
