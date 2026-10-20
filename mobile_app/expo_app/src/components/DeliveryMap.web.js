@@ -39,7 +39,7 @@ export default function DeliveryMap({ location, label = 'Driver', offline = fals
           <View style={styles.fullHeader}><Text style={styles.fullTitle}>Pin Address</Text><Pressable accessibilityRole="button" accessibilityLabel="Close full-screen map" onPress={() => setFullScreen(false)} style={styles.closeButton}><Text style={styles.closeText}>Close</Text></Pressable></View>
           <Text style={styles.coordinates}>{label}: {latitude.toFixed(7)}, {longitude.toFixed(7)}</Text>
           <Text style={styles.hint}>Drag the pin or tap the map to adjust your delivery location.</Text>
-          <View style={styles.expandedMap}>{offline ? <Text style={styles.coordinates}>Reconnect to adjust your pin.</Text> : <MapFrame mapFrame={mapFrame} label={label} html={pinMapHtml({ latitude, longitude })} expanded />}</View>
+          <View style={styles.expandedMap}>{offline ? <Text style={styles.coordinates}>Reconnect to adjust your pin.</Text> : <MapFrame mapFrame={mapFrame} label={label} html={pinMapHtml({ latitude, longitude, zoom: 13 })} expanded />}</View>
         </View>
       </Modal>
     </View>;
