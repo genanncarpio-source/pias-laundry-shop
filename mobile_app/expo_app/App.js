@@ -369,6 +369,9 @@ function AuthScreen({ apiBase, onSignedIn, sessionNotice }) {
     setLocationPin({ latitude: place.latitude, longitude: place.longitude, deliveryAvailable: place.delivery_available });
     setError('');
   };
+  const adjustRegistrationPin = ({ latitude, longitude }) => {
+    setLocationPin((current) => current ? { ...current, latitude, longitude, deliveryAvailable: isDeliveryArea(latitude, longitude) } : current);
+  };
   const submit = async () => {
     if (submitting.current) return;
     setError('');
@@ -547,8 +550,8 @@ function AuthScreen({ apiBase, onSignedIn, sessionNotice }) {
             {registering ? <Field label="Full name" value={name} onChangeText={setName} placeholder="Your name" autoCapitalize="words" maxLength={100} returnKeyType="next" /> : null}
             {registering ? <Field label="Phone number" value={phone} onChangeText={(value) => setPhone(value.replace(/\D/g, '').slice(0, 11))} placeholder="09xx xxx xxxx" keyboardType="phone-pad" maxLength={11} returnKeyType="next" /> : null}
             {registering ? <><PlaceAddressSearch apiBase={apiBase} value={address} onChangeText={(value) => { setAddress(value); setLocationPin(null); }} onPlaceSelected={selectRegistrationPlace} />
-              <Field label="Address details (required)" value={addressDetails} onChangeText={setAddressDetails} placeholder="House/Blk/Lot No., Street, subdivision or landmark" autoCapitalize="words" maxLength={180} returnKeyType="next" />
-              <View style={styles.locationPinPanel}><Text style={styles.locationPinTitle}>Selected address</Text><Text style={styles.locationPinCopy}>Search for and select your address. Confirm that the map pin marks the exact place where the driver should pick up or deliver your laundry. Delivery is free in San Jose, San Manuel, and Balingcanaway, Tarlac. Outside these areas, a distance-based fee applies.</Text>{locationPin ? <><Text style={[styles.locationPinSuccess, !locationPin.deliveryAvailable && styles.locationPinWarning]}>{locationPin.deliveryAvailable ? 'This pin is in the free delivery area.' : 'This pin is outside the free delivery area. You can still request delivery for a distance-based fee.'}</Text><View style={styles.registrationMap}><DeliveryMap location={locationPin} label="Selected customer location" /></View></> : null}</View></> : null}
+              <Field label="House / unit / lot / landmark details (required)" value={addressDetails} onChangeText={setAddressDetails} placeholder="House number, unit, gate, or nearby landmark" autoCapitalize="words" maxLength={180} returnKeyType="next" />
+              <View style={styles.locationPinPanel}><Text style={styles.locationPinTitle}>One delivery address</Text><Text style={styles.locationPinCopy}>Choose one search result, then drag the single map pin or tap the exact spot where the driver should go. The pin is saved with your address. Free delivery covers San Jose, San Manuel, and Balingcanaway, Tarlac; distance-based fees apply outside these areas.</Text>{locationPin ? <><Text style={[styles.locationPinSuccess, !locationPin.deliveryAvailable && styles.locationPinWarning]}>{locationPin.deliveryAvailable ? 'This pin is in the free delivery area.' : 'This pin is outside the free delivery area. You can still request delivery for a distance-based fee.'}</Text><Text style={styles.locationPinCopy}>Adjust the marker to your exact home or gate. The coordinates below are what the driver will use.</Text><View style={styles.registrationMap}><DeliveryMap location={locationPin} label="Delivery pin" editable onLocationChange={adjustRegistrationPin} /></View></> : <Text style={styles.locationPinCopy}>Select one address from the search suggestions to place its pin on the map.</Text>}</View></> : null}
             <Field label="Email address" value={email} onChangeText={setEmail} placeholder="you@example.com" keyboardType="email-address" autoCapitalize="none" autoCorrect={false} maxLength={120} returnKeyType="next" />
             <Field
               label="Password"
@@ -708,6 +711,9 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
     setProfileAddressDetails('');
     setProfilePin({ latitude: place.latitude, longitude: place.longitude, deliveryAvailable: place.delivery_available });
     setProfileLocationError('');
+  };
+  const adjustProfilePin = ({ latitude, longitude }) => {
+    setProfilePin((current) => current ? { ...current, latitude, longitude, deliveryAvailable: isDeliveryArea(latitude, longitude) } : current);
   };
   const saveProfileLocation = async () => {
     const completeProfileAddress = [profileAddressDetails.trim(), profileAddress.trim()].filter(Boolean).join(', ');
@@ -1175,12 +1181,12 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
             </View>
             <View style={styles.profileLocationCard}>
               <Text style={styles.panelTitle}>Address and saved location</Text>
-              <Text style={styles.profileLocationCopy}>Search for and select your address, add complete details, and confirm the pin on the map. Delivery is free in San Jose, San Manuel, and Balingcanaway, Tarlac; distance-based fees apply outside these areas.</Text>
+              <Text style={styles.profileLocationCopy}>Save one delivery address and one map pin. Choose a search result, then move the marker to your exact home or gate. Free delivery covers San Jose, San Manuel, and Balingcanaway, Tarlac; distance-based fees apply outside these areas.</Text>
               {editingLocation ? <>
                 <PlaceAddressSearch apiBase={apiBase} value={profileAddress} onChangeText={(value) => { setProfileAddress(value); setProfilePin(null); }} onPlaceSelected={selectProfilePlace} disabled={profileSaving} />
-                <Text style={styles.addressLabel}>Address details (required)</Text>
-                <TextInput value={profileAddressDetails} onChangeText={setProfileAddressDetails} maxLength={180} placeholder="House/Blk/Lot No., Street, subdivision or landmark" placeholderTextColor="#a59ba5" style={styles.deliveryAddressInput} />
-                {profilePin ? <><Text style={[styles.locationPinSuccess, !profilePin.deliveryAvailable && styles.locationPinWarning]}>{profilePin.deliveryAvailable ? 'This pin is in the free delivery area.' : 'This pin is outside the free delivery area. Delivery is available for a distance-based fee.'}</Text><View style={styles.registrationMap}><DeliveryMap location={profilePin} label="Saved customer location" /></View></> : null}
+                <Text style={styles.addressLabel}>House / unit / lot / landmark details (required)</Text>
+                <TextInput value={profileAddressDetails} onChangeText={setProfileAddressDetails} maxLength={180} placeholder="House number, unit, gate, or nearby landmark" placeholderTextColor="#a59ba5" style={styles.deliveryAddressInput} />
+                {profilePin ? <><Text style={[styles.locationPinSuccess, !profilePin.deliveryAvailable && styles.locationPinWarning]}>{profilePin.deliveryAvailable ? 'This pin is in the free delivery area.' : 'This pin is outside the free delivery area. Delivery is available for a distance-based fee.'}</Text><Text style={styles.profileLocationCopy}>Drag the single marker or tap the exact spot for the driver.</Text><View style={styles.registrationMap}><DeliveryMap location={profilePin} label="Delivery pin" editable onLocationChange={adjustProfilePin} /></View></> : <Text style={styles.profileLocationCopy}>Select one address from the search suggestions to place its pin on the map.</Text>}
                 {profileLocationError ? <Text style={styles.errorBox}>{profileLocationError}</Text> : null}
                 <View style={styles.profileLocationActions}><Pressable disabled={profileSaving} onPress={() => setEditingLocation(false)} style={styles.secondaryButton}><Text style={styles.secondaryButtonText}>Cancel</Text></Pressable><Pressable disabled={profileSaving} onPress={saveProfileLocation} style={[styles.primaryButton, profileSaving && styles.disabledButton]}>{profileSaving ? <ActivityIndicator color={COLORS.white} /> : <Text style={styles.primaryButtonText}>Save address</Text>}</Pressable></View>
               </> : <><Text style={[styles.locationPinSuccess, !isDeliveryArea(customer.location_latitude, customer.location_longitude) && styles.locationPinWarning]}>{isDeliveryArea(customer.location_latitude, customer.location_longitude) ? 'Your saved pin is in the free delivery area.' : 'Your saved pin is outside the free delivery area. Delivery is available for a distance-based fee.'}</Text><Pressable onPress={beginLocationEdit} style={styles.locationPinButton}><Text style={styles.locationPinButtonText}>Edit address</Text></Pressable></>}
