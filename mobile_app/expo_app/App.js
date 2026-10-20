@@ -717,7 +717,7 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
   };
   const saveProfileLocation = async () => {
     const completeProfileAddress = [profileAddressDetails.trim(), profileAddress.trim()].filter(Boolean).join(', ');
-    if (!isCompleteAddress(completeProfileAddress)) return setProfileLocationError('Select a full address from the search results. You can add house, unit, or landmark details if needed.');
+    if (!profileAddress.trim()) return setProfileLocationError('Enter an address. House, unit, or landmark details are optional.');
     if (!profilePin) return setProfileLocationError('Choose your address from the address search results before saving.');
     setProfileSaving(true); setProfileLocationError('');
     try {
@@ -1174,17 +1174,17 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
               <Text style={styles.profileEmail}>{customer.email || ''}</Text>
             </View>
             <View style={styles.profileCard}>
-              <ProfileRow icon="�" label="Full name" value={customer.name} />
-              <ProfileRow icon="�" label="Email address" value={customer.email} />
-              <ProfileRow icon="�" label="Phone number" value={customer.phone} />
-              <ProfileRow icon="�" label="Delivery address" value={customer.address} last />
+              <ProfileRow icon={String.fromCodePoint(0x1F464)} label="Full name" value={customer.name} />
+              <ProfileRow icon={String.fromCodePoint(0x2709)} label="Email address" value={customer.email} />
+              <ProfileRow icon={String.fromCodePoint(0x260E)} label="Phone number" value={customer.phone} />
+              <ProfileRow icon={String.fromCodePoint(0x1F4CD)} label="Delivery address" value={customer.address} last />
             </View>
             <View style={styles.profileLocationCard}>
-              <Text style={styles.panelTitle}>Address and saved location</Text>
+              <Text style={styles.profileLocationTitle}>Address and saved location</Text>
               <Text style={styles.profileLocationCopy}>Save one delivery address and one map pin. Choose a search result, then move the marker to your exact home or gate. Free delivery covers San Jose, San Manuel, and Balingcanaway, Tarlac; distance-based fees apply outside these areas.</Text>
               {editingLocation ? <>
                 <PlaceAddressSearch apiBase={apiBase} value={profileAddress} onChangeText={(value) => { setProfileAddress(value); setProfilePin(null); }} onPlaceSelected={selectProfilePlace} disabled={profileSaving} />
-                <Text style={styles.addressLabel}>Address Detail (optional)</Text>
+                <Text style={styles.profileAddressLabel}>Address Detail (optional)</Text>
                 <TextInput value={profileAddressDetails} onChangeText={setProfileAddressDetails} maxLength={180} placeholder="House number, unit, gate, or nearby landmark" placeholderTextColor="#a59ba5" style={styles.deliveryAddressInput} />
                 {profilePin ? <><Text style={[styles.locationPinSuccess, !profilePin.deliveryAvailable && styles.locationPinWarning]}>{profilePin.deliveryAvailable ? 'This pin is in the free delivery area.' : 'This pin is outside the free delivery area. Delivery is available for a distance-based fee.'}</Text><Text style={styles.profileLocationCopy}>Drag the marker or tap the exact spot for the driver. Tap “Full-screen map” to preview it larger.</Text><View style={styles.registrationMap}><DeliveryMap location={profilePin} label="Delivery pin" editable onLocationChange={adjustProfilePin} /></View></> : <Text style={styles.profileLocationCopy}>Select one address from the search suggestions to place its pin on the map.</Text>}
                 {profileLocationError ? <Text style={styles.errorBox}>{profileLocationError}</Text> : null}
@@ -1262,7 +1262,7 @@ function NavItem({ icon, label, active, onPress }) {
   return <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={[styles.navItem, active && styles.navItemActive]}><Text style={[styles.navEmoji, active && styles.navEmojiActive]}>{icon}</Text><Text style={[styles.navLabel, active && styles.navLabelActive]}>{label}</Text></Pressable>;
 }
 function ProfileRow({ icon, label, value, last = false }) {
-  return <View style={[styles.profileRow, last && styles.profileRowLast]}><Text style={styles.profileRowIcon}>{icon}</Text><View style={styles.flexOne}><Text style={styles.profileRowLabel}>{label}</Text><Text style={styles.profileRowValue}>{value || 'Not provided'}</Text></View></View>;
+  return <View style={[styles.profileRow, last && styles.profileRowLast]}><View style={styles.profileRowIcon}><Text style={styles.profileRowIconText}>{icon}</Text></View><View style={styles.flexOne}><Text style={styles.profileRowLabel}>{label}</Text><Text style={styles.profileRowValue}>{value || 'Not provided'}</Text></View></View>;
 }
 
 function ServiceCard({ service, quantity, onQuantityChange, wide, index }) {
@@ -1592,6 +1592,7 @@ const styles = StyleSheet.create({
   fulfillmentChoiceText: { color: '#d9bce0', fontWeight: '700', fontSize: 13, textAlign: 'center' },
   fulfillmentChoiceTextActive: { color: COLORS.white },
   addressLabel: { color: '#e4d6e6', fontSize: 12, fontWeight: '700', marginBottom: 6 },
+  profileAddressLabel: { color: '#41234a', fontSize: 13, fontWeight: '800', marginBottom: 2 },
   deliveryAddressInput: { minHeight: 46, paddingHorizontal: 12, borderRadius: 12, borderColor: '#6e4a78', borderWidth: 1, color: COLORS.cream, backgroundColor: '#211c23' },
   addressHelp: { color: '#bcb0bd', fontSize: 11, marginTop: 5, marginBottom: 10 },
   panelTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 },
@@ -1658,7 +1659,8 @@ const styles = StyleSheet.create({
   aboutTitle: { color: COLORS.cream, fontSize: 15, fontWeight: '800', marginTop: 9 },
   aboutText: { color: '#c7bac8', fontSize: 12, lineHeight: 18, marginTop: 5 },
   profileHeader: { alignItems: 'center', paddingVertical: 32 },
-  profileLocationCard: { width: '100%', maxWidth: 760, backgroundColor: COLORS.purpleLight, borderColor: COLORS.line, borderWidth: 1, borderRadius: 14, padding: 15, gap: 10, marginTop: 12 },
+  profileLocationCard: { width: '100%', maxWidth: 760, backgroundColor: COLORS.purpleLight, borderColor: COLORS.line, borderWidth: 1, borderRadius: 16, padding: 18, gap: 10, marginTop: 12 },
+  profileLocationTitle: { color: '#2d1c31', fontSize: 18, fontWeight: '900' },
   profileLocationCopy: { color: COLORS.muted, fontSize: 13, lineHeight: 19 },
   profileLocationActions: { flexDirection: 'row', gap: 10, marginTop: 2 },
   profileAvatar: { width: 88, height: 88, borderRadius: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.purple, borderColor: '#d7b7dd', borderWidth: 3 },
@@ -1668,7 +1670,8 @@ const styles = StyleSheet.create({
   profileCard: { borderRadius: 18, backgroundColor: COLORS.cream, paddingHorizontal: 16, marginBottom: 14 },
   profileRow: { minHeight: 72, flexDirection: 'row', alignItems: 'center', gap: 13, borderBottomColor: '#e5dce6', borderBottomWidth: 1 },
   profileRowLast: { borderBottomWidth: 0 },
-  profileRowIcon: { width: 32, fontSize: 22, textAlign: 'center' },
+  profileRowIcon: { width: 38, height: 38, borderRadius: 12, backgroundColor: COLORS.purpleLight, alignItems: 'center', justifyContent: 'center' },
+  profileRowIconText: { fontSize: 20, textAlign: 'center' },
   profileRowLabel: { color: COLORS.muted, fontSize: 11, fontWeight: '700' },
   profileRowValue: { color: COLORS.ink, fontSize: 14, lineHeight: 19, fontWeight: '700', marginTop: 3 },
   signOutButton: { minHeight: 50, borderRadius: 15, borderColor: '#9b6472', borderWidth: 1, alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
