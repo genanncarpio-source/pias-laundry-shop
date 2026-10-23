@@ -58,7 +58,9 @@ export function saveVerifiedSession(apiBase, token, customer, options = {}) {
       verifiedAt: Date.now(),
       expiresAt: sameToken ? previous.expiresAt : Date.now() + (options.expiresIn || 2592000) * 1000,
     };
-    await set(SESSION_KEY, JSON.stringify(saved));
+    const persistedCustomer = { ...customer };
+    delete persistedCustomer.profile_photo;
+    await set(SESSION_KEY, JSON.stringify({ ...saved, customer: persistedCustomer }));
     await remove(LEGACY_TOKEN_KEY);
     if (started === generation) activeSession = saved;
     return saved;

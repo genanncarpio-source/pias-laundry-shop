@@ -5,7 +5,7 @@
  * The defaults match a fresh XAMPP **and** a fresh Laragon install — both ship
  * MySQL/MariaDB with the same out-of-the-box credentials:
  *
- *   host = localhost, user = root, password = (empty), database = laundry_pos
+ *   host = localhost, user = root, password = (empty), database = laundry_pias
  *
  * So normally nothing in this file needs editing. If your setup differs, either
  * change the fallback values below or set environment variables (DB_HOST,
@@ -19,7 +19,13 @@
 // also supported so the same source can run locally and in production.
 define('DB_HOST', getenv('DB_HOST') ?: (getenv('MYSQLHOST') ?: 'localhost'));
 define('DB_PORT', getenv('DB_PORT') ?: (getenv('MYSQLPORT') ?: '3306'));
-define('DB_NAME', getenv('DB_NAME') ?: (getenv('MYSQLDATABASE') ?: 'laundry_pos'));
+$configuredDatabaseName = getenv('DB_NAME');
+if ($configuredDatabaseName === false || $configuredDatabaseName === '') {
+    $configuredDatabaseName = getenv('MYSQLDATABASE');
+}
+define('DB_NAME', ($configuredDatabaseName !== false && $configuredDatabaseName !== '')
+    ? $configuredDatabaseName
+    : 'laundry_pias');
 define('DB_USER', getenv('DB_USER') ?: (getenv('MYSQLUSER') ?: 'root'));
 $databasePassword = getenv('DB_PASS');
 if ($databasePassword === false) {
@@ -34,12 +40,34 @@ function db(): PDO
 
     if ($pdo === null) {
         try {
-            $dsn = 'mysql:host=' . DB_HOST . ';port=' . DB_PORT . ';dbname=' . DB_NAME . ';charset=' . DB_CHARSET;
-            $pdo = new PDO($dsn, DB_USER, DB_PASS, [
+            $pdoOptions = [
                 PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
                 PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
                 PDO::ATTR_EMULATE_PREPARES   => false,
-            ]);
+            ];
+            $dsn = 'mysql:host=' . DB_HOST . ';port=' . DB_PORT . ';dbname=' . DB_NAME . ';charset=' . DB_CHARSET;
+            $environmentDatabaseName = getenv('DB_NAME');
+            $railwayDatabaseName = getenv('MYSQLDATABASE');
+            $useAutomaticLocalSelection = ($environmentDatabaseName === false || $environmentDatabaseName === '')
+                && ($railwayDatabaseName === false || $railwayDatabaseName === '');
+
+            if ($useAutomaticLocalSelection) {
+                try {
+                    $pdo = new PDO($dsn, DB_USER, DB_PASS, $pdoOptions);
+                } catch (PDOException $e) {
+                    $isUnknownDatabase = isset($e->errorInfo[1]) && (int) $e->errorInfo[1] === 1049;
+                    if (!$isUnknownDatabase) {
+                        throw $e;
+                    }
+
+                    // Keep legacy local installs working until their data is copied.
+                    $legacyDsn = 'mysql:host=' . DB_HOST . ';port=' . DB_PORT . ';dbname=laundry_pos;charset=' . DB_CHARSET;
+                    $pdo = new PDO($legacyDsn, DB_USER, DB_PASS, $pdoOptions);
+                    error_log('Using legacy laundry_pos database because laundry_pias is not present.');
+                }
+            } else {
+                $pdo = new PDO($dsn, DB_USER, DB_PASS, $pdoOptions);
+            }
         } catch (PDOException $e) {
             http_response_code(500);
             // Friendly message for the developer; details in the log.

@@ -1,6 +1,7 @@
--- Safe, additive migration for an existing Laundry POS installation.
+-- Safe, additive migration for an existing Laundry pias installation.
 -- Back up the database before importing this file.
-USE laundry_pos;
+-- Select the target database before importing. This keeps the migration usable
+-- for both existing installations and new laundry_pias installations.
 
 CREATE TABLE IF NOT EXISTS customer_accounts (
   id INT UNSIGNED NOT NULL AUTO_INCREMENT,

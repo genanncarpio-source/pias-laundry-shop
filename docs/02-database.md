@@ -1,7 +1,7 @@
 # Database Design
 
 **System:** P.O.S. and Laundry Shop Management System for Pia's Laundry Shop
-**Database:** `laundry_pos`
+**Database:** `laundry_pias`
 **Engine:** InnoDB · **Charset:** utf8mb4 / utf8mb4_unicode_ci
 **Tables:** 12 core tables in the base SQL file; `customer_accounts` is added by the feature upgrade (13 total after upgrade)
 

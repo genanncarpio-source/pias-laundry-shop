@@ -465,7 +465,7 @@ When an order is **Ready for Pickup**, open it and choose **Open SMS app**. Revi
 MySQL is not running, or the credentials do not match. Start MySQL (XAMPP Control
 Panel → **Start** next to MySQL, or Laragon → **Start All**), then check
 `config/database.php`. Both XAMPP and Laragon default to user `root` with an
-**empty** password and database `laundry_pos`.
+**empty** password and database `laundry_pias` for new installations. Existing installations can continue using their configured database until its data is migrated.
 
 ### "The POS says the order could not be saved"
 

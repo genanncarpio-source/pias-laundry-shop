@@ -13,6 +13,7 @@
     },
     "android": {
       "package": "com.piaslaundry.customer",
+      "softwareKeyboardLayoutMode": "resize",
       "versionCode": 5,
       "adaptiveIcon": {
         "backgroundColor": "#FFFFFF",
@@ -51,6 +52,7 @@
           "isIosBackgroundLocationEnabled": true
         }
       ],
+      ["expo-image-picker", {"photosPermission": "Pia's Laundry Shop uses your photos only when you choose a profile picture.", "cameraPermission": "Pia's Laundry Shop uses your camera only when you take a profile picture.", "microphonePermission": false}],
       "expo-router"
     ],
     "extra": {

@@ -28,7 +28,7 @@ state of each request without maintaining a separate order database.
 | Page/controller | Root PHP pages such as `pos.php`, `orders.php` and JSON endpoints under `api/` | Handle request routing, session checks, input validation, workflows and response generation |
 | Shared application services | `includes/auth.php`, `includes/functions.php`, `includes/feature_schema.php` | Session setup, role guards, CSRF validation, escaping, order history, settings and additive schema setup |
 | Data access | PDO connection in `config/database.php`; prepared statements in page controllers | Query and update data safely using parameterized SQL and database transactions |
-| Persistence | MySQL/MariaDB database `laundry_pos` | Store users, customers, customer credentials, services, orders and shop operations |
+| Persistence | MySQL/MariaDB database `laundry_pias` | Store users, customers, customer credentials, services, orders and shop operations |
 
 ### 2.2 Deployment view
 
@@ -100,7 +100,7 @@ account/session tables. The customer mobile app is separate from staff web sessi
 
 ### 4.1 Database conventions
 
-- Database: `laundry_pos`.
+- Database: `laundry_pias`.
 - Tables use InnoDB and `utf8mb4` character encoding.
 - IDs are unsigned auto-increment integer primary keys.
 - Foreign keys protect core relationships and apply `CASCADE` or `SET NULL` where

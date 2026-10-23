@@ -23,7 +23,12 @@ export async function apiRequest(baseUrl, endpoint, { method = 'GET', body, toke
   } finally { clearTimeout(timer); }
   let data;
   try { data = JSON.parse(text); } catch {
-    const error = new Error('The shop returned an unreadable response. Check the connection and try again.');
+    const message = response.status === 404
+      ? `The ${endpoint} API is not available on the shop server yet. Deploy the latest API files and try again.`
+      : response.status === 413
+        ? 'The selected file is larger than the shop server allows. Choose a smaller image and try again.'
+        : `The shop server returned an unreadable response (HTTP ${response.status}). Check that its API is up to date.`;
+    const error = new Error(message);
     error.status = response.ok ? 502 : response.status;
     throw error;
   }

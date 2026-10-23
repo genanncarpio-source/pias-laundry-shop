@@ -6,12 +6,17 @@ import { readSession, readLegacyToken, saveVerifiedSession, clearSession, getAct
 import { useOnlineShop } from './src/useOnlineShop';
 import * as Location from 'expo-location';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as ImagePicker from 'expo-image-picker';
+import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import DeliveryMap from './src/components/DeliveryMap';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Dimensions,
   Image,
   Linking,
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -39,6 +44,14 @@ const COLORS = {
   green: '#40513b',
   red: '#a43e4a',
   white: '#ffffff',
+};
+
+const NAV_ICON_ASSETS = {
+  home: require('./assets/flaticon/home.png'),
+  track: require('./assets/flaticon/track.png'),
+  offers: require('./assets/flaticon/offers.png'),
+  about: require('./assets/flaticon/about.png'),
+  profile: require('./assets/flaticon/profile.png'),
 };
 
 const CONFIGURED_API = process.env.EXPO_PUBLIC_API_BASE_URL?.trim();
@@ -213,7 +226,7 @@ function WelcomeScreen({ onStart }) {
         <View style={styles.welcomeFeatureRow}>
           <View style={styles.welcomeFeature}><Text style={styles.welcomeFeatureIcon}>🧺</Text><Text style={styles.welcomeFeatureText}>Easy booking</Text></View>
           <View style={styles.welcomeFeature}><Text style={styles.welcomeFeatureIcon}>🚚</Text><Text style={styles.welcomeFeatureText}>Pickup & delivery</Text></View>
-          <View style={styles.welcomeFeature}><Text style={styles.welcomeFeatureIcon}>📍</Text><Text style={styles.welcomeFeatureText}>Live tracking</Text></View>
+          <View style={styles.welcomeFeature}><Text style={styles.welcomeFeatureIcon}>📍</Text><Text style={styles.welcomeFeatureText}> tracking</Text></View>
         </View>
         <Pressable accessibilityRole="button" onPress={onStart} style={({ pressed }) => [styles.welcomeStart, pressed && styles.pressed]}>
           <Text style={styles.welcomeStartText}>Get Started</Text><Text style={styles.welcomeStartArrow}>→</Text>
@@ -248,19 +261,19 @@ function BrandBar({ onSignOut }) {
   );
 }
 
-function HeroBanner({ compact = false }) {
+function HeroBanner({ compact = false, keyboardCompact = false }) {
   return (
-    <LinearGradient colors={['#54245f', '#754583', '#8e5a95']} start={{ x: 0, y: 0.3 }} end={{ x: 1, y: 0.8 }} style={[styles.hero, compact && styles.heroCompact]}>
+    <LinearGradient colors={['#54245f', '#754583', '#8e5a95']} start={{ x: 0, y: 0.3 }} end={{ x: 1, y: 0.8 }} style={[styles.hero, compact && styles.heroCompact, keyboardCompact && styles.heroKeyboardCompact]}>
       <View style={styles.heroDecorOne} />
       <View style={styles.heroDecorTwo} />
-      <View style={styles.heroContent}>
-        <View style={styles.heroIcon}><Text style={styles.heroEmoji}>🫧</Text></View>
+      <View style={[styles.heroContent, keyboardCompact && styles.heroContentKeyboardCompact]}>
+        <View style={[styles.heroIcon, keyboardCompact && styles.heroIconKeyboardCompact]}><Text style={[styles.heroEmoji, keyboardCompact && styles.heroEmojiKeyboardCompact]}>🫧</Text></View>
         <View style={styles.heroTextBlock}>
-          <Text style={styles.heroTitle}>Pia&apos;s Laundry Shop</Text>
-          <Text style={styles.heroDetail}>Blk. 2, Brgy. San Jose, Tarlac City</Text>
-          <Text style={styles.heroDetail}>Contact: 0918-967-9623</Text>
+          <Text style={[styles.heroTitle, keyboardCompact && styles.heroTitleKeyboardCompact]}>Pia&apos;s Laundry Shop</Text>
+          <Text style={[styles.heroDetail, keyboardCompact && styles.heroDetailKeyboardCompact]}>Blk. 2, Brgy. San Jose, Tarlac City</Text>
+          <Text style={[styles.heroDetail, keyboardCompact && styles.heroDetailKeyboardCompact]}>Contact: 0918-967-9623</Text>
         </View>
-        <Text style={styles.heroFloatingEmoji}>🧺</Text>
+        <Text style={[styles.heroFloatingEmoji, keyboardCompact && styles.heroFloatingEmojiKeyboardCompact]}>🧺</Text>
       </View>
     </LinearGradient>
   );
@@ -345,8 +358,43 @@ function AuthScreen({ apiBase, onSignedIn, sessionNotice }) {
   const [notice, setNotice] = useState('');
 
   const submitting = useRef(false);
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
   const compactAuth = width < 420;
+  const registeringRef = useRef(registering);
+  useEffect(() => { registeringRef.current = registering; }, [registering]);
+  const authScrollRef = useRef(null);
+  const restingWindowHeight = useRef(height);
+  const [keyboardScrollInset, setKeyboardScrollInset] = useState(0);
+  const scrollToAuthEndAfterKeyboard = useRef(false);
+  const scrollAuthFieldIntoView = () => {
+    scrollToAuthEndAfterKeyboard.current = true;
+    // Android can leave the auth screen in adjust-pan mode, where keyboard events may arrive late.
+    // Compact the header as soon as a field receives focus so the active input has room.
+    setKeyboardVisible(true);
+    setTimeout(() => authScrollRef.current?.scrollToEnd?.({ animated: true }), 520);
+  };
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+
+  useEffect(() => {
+    const showSubscription = Keyboard.addListener('keyboardDidShow', (event) => {
+      setKeyboardVisible(true);
+      if (registeringRef.current) {
+        const keyboardHeight = event.endCoordinates?.height || 0;
+        const resizedBy = Math.max(0, restingWindowHeight.current - Dimensions.get('window').height);
+        setKeyboardScrollInset(Platform.OS === 'android' ? Math.max(0, keyboardHeight - resizedBy) : 0);
+      } else {
+        setKeyboardScrollInset(0);
+      }
+      if (scrollToAuthEndAfterKeyboard.current) setTimeout(() => authScrollRef.current?.scrollToEnd?.({ animated: true }), 240);
+    });
+    const hideSubscription = Keyboard.addListener('keyboardDidHide', () => {
+      setKeyboardVisible(false);
+      setKeyboardScrollInset(0);
+      scrollToAuthEndAfterKeyboard.current = false;
+      setTimeout(() => { restingWindowHeight.current = Dimensions.get('window').height; }, 120);
+    });
+    return () => { showSubscription.remove(); hideSubscription.remove(); };
+  }, []);
 
   useEffect(() => {
     if (!notice) return undefined;
@@ -499,24 +547,19 @@ function AuthScreen({ apiBase, onSignedIn, sessionNotice }) {
   return (
     <KeyboardAvoidingView
       style={styles.authRoot}
-      behavior={Platform.OS === 'ios' ? 'padding' : Platform.OS === 'android' ? 'height' : undefined}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <BrandBar />
-      <ScrollView
-        style={styles.authScrollView}
-        contentContainerStyle={styles.authScroll}
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-      >
+      <SafeAreaView style={styles.authSafeArea} edges={['bottom']}>
         <View style={[styles.authContainer, compactAuth && styles.authContainerCompact]}>
-          <HeroBanner compact />
-          <View style={styles.authIntro}>
+          <HeroBanner compact keyboardCompact={keyboardVisible} />
+          <View style={[styles.authIntro, keyboardVisible && styles.authIntroKeyboardHidden]}>
             <Text style={styles.authTitle}>{forgotPassword ? 'Reset your password' : registering ? 'Join the laundry club' : 'Welcome back'}</Text>
             <Text style={styles.authDescription}>{forgotPassword ? 'Receive a code by email and choose a new password.' : registering ? 'Create an account to book laundry services and follow your tickets.' : 'Sign in to book a service and follow your laundry ticket.'}</Text>
           </View>
           <View style={[styles.authCard, compactAuth && styles.authCardCompact]}>
             <View style={styles.authSwitch}>
-              <Pressable onPress={() => { setRegistering(false); setForgotPassword(false); setError(''); }} style={[styles.authSwitchButton, !registering && styles.authSwitchSelected]}>
+              <Pressable onPress={() => { setRegistering(false); setKeyboardScrollInset(0); scrollToAuthEndAfterKeyboard.current = false; setForgotPassword(false); setError(''); }} style={[styles.authSwitchButton, !registering && styles.authSwitchSelected]}>
                 <Text style={[styles.authSwitchText, !registering && styles.authSwitchSelectedText]}>Sign in</Text>
               </Pressable>
               <Pressable onPress={() => { setRegistering(true); setForgotPassword(false); setError(''); }} style={[styles.authSwitchButton, registering && styles.authSwitchSelected]}>
@@ -524,6 +567,7 @@ function AuthScreen({ apiBase, onSignedIn, sessionNotice }) {
               </Pressable>
             </View>
 
+            <ScrollView ref={authScrollRef} style={styles.authCardScroll} contentContainerStyle={[styles.authCardScrollContent, registering && keyboardVisible && keyboardScrollInset > 0 && { paddingBottom: keyboardScrollInset + 24 }]} nestedScrollEnabled keyboardShouldPersistTaps="handled" keyboardDismissMode={registering ? (Platform.OS === 'ios' ? 'interactive' : 'none') : (Platform.OS === 'ios' ? 'interactive' : 'on-drag')}>
             {sessionNotice ? <Text style={styles.successBox}>{sessionNotice}</Text> : null}
             {notice ? <Text style={styles.successBox}>{notice}</Text> : null}
             {error ? <Text style={styles.errorBox}>{error}</Text> : null}
@@ -532,11 +576,11 @@ function AuthScreen({ apiBase, onSignedIn, sessionNotice }) {
             {forgotPassword ? (
               <>
                 <Text style={styles.authFootnote}>{resetCodeSent ? 'Enter the 6-digit code from your email and choose a new password.' : 'Enter the verified email address used by your customer account.'}</Text>
-                <Field label={'Email address'} value={email} onChangeText={setEmail} editable={!resetCodeSent} placeholder={'you@example.com'} keyboardType={'email-address'} autoCapitalize={'none'} autoCorrect={false} maxLength={120} />
+                <Field label={'Email address'} value={email} onFocus={scrollAuthFieldIntoView} onChangeText={setEmail} editable={!resetCodeSent} placeholder={'you@example.com'} keyboardType={'email-address'} autoCapitalize={'none'} autoCorrect={false} maxLength={120} />
                 {resetCodeSent ? <>
                   <Field label={'Reset code'} value={resetCode} onChangeText={(value) => setResetCode(value.replace(/\D/g, '').slice(0, 6))} placeholder={'6-digit code'} keyboardType={'number-pad'} maxLength={6} returnKeyType={'next'} />
-                  <Field label={'New password'} value={newPassword} onChangeText={setNewPassword} placeholder={'At least 10 characters'} secureTextEntry={!showNewPassword} autoCapitalize={'none'} right={<Pressable accessibilityRole={'button'} accessibilityLabel={showNewPassword ? 'Hide password' : 'Show password'} hitSlop={8} onPress={() => setShowNewPassword((visible) => !visible)} style={styles.passwordVisibilityButton}><Text style={styles.showPassword}>{showNewPassword ? 'Hide' : 'Show'}</Text></Pressable>} returnKeyType={'go'} onSubmitEditing={completePasswordReset} />
-                  <Field label={'Confirm new password'} value={confirmNewPassword} onChangeText={setConfirmNewPassword} placeholder={'Enter the new password again'} secureTextEntry={!showNewPassword} autoCapitalize={'none'} returnKeyType={'go'} onSubmitEditing={completePasswordReset} />
+                  <Field label={'New password'} value={newPassword} onFocus={scrollAuthFieldIntoView} onChangeText={setNewPassword} placeholder={'At least 10 characters'} secureTextEntry={!showNewPassword} autoCapitalize={'none'} right={<Pressable accessibilityRole={'button'} accessibilityLabel={showNewPassword ? 'Hide password' : 'Show password'} hitSlop={8} onPress={() => setShowNewPassword((visible) => !visible)} style={styles.passwordVisibilityButton}><Text style={styles.showPassword}>{showNewPassword ? 'Hide' : 'Show'}</Text></Pressable>} returnKeyType={'go'} onSubmitEditing={completePasswordReset} />
+                  <Field label={'Confirm new password'} value={confirmNewPassword} onFocus={scrollAuthFieldIntoView} onChangeText={setConfirmNewPassword} placeholder={'Enter the new password again'} secureTextEntry={!showNewPassword} autoCapitalize={'none'} returnKeyType={'go'} onSubmitEditing={completePasswordReset} />
                   <Pressable onPress={completePasswordReset} disabled={busy} style={({ pressed }) => [styles.primaryButton, pressed && !busy && styles.pressed, busy && styles.disabledButton]}>{busy ? <ActivityIndicator color={COLORS.white} /> : <Text style={styles.primaryButtonText}>Reset password</Text>}</Pressable>
                   <Pressable onPress={requestPasswordReset} disabled={busy} style={styles.driverSignInLink}><Text style={styles.driverSignInText}>Resend reset code</Text></Pressable>
                 </> : <Pressable onPress={requestPasswordReset} disabled={busy} style={({ pressed }) => [styles.primaryButton, pressed && !busy && styles.pressed, busy && styles.disabledButton]}>{busy ? <ActivityIndicator color={COLORS.white} /> : <Text style={styles.primaryButtonText}>Send reset code</Text>}</Pressable>}
@@ -548,10 +592,11 @@ function AuthScreen({ apiBase, onSignedIn, sessionNotice }) {
             {registering ? <><PlaceAddressSearch apiBase={apiBase} value={address} onChangeText={(value) => { setAddress(value); setLocationPin(null); }} onPlaceSelected={selectRegistrationPlace} />
               <Field label="Address Detail (optional)" value={addressDetails} onChangeText={setAddressDetails} placeholder="House number, unit, gate, or nearby landmark" autoCapitalize="words" maxLength={180} returnKeyType="next" />
               <View style={styles.locationPinPanel}><Text style={styles.locationPinTitle}>Pin Address</Text><Text style={styles.locationPinCopy}>Choose one address, then pin the exact spot where the driver should go. Tap “Full-screen map” for a larger map preview. The pin is saved with your address. Free delivery covers San Jose, San Manuel, and Balingcanaway, Tarlac; distance-based fees apply outside these areas.</Text>{locationPin ? <><Text style={[styles.locationPinSuccess, !locationPin.deliveryAvailable && styles.locationPinWarning]}>{locationPin.deliveryAvailable ? 'This pin is in the free delivery area.' : 'This pin is outside the free delivery area. You can still request delivery for a distance-based fee.'}</Text><Text style={styles.locationPinCopy}>Adjust the marker to your exact home or gate. The coordinates below are what the driver will use.</Text><View style={styles.registrationMap}><DeliveryMap location={locationPin} label="Delivery pin" editable onLocationChange={adjustRegistrationPin} /></View></> : <Text style={styles.locationPinCopy}>Select one address from the search suggestions to place its pin on the map.</Text>}</View></> : null}
-            <Field label="Email address" value={email} onChangeText={setEmail} placeholder="you@example.com" keyboardType="email-address" autoCapitalize="none" autoCorrect={false} maxLength={120} returnKeyType="next" />
+            <Field label="Email address" value={email} onFocus={scrollAuthFieldIntoView} onChangeText={setEmail} placeholder="you@example.com" keyboardType="email-address" autoCapitalize="none" autoCorrect={false} maxLength={120} returnKeyType="next" />
             <Field
               label="Password"
               value={password}
+              onFocus={scrollAuthFieldIntoView}
               onChangeText={setPassword}
               placeholder={registering ? 'At least 10 characters' : 'Enter your password'}
               secureTextEntry={!showPassword}
@@ -572,9 +617,10 @@ function AuthScreen({ apiBase, onSignedIn, sessionNotice }) {
             ) : null}
             </>}
             </>
+            </ScrollView>
           </View>
         </View>
-      </ScrollView>
+      </SafeAreaView>
       <Modal
         transparent
         visible={registering && verificationPending}
@@ -686,6 +732,14 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
   const [profilePin, setProfilePin] = useState(() => Number.isFinite(Number(customer.location_latitude)) && Number.isFinite(Number(customer.location_longitude)) ? { latitude: Number(customer.location_latitude), longitude: Number(customer.location_longitude), deliveryAvailable: isDeliveryArea(customer.location_latitude, customer.location_longitude) } : null);
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileLocationError, setProfileLocationError] = useState('');
+  const [profilePhotoPickerVisible, setProfilePhotoPickerVisible] = useState(false);
+  const [profilePhotoPreviewVisible, setProfilePhotoPreviewVisible] = useState(false);
+  const [profilePhotoDraft, setProfilePhotoDraft] = useState(null);
+  const [profileDetailsEditing, setProfileDetailsEditing] = useState('');
+  const [profileNameDraft, setProfileNameDraft] = useState(customer.name || '');
+  const [profilePhoneDraft, setProfilePhoneDraft] = useState(customer.phone || '');
+  const [profileDetailsSaving, setProfileDetailsSaving] = useState(false);
+  const [profileDetailsError, setProfileDetailsError] = useState('');
   const toast = typeof params.booking === 'string' && params.booking ? 'Booking submitted. Ticket ' + params.booking : '';
 
   useEffect(() => {
@@ -723,7 +777,68 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
       if (saveError.status === 401) await onSessionExpired(); else setProfileLocationError(saveError.message || 'Could not save your location.');
     } finally { setProfileSaving(false); }
   };
-  const beginLocationEdit = () => {
+  const saveProfileDetail = async (field) => {
+    const value = field === 'name' ? profileNameDraft.trim() : profilePhoneDraft.trim();
+    setProfileDetailsError('');
+    setProfileDetailsSaving(true);
+    try {
+      const body = field === 'name' ? { name: value } : { phone: value };
+      const result = await apiRequest(apiBase, 'customer_details.php', { method: 'POST', token, body, timeoutMs: 30000 });
+      await onCustomerUpdated(result.customer);
+      setProfileDetailsEditing('');
+    } catch (saveError) {
+      if (saveError.status === 401) await onSessionExpired();
+      else setProfileDetailsError(saveError.message || 'Could not update your profile.');
+    } finally { setProfileDetailsSaving(false); }
+  };
+  const chooseProfilePhoto = async (source) => {
+    setProfilePhotoPickerVisible(false);
+    setProfileDetailsError('');
+    try {
+      if (source === 'camera') {
+        const permission = await ImagePicker.requestCameraPermissionsAsync();
+        if (!permission.granted) {
+          setProfileDetailsError('Allow camera access in your phone settings, or choose a picture from your gallery.');
+          return;
+        }
+      }
+      // Use our own preview and Save button instead of Android's fixed “Crop” action.
+      const options = { mediaTypes: ['images'], allowsEditing: false, quality: 1, base64: false };
+      const result = source === 'camera'
+        ? await ImagePicker.launchCameraAsync(options)
+        : await ImagePicker.launchImageLibraryAsync(options);
+      if (result.canceled) return;
+      const asset = result.assets?.[0];
+      if (!asset?.uri || !asset.width || !asset.height) throw new Error('Could not read that photo. Please choose another image.');
+      setProfilePhotoDraft({ uri: asset.uri, width: asset.width, height: asset.height });
+      setProfilePhotoPreviewVisible(true);
+    } catch (photoError) {
+      setProfileDetailsError(photoError.message || 'Could not open that photo.');
+    }
+  };
+  const saveProfilePhoto = async () => {
+    if (!profilePhotoDraft || profileDetailsSaving) return;
+    setProfileDetailsError('');
+    setProfileDetailsSaving(true);
+    try {
+      const { uri, width, height } = profilePhotoDraft;
+      const side = Math.min(width, height);
+      const resized = await manipulateAsync(uri, [
+        { crop: { originX: Math.floor((width - side) / 2), originY: Math.floor((height - side) / 2), width: side, height: side } },
+        { resize: { width: 1024, height: 1024 } },
+      ], { compress: 0.85, format: SaveFormat.JPEG, base64: true });
+      if (!resized.base64) throw new Error('Could not prepare that photo. Please choose another image.');
+      const profilePhoto = `data:image/jpeg;base64,${resized.base64}`;
+      if (profilePhoto.length > 7000000) throw new Error('Choose an image smaller than 5 MB.');
+      const response = await apiRequest(apiBase, 'customer_details.php', { method: 'POST', token, body: { profile_photo: profilePhoto }, timeoutMs: 30000 });
+      await onCustomerUpdated(response.customer);
+      setProfilePhotoPreviewVisible(false);
+      setProfilePhotoDraft(null);
+    } catch (photoError) {
+      if (photoError.status === 401) await onSessionExpired();
+      else setProfileDetailsError(photoError.message || 'Could not update your profile picture.');
+    } finally { setProfileDetailsSaving(false); }
+  };  const beginLocationEdit = () => {
     setProfileAddress(customer.address || '');
     setProfilePin(Number.isFinite(Number(customer.location_latitude)) && Number.isFinite(Number(customer.location_longitude)) ? { latitude: Number(customer.location_latitude), longitude: Number(customer.location_longitude), deliveryAvailable: isDeliveryArea(customer.location_latitude, customer.location_longitude) } : null);
     setProfileAddressDetails('');
@@ -1016,7 +1131,7 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
             <View style={styles.searchRow}>
               <Text style={styles.searchIcon}>⌕</Text>
               <TextInput value={search} onChangeText={setSearch} placeholder="Search laundry services…" placeholderTextColor="#a59ba5" style={styles.searchInput} />
-              <Pressable onPress={() => loadShopData()} style={styles.refreshButton}><Text style={styles.refreshText}>↻</Text></Pressable>
+              <Pressable accessibilityRole="button" accessibilityLabel="Refresh" disabled={refreshing} onPress={() => loadShopData()} style={[styles.refreshButton, refreshing && styles.disabledButton]}>{refreshing ? <ActivityIndicator color={COLORS.purple} size="small" /> : <Text style={styles.refreshText}>↻</Text>}</Pressable>
             </View>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filtersRow}>
               {filters.map((item) => (
@@ -1135,7 +1250,7 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
             <HeroBanner compact />
             <View style={styles.ticketHeadingRow}>
               <View><Text style={styles.greeting}>My service tickets</Text><Text style={styles.welcomeCopy}>Track the status of your laundry bookings.</Text></View>
-              <Pressable onPress={() => loadShopData()} style={styles.refreshButton}><Text style={styles.refreshText}>↻</Text></Pressable>
+              <Pressable accessibilityRole="button" accessibilityLabel="Refresh" disabled={refreshing} onPress={() => loadShopData()} style={[styles.refreshButton, refreshing && styles.disabledButton]}>{refreshing ? <ActivityIndicator color={COLORS.purple} size="small" /> : <Text style={styles.refreshText}>↻</Text>}</Pressable>
             </View>
             {toast ? <Text style={styles.successBox}>{toast}</Text> : null}
             {error ? <Text style={styles.errorBox}>{error}</Text> : null}
@@ -1159,22 +1274,24 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
               <View style={styles.aboutCard}><Text style={styles.aboutIcon}>✅</Text><Text style={styles.aboutTitle}>Shop confirmed</Text><Text style={styles.aboutText}>The shop confirms the final service, price, and schedule.</Text></View>
               <View style={styles.aboutCard}><Text style={styles.aboutIcon}>📱</Text><Text style={styles.aboutTitle}>Track online</Text><Text style={styles.aboutText}>Follow the latest status of every service ticket.</Text></View>
             </View>
+            <View style={styles.iconAttribution}><Text style={styles.iconAttributionLabel}>Navigation icon credits</Text><Text style={styles.iconAttributionText}>Designed by <Text style={styles.iconAttributionLink} onPress={() => Linking.openURL('https://www.flaticon.com/free-icon/home_16812417')}>pictranoosa</Text>, <Text style={styles.iconAttributionLink} onPress={() => Linking.openURL('https://www.flaticon.com/free-icon/receipt_12449398')}>zero_wing</Text>, <Text style={styles.iconAttributionLink} onPress={() => Linking.openURL('https://www.flaticon.com/free-icon/laundry-basket_10638619')}>Phoebeicons</Text>, <Text style={styles.iconAttributionLink} onPress={() => Linking.openURL('https://www.flaticon.com/free-icon/information_9554031')}>Anggara</Text>, and <Text style={styles.iconAttributionLink} onPress={() => Linking.openURL('https://www.flaticon.com/free-icon/user-profile_10994782')}>Saepul Nahwan</Text> from Flaticon.</Text></View>
           </View>
         </ScrollView>
       ) : (
         <ScrollView contentContainerStyle={styles.homeScroll}>
           <View style={styles.pageWidth}>
             <View style={styles.profileHeader}>
-              <View style={styles.profileAvatar}><Text style={styles.profileAvatarText}>{String(customer.name || 'C').charAt(0).toUpperCase()}</Text></View>
+              <View style={styles.profileAvatarWrap}><View style={styles.profileAvatar}>{customer.profile_photo ? <Image source={{ uri: customer.profile_photo }} style={styles.profileAvatarImage} /> : <Text style={styles.profileAvatarText}>{String(customer.name || 'C').charAt(0).toUpperCase()}</Text>}</View><Pressable accessibilityRole="button" accessibilityLabel="Change profile picture" disabled={profileDetailsSaving} onPress={() => setProfilePhotoPickerVisible(true)} style={[styles.profilePhotoButton, profileDetailsSaving && styles.disabledButton]}><Text style={styles.profilePhotoButtonText}>📷</Text></Pressable></View>
               <Text style={styles.profileName}>{customer.name || 'Customer'}</Text>
               <Text style={styles.profileEmail}>{customer.email || ''}</Text>
             </View>
             <View style={styles.profileCard}>
-              <ProfileRow icon={String.fromCodePoint(0x1F464)} label="Full name" value={customer.name} />
+              <ProfileRow icon={String.fromCodePoint(0x1F464)} label="Full name" value={customer.name} editable editing={profileDetailsEditing === 'name'} draft={profileNameDraft} onChangeDraft={setProfileNameDraft} onEdit={() => { setProfileNameDraft(customer.name || ''); setProfileDetailsError(''); setProfileDetailsEditing('name'); }} onSave={() => saveProfileDetail('name')} onCancel={() => setProfileDetailsEditing('')} saving={profileDetailsSaving} />
               <ProfileRow icon={String.fromCodePoint(0x2709)} label="Email address" value={customer.email} />
-              <ProfileRow icon={String.fromCodePoint(0x260E)} label="Phone number" value={customer.phone} />
+              <ProfileRow icon={String.fromCodePoint(0x260E)} label="Phone number" value={customer.phone} editable editing={profileDetailsEditing === 'phone'} draft={profilePhoneDraft} onChangeDraft={(value) => setProfilePhoneDraft(value.replace(/[^0-9]/g, '').slice(0, 11))} keyboardType="phone-pad" onEdit={() => { setProfilePhoneDraft(customer.phone || ''); setProfileDetailsError(''); setProfileDetailsEditing('phone'); }} onSave={() => saveProfileDetail('phone')} onCancel={() => setProfileDetailsEditing('')} saving={profileDetailsSaving} />
               <ProfileRow icon={String.fromCodePoint(0x1F4CD)} label="Delivery address" value={customer.address} last />
             </View>
+            {profileDetailsError ? <Text style={styles.errorBox}>{profileDetailsError}</Text> : null}
             <View style={styles.profileLocationCard}>
               <Text style={styles.profileLocationTitle}>Address and saved location</Text>
               <Text style={styles.profileLocationCopy}>Save one delivery address and one map pin. Choose a search result, then move the marker to your exact home or gate. Free delivery covers San Jose, San Manuel, and Balingcanaway, Tarlac; distance-based fees apply outside these areas.</Text>
@@ -1193,13 +1310,33 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
       )}
 
       <View style={styles.bottomNav}>
-        <NavItem icon="⌂" label="Home" active={tab === 'home'} onPress={() => navigateTo('home')} />
-        <NavItem icon="▣" label="Track" active={tab === 'track'} onPress={() => navigateTo('track')} />
-        <NavItem icon="🧺" label="Offers" active={tab === 'offers'} onPress={() => navigateTo('offers')} />
-        <NavItem icon="ⓘ" label="About" active={tab === 'about'} onPress={() => navigateTo('about')} />
-        <NavItem icon="♙" label="Profile" active={tab === 'profile'} onPress={() => navigateTo('profile')} />
+        <NavItem icon="home" label="Home" active={tab === 'home'} onPress={() => navigateTo('home')} />
+        <NavItem icon="track" label="Track" active={tab === 'track'} onPress={() => navigateTo('track')} />
+        <NavItem icon="offers" label="Offers" active={tab === 'offers'} onPress={() => navigateTo('offers')} />
+        <NavItem icon="about" label="About" active={tab === 'about'} onPress={() => navigateTo('about')} />
+        <NavItem icon="profile" label="Profile" active={tab === 'profile'} onPress={() => navigateTo('profile')} />
       </View>
 
+      <Modal transparent visible={profilePhotoPickerVisible} animationType="fade" onRequestClose={() => setProfilePhotoPickerVisible(false)}>
+        <View style={styles.modalShade}><View style={styles.modalCard}>
+          <Text style={styles.modalTitle}>Profile picture</Text><Text style={styles.modalCopy}>Take a new photo or choose one from your gallery.</Text>
+          <Pressable disabled={profileDetailsSaving} onPress={() => chooseProfilePhoto('camera')} style={styles.profilePhotoOption}><Text style={styles.profilePhotoOptionText}>📷  Take photo</Text></Pressable>
+          <Pressable disabled={profileDetailsSaving} onPress={() => chooseProfilePhoto('gallery')} style={styles.profilePhotoOption}><Text style={styles.profilePhotoOptionText}>🖼️  Choose from gallery</Text></Pressable>
+          <Pressable onPress={() => setProfilePhotoPickerVisible(false)} style={styles.secondaryButton}><Text style={styles.secondaryButtonText}>Cancel</Text></Pressable>
+        </View></View>
+      </Modal>
+      <Modal transparent visible={profilePhotoPreviewVisible} animationType="fade" onRequestClose={() => { setProfilePhotoPreviewVisible(false); setProfilePhotoDraft(null); }}>
+        <View style={styles.modalShade}><View style={styles.modalCard}>
+          <Text style={styles.modalTitle}>Save profile picture</Text>
+          <Text style={styles.modalCopy}>The center of this image will be used for your profile photo.</Text>
+          {profileDetailsError ? <Text style={styles.errorBox}>{profileDetailsError}</Text> : null}
+          {profilePhotoDraft ? <Image source={{ uri: profilePhotoDraft.uri }} style={styles.profilePhotoPreview} /> : null}
+          <Pressable disabled={profileDetailsSaving} onPress={saveProfilePhoto} style={({ pressed }) => [styles.primaryButton, pressed && !profileDetailsSaving && styles.pressed, profileDetailsSaving && styles.disabledButton]}>
+            {profileDetailsSaving ? <ActivityIndicator color={COLORS.white} /> : <Text style={styles.primaryButtonText}>Save</Text>}
+          </Pressable>
+          <Pressable disabled={profileDetailsSaving} onPress={() => { setProfilePhotoPreviewVisible(false); setProfilePhotoDraft(null); }} style={styles.secondaryButton}><Text style={styles.secondaryButtonText}>Cancel</Text></Pressable>
+        </View></View>
+      </Modal>
       <Modal transparent visible={pickupModal} animationType="fade" onRequestClose={() => setPickupModal(false)}>
         <View style={styles.modalShade}>
           <View style={styles.modalCard}>
@@ -1255,10 +1392,10 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
 }
 
 function NavItem({ icon, label, active, onPress }) {
-  return <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={[styles.navItem, active && styles.navItemActive]}><Text style={[styles.navEmoji, active && styles.navEmojiActive]}>{icon}</Text><Text style={[styles.navLabel, active && styles.navLabelActive]}>{label}</Text></Pressable>;
+  return <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={[styles.navItem, active && styles.navItemActive]}><Image source={NAV_ICON_ASSETS[icon]} style={[styles.navIcon, icon !== 'offers' && { tintColor: active ? COLORS.plum : '#8a8089' }]} resizeMode="contain" /><Text style={[styles.navLabel, active && styles.navLabelActive]}>{label}</Text></Pressable>;
 }
-function ProfileRow({ icon, label, value, last = false }) {
-  return <View style={[styles.profileRow, last && styles.profileRowLast]}><View style={styles.profileRowIcon}><Text style={styles.profileRowIconText}>{icon}</Text></View><View style={styles.flexOne}><Text style={styles.profileRowLabel}>{label}</Text><Text style={styles.profileRowValue}>{value || 'Not provided'}</Text></View></View>;
+function ProfileRow({ icon, label, value, last = false, editable = false, editing = false, draft = '', onChangeDraft, onEdit, onSave, onCancel, saving = false, keyboardType = 'default' }) {
+  return <View style={[styles.profileRow, last && styles.profileRowLast]}><View style={styles.profileRowIcon}><Text style={styles.profileRowIconText}>{icon}</Text></View><View style={styles.flexOne}><Text style={styles.profileRowLabel}>{label}</Text>{editing ? <TextInput autoFocus value={draft} onChangeText={onChangeDraft} keyboardType={keyboardType} maxLength={label === 'Full name' ? 100 : 11} placeholder={label === 'Full name' ? 'Your full name' : '09xx xxx xxxx'} placeholderTextColor="#a59ba5" style={styles.profileRowInput} editable={!saving} /> : <Text style={styles.profileRowValue}>{value || 'Not provided'}</Text>}</View>{editable ? editing ? <View style={styles.profileRowEditActions}><Pressable accessibilityRole="button" accessibilityLabel={'Save ' + label} disabled={saving} onPress={onSave} style={styles.profileRowEditButton}><Text style={styles.profileRowEditText}>{saving ? '…' : '✓'}</Text></Pressable><Pressable accessibilityRole="button" accessibilityLabel="Cancel edit" disabled={saving} onPress={onCancel} style={styles.profileRowEditButton}><Text style={styles.profileRowCancelText}>×</Text></Pressable></View> : <Pressable accessibilityRole="button" accessibilityLabel={'Edit ' + label} onPress={onEdit} style={styles.profileRowEditButton}><Text style={styles.profileRowEditText}>✎</Text></Pressable> : null}</View>;
 }
 
 function ServiceCard({ service, quantity, onQuantityChange, wide, index }) {
@@ -1458,26 +1595,35 @@ const styles = StyleSheet.create({
   headerButton: { width: 38, height: 38, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: '#362c39' },
   headerButtonText: { color: '#f6eaf9', fontSize: 22, fontWeight: '700' },
   authRoot: { flex: 1, backgroundColor: COLORS.dark },
-  authScrollView: { flex: 1 },
-  authScroll: { flexGrow: 1, padding: 16, alignItems: 'center', justifyContent: 'center' },
-  authContainer: { width: '100%', maxWidth: 520, alignSelf: 'center', gap: 16, paddingBottom: 16 },
+  authSafeArea: { flex: 1 },
+  authContainer: { flex: 1, width: '100%', maxWidth: 520, alignSelf: 'center', gap: 12, paddingHorizontal: 16, paddingTop: 8, paddingBottom: 8, minHeight: 0 },
   authContainerCompact: { gap: 12, paddingBottom: 8 },
   hero: { minHeight: 184, borderRadius: 20, overflow: 'hidden', justifyContent: 'center', paddingHorizontal: 24, marginTop: 16, marginBottom: 20 },
   heroCompact: { minHeight: 145, marginTop: 4, marginBottom: 4, paddingHorizontal: 20 },
+  heroKeyboardCompact: { minHeight: 82, marginTop: 0, marginBottom: 0, paddingHorizontal: 12 },
   heroContent: { flexDirection: 'row', alignItems: 'center', gap: 16, zIndex: 1 },
+  heroContentKeyboardCompact: { gap: 9 },
   heroIcon: { width: 70, height: 70, borderRadius: 22, backgroundColor: '#fff7e9', alignItems: 'center', justifyContent: 'center', transform: [{ rotate: '-5deg' }] },
+  heroIconKeyboardCompact: { width: 50, height: 50, borderRadius: 16 },
   heroEmoji: { fontSize: 38 },
+  heroEmojiKeyboardCompact: { fontSize: 27 },
   heroTextBlock: { flex: 1 },
   heroTitle: { color: COLORS.white, fontWeight: '800', fontSize: 25, marginBottom: 7 },
+  heroTitleKeyboardCompact: { fontSize: 16, marginBottom: 1 },
   heroDetail: { color: '#f5e9f3', fontSize: 14, marginTop: 2 },
+  heroDetailKeyboardCompact: { fontSize: 9, marginTop: 0 },
   heroFloatingEmoji: { fontSize: 44, opacity: 0.95 },
+  heroFloatingEmojiKeyboardCompact: { fontSize: 32 },
   heroDecorOne: { position: 'absolute', width: 220, height: 220, borderRadius: 110, backgroundColor: '#ffffff12', right: 22, top: -120 },
   heroDecorTwo: { position: 'absolute', width: 160, height: 160, borderRadius: 80, backgroundColor: '#e0a8e218', right: 145, bottom: -117 },
   authIntro: { alignItems: 'center', paddingHorizontal: 16 },
+  authIntroKeyboardHidden: { display: 'none' },
   authTitle: { color: COLORS.cream, fontSize: 25, fontWeight: '800', textAlign: 'center' },
   authDescription: { color: '#c7bac8', textAlign: 'center', marginTop: 6, lineHeight: 21, maxWidth: 410 },
-  authCard: { width: '100%', borderRadius: 20, backgroundColor: COLORS.cream, borderColor: '#eadfed', borderWidth: 1, padding: 20, gap: 12, ...(Platform.OS === 'web' ? { boxShadow: '0px 8px 16px rgba(0,0,0,0.22)' } : { shadowColor: '#000', shadowOpacity: 0.22, shadowRadius: 16, shadowOffset: { width: 0, height: 8 }, elevation: 6 }) },
+  authCard: { flex: 1, minHeight: 0, width: '100%', borderRadius: 20, backgroundColor: COLORS.cream, borderColor: '#eadfed', borderWidth: 1, padding: 20, gap: 12, ...(Platform.OS === 'web' ? { boxShadow: '0px 8px 16px rgba(0,0,0,0.22)' } : { shadowColor: '#000', shadowOpacity: 0.22, shadowRadius: 16, shadowOffset: { width: 0, height: 8 }, elevation: 6 }) },
   authCardCompact: { padding: 14, borderRadius: 16 },
+  authCardScroll: { flex: 1, minHeight: 0 },
+  authCardScrollContent: { gap: 12, paddingBottom: 24 },
   authSwitch: { width: '100%', flexDirection: 'row', borderRadius: 15, borderColor: COLORS.line, borderWidth: 1, padding: 4, backgroundColor: '#f2ebf3', marginBottom: 2 },
   authSwitchButton: { flex: 1, minHeight: 42, alignItems: 'center', justifyContent: 'center', borderRadius: 12 },
   authSwitchSelected: { backgroundColor: COLORS.plum },
@@ -1612,8 +1758,7 @@ const styles = StyleSheet.create({
   bottomNav: { minHeight: 68, paddingBottom: Platform.OS === 'ios' ? 8 : 2, backgroundColor: COLORS.cream, borderTopColor: '#ded3df', borderTopWidth: 1, flexDirection: 'row', paddingHorizontal: 3, zIndex: 3 },
   navItem: { flex: 1, minWidth: 0, alignItems: 'center', justifyContent: 'center', gap: 2, borderTopWidth: 3, borderTopColor: 'transparent', paddingVertical: 5 },
   navItemActive: { borderTopColor: COLORS.copper, backgroundColor: '#fbf2e9' },
-  navEmoji: { color: '#8a8089', fontSize: 21, lineHeight: 24 },
-  navEmojiActive: { color: COLORS.plum },
+  navIcon: { width: 20, height: 20 },
   navLabel: { color: '#776c78', fontSize: 10, fontWeight: '700' },
   navLabelActive: { color: COLORS.plum },
   homeWelcomeCard: { borderRadius: 20, padding: 20, backgroundColor: COLORS.cream, borderColor: '#eadfed', borderWidth: 1, marginBottom: 14 },
@@ -1650,6 +1795,10 @@ const styles = StyleSheet.create({
   contentTitle: { color: COLORS.ink, fontSize: 22, lineHeight: 29, fontWeight: '900', marginTop: 7 },
   contentText: { color: COLORS.muted, fontSize: 14, lineHeight: 22, marginTop: 10 },
   aboutGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  iconAttribution: { marginTop: 16, padding: 12, borderRadius: 12, backgroundColor: '#2e2631' },
+  iconAttributionLabel: { color: '#f5e9f3', fontSize: 11, fontWeight: '800', marginBottom: 4 },
+  iconAttributionText: { color: '#c7bac8', fontSize: 10, lineHeight: 16 },
+  iconAttributionLink: { color: '#f1d4f5', textDecorationLine: 'underline' },
   aboutCard: { flexGrow: 1, width: '48%', minHeight: 145, borderRadius: 17, padding: 16, backgroundColor: COLORS.darkPanel, borderColor: '#493b4c', borderWidth: 1 },
   aboutIcon: { fontSize: 27 },
   aboutTitle: { color: COLORS.cream, fontSize: 15, fontWeight: '800', marginTop: 9 },
@@ -1659,7 +1808,11 @@ const styles = StyleSheet.create({
   profileLocationTitle: { color: '#2d1c31', fontSize: 18, fontWeight: '900' },
   profileLocationCopy: { color: COLORS.muted, fontSize: 13, lineHeight: 19 },
   profileLocationActions: { flexDirection: 'row', gap: 10, marginTop: 2 },
-  profileAvatar: { width: 88, height: 88, borderRadius: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.purple, borderColor: '#d7b7dd', borderWidth: 3 },
+  profileAvatarWrap: { width: 88, height: 88, position: 'relative', marginBottom: 0 },
+  profileAvatar: { width: 88, height: 88, borderRadius: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.purple, borderColor: '#d7b7dd', borderWidth: 3, overflow: 'hidden' },
+  profileAvatarImage: { width: '100%', height: '100%' },
+  profilePhotoButton: { position: 'absolute', right: -5, bottom: -3, width: 32, height: 32, borderRadius: 16, backgroundColor: COLORS.cream, borderColor: COLORS.plum, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
+  profilePhotoButtonText: { fontSize: 15 },
   profileAvatarText: { color: COLORS.white, fontSize: 37, fontWeight: '900' },
   profileName: { color: COLORS.cream, fontSize: 23, fontWeight: '900', marginTop: 13 },
   profileEmail: { color: '#bdb0bf', fontSize: 13, marginTop: 3 },
@@ -1670,7 +1823,15 @@ const styles = StyleSheet.create({
   profileRowIconText: { fontSize: 20, textAlign: 'center' },
   profileRowLabel: { color: COLORS.muted, fontSize: 11, fontWeight: '700' },
   profileRowValue: { color: COLORS.ink, fontSize: 14, lineHeight: 19, fontWeight: '700', marginTop: 3 },
-  signOutButton: { minHeight: 50, borderRadius: 15, borderColor: '#9b6472', borderWidth: 1, alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
+  profileRowInput: { minHeight: 40, borderWidth: 1, borderColor: COLORS.line, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 7, color: COLORS.ink, fontSize: 14, marginTop: 4 },
+  profileRowEditActions: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  profileRowEditButton: { width: 36, height: 36, borderRadius: 12, backgroundColor: COLORS.purpleLight, alignItems: 'center', justifyContent: 'center' },
+  profileRowEditText: { color: COLORS.plum, fontSize: 21, fontWeight: '900' },
+  profileRowCancelText: { color: COLORS.red, fontSize: 22, fontWeight: '900' },
+  profilePhotoOption: { minHeight: 48, borderRadius: 12, backgroundColor: COLORS.purpleLight, justifyContent: 'center', paddingHorizontal: 14 },
+  profilePhotoPreview: { width: 220, height: 220, alignSelf: 'center', borderRadius: 16, backgroundColor: COLORS.purpleLight },
+  profilePhotoOptionText: { color: COLORS.plum, fontWeight: '800', fontSize: 14 },
+  signOutButton: { minHeight: 50, borderRadius: 15, borderColor: '#9b6472', borderWidth: 1, alignItems: 'center', justifyContent: 'center', marginTop: 18, marginBottom: 12 },
   signOutButtonText: { color: '#f0b8c3', fontSize: 14, fontWeight: '800' },
   ticketHeadingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4, marginBottom: 14 },
   ticketCard: { borderRadius: 17, overflow: 'hidden', backgroundColor: COLORS.cream, borderColor: '#ddd2df', borderWidth: 1, marginBottom: 14 },

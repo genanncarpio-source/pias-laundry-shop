@@ -134,7 +134,7 @@ include __DIR__ . '/includes/header.php';
     <strong> Laundry Shop Management System for Pia's Laundry Shop</strong>
   </p>
   <!-- <p class="muted mb-0">
-    Built with PHP, MySQL, CSS and JavaScript. Database: <code>laundry_pos</code>.
+    Built with PHP, MySQL, CSS and JavaScript. Database: <code>laundry_pias</code>.
     See <code>README.md</code> for setup instructions and <code>docs/</code> for the
     project documentation.
   </p> -->

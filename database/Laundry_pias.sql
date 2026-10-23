@@ -7,7 +7,7 @@
 --  HOW TO IMPORT (Laragon):
 --   1. Start Laragon, click "Database" (or open http://localhost/phpmyadmin)
 --   2. Import this file directly (phpMyAdmin > Import > choose this file > Go)
---      The database `laundry_pos` is created automatically.
+--      The database `laundry_pias` is created automatically.
 --   3. Default logins created below:
 --          admin  /  admin123     (Administrator)
 --          staff  /  staff123     (Cashier)
@@ -16,11 +16,11 @@
 --        Back up your data first if the system is already in use.
 -- ============================================================
 
-CREATE DATABASE IF NOT EXISTS laundry_pos
+CREATE DATABASE IF NOT EXISTS laundry_pias
   CHARACTER SET utf8mb4
   COLLATE utf8mb4_unicode_ci;
 
-USE laundry_pos;
+USE laundry_pias;
 
 SET FOREIGN_KEY_CHECKS = 0;
 DROP TABLE IF EXISTS order_history;
@@ -61,6 +61,7 @@ CREATE TABLE customers (
   id          INT UNSIGNED NOT NULL AUTO_INCREMENT,
   name        VARCHAR(100) NOT NULL,
   phone       VARCHAR(30)  DEFAULT NULL,
+  profile_photo MEDIUMTEXT DEFAULT NULL,
   email       VARCHAR(120) DEFAULT NULL,
   address     VARCHAR(255) DEFAULT NULL,
   is_active   TINYINT(1)   NOT NULL DEFAULT 1,

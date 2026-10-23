@@ -102,7 +102,7 @@ If MySQL will not start, port 3306 is usually taken — see [Troubleshooting](#t
 3. **Choose File** → `laundry-pias\database\laundry_pos.sql`
 4. Click **Go**
 
-The file creates the `laundry_pos` database itself, with core tables and seed data. New customer and workflow tables are added automatically the first time the related pages are opened; existing installations can also import `database/upgrade_features.sql`.
+The file creates the `laundry_pias` database itself, with core tables and seed data. New customer and workflow tables are added automatically the first time the related pages are opened; existing installations can also import `database/upgrade_features.sql`.
 
 Existing databases are upgraded additively when an administrator or cashier first
 opens a feature page. You can also import `database/upgrade_features.sql`; it creates
@@ -178,12 +178,19 @@ XAMPP and Laragon use the **same defaults**, so normally no editing is needed:
 | Setting | Default |
 |---|---|
 | Host | `localhost` |
-| Database | `laundry_pos` |
+| Database | `laundry_pias` |
 | User | `root` |
 | Password | *(empty)* |
 
 If yours differ, either edit `config/database.php` or set environment variables
 (the code reads these first): `DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASS`.
+
+New local installs use the `laundry_pias` database. Existing installations that
+still have only `laundry_pos` continue to connect to it automatically, so this
+change does not interrupt their data. The Railway-provided `MYSQLDATABASE` setting
+also remains authoritative. Move an existing database only after backing it up,
+copying its tables and data to `laundry_pias`, and verifying the copy; then update
+`DB_NAME` (or Railway's database setting) to `laundry_pias`.
 
 ### Moving between XAMPP and Laragon
 
@@ -277,7 +284,7 @@ laundry-pias/
 ## Troubleshooting
 
 **"Database connection failed"**
-Check that MySQL is running (XAMPP Control Panel → **Start** next to MySQL, or Laragon → **Start All**), that the `laundry_pos` database exists in phpMyAdmin, and that the credentials in `config/database.php` match. Both XAMPP and Laragon default to `root` with an **empty** password.
+Check that MySQL is running (XAMPP Control Panel → **Start** next to MySQL, or Laragon → **Start All**), that the `laundry_pias` database exists in phpMyAdmin, and that the credentials in `config/database.php` match. Both XAMPP and Laragon default to `root` with an **empty** password.
 
 **"could not find driver"**
 The `pdo_mysql` extension is disabled. Open `php.ini` and make sure this line is uncommented, then restart Apache:

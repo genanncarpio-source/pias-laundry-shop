@@ -158,7 +158,7 @@ expenses, reports, inventory, employee management, backup/restore or settings.
                                │
                      ┌─────────▼──────────┐
                      │  MySQL / MariaDB   │
-                     │  `laundry_pos`     │
+                     │  `laundry_pias`    │
                      │  12 core tables +  │
                      │ customer_accounts  │
                      └────────────────────┘
@@ -324,7 +324,7 @@ web root, or from a sub-folder of either.
 | Target platform | XAMPP or Laragon on Windows (Apache + MySQL + PHP) |
 | Document root | `C:\xampp\htdocs\laundry-pias` (XAMPP) or `C:\laragon\www\laundry-pias` (Laragon) |
 | Application URL | `http://localhost/laundry-pias/` |
-| Database | `laundry_pos` (12 core tables; `customer_accounts` is added by the feature upgrade) |
+| Database | `laundry_pias` (12 core tables; `customer_accounts` is added by the feature upgrade) |
 | Installation steps | Copy files → import `database/laundry_pos.sql` (phpMyAdmin or `install.bat`) → start Apache and MySQL |
 | External dependency | None |
 | Build step | None — no Composer, no bundler, no compilation |
