@@ -4,7 +4,7 @@
     "slug": "pias-laundry-shop-customer",
     "scheme": "piaslaundry",
     "version": "1.0.4",
-    "orientation": "portrait",
+    "orientation": "default",
     "icon": "./assets/pias-logo-app-icon.png",
     "userInterfaceStyle": "dark",
     "ios": {

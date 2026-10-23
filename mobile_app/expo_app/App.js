@@ -211,28 +211,37 @@ export default function App() {
 }
 
 function WelcomeScreen({ onStart }) {
+  const { width, height } = useWindowDimensions();
+  const isLandscape = width > height;
   return (
     <LinearGradient colors={['#211422', '#54265d', '#8d5996']} start={{ x: 0.1, y: 0 }} end={{ x: 0.9, y: 1 }} style={styles.welcomeRoot}>
       <StatusBar style="light" />
       <View style={styles.welcomeBubbleOne} />
       <View style={styles.welcomeBubbleTwo} />
-      <View style={styles.welcomeContent}>
-        <View style={styles.welcomeLogoShell}>
+      <ScrollView
+        style={styles.welcomeScroll}
+        contentContainerStyle={[styles.welcomeScrollContent, isLandscape && styles.welcomeScrollContentLandscape]}
+        showsVerticalScrollIndicator={false}
+        bounces={false}
+      >
+      <View style={[styles.welcomeContent, isLandscape && styles.welcomeContentLandscape]}>
+        <View style={[styles.welcomeLogoShell, isLandscape && styles.welcomeLogoShellLandscape]}>
           <Image source={require('./assets/pias-logo-app-icon.png')} resizeMode="contain" style={styles.welcomeLogo} />
         </View>
-        <Text style={styles.welcomeBrand}>Pia&apos;s Laundry Shop</Text>
-        <Text style={styles.welcomeTagline}>Fresh clothes, less hassle.</Text>
-        <Text style={styles.welcomeDescription}>Book trusted laundry services, request pickup or delivery, and follow every service ticket from your phone.</Text>
-        <View style={styles.welcomeFeatureRow}>
+        <Text style={[styles.welcomeBrand, isLandscape && styles.welcomeBrandLandscape]}>Pia&apos;s Laundry Shop</Text>
+        <Text style={[styles.welcomeTagline, isLandscape && styles.welcomeTaglineLandscape]}>Fresh clothes, less hassle.</Text>
+        <Text style={[styles.welcomeDescription, isLandscape && styles.welcomeDescriptionLandscape]}>Book trusted laundry services, request pickup or delivery, and follow every service ticket from your phone.</Text>
+        <View style={[styles.welcomeFeatureRow, isLandscape && styles.welcomeFeatureRowLandscape]}>
           <View style={styles.welcomeFeature}><Text style={styles.welcomeFeatureIcon}>🧺</Text><Text style={styles.welcomeFeatureText}>Easy booking</Text></View>
           <View style={styles.welcomeFeature}><Text style={styles.welcomeFeatureIcon}>🚚</Text><Text style={styles.welcomeFeatureText}>Pickup & delivery</Text></View>
           <View style={styles.welcomeFeature}><Text style={styles.welcomeFeatureIcon}>📍</Text><Text style={styles.welcomeFeatureText}> tracking</Text></View>
         </View>
-        <Pressable accessibilityRole="button" onPress={onStart} style={({ pressed }) => [styles.welcomeStart, pressed && styles.pressed]}>
+        <Pressable accessibilityRole="button" onPress={onStart} style={({ pressed }) => [styles.welcomeStart, isLandscape && styles.welcomeStartLandscape, pressed && styles.pressed]}>
           <Text style={styles.welcomeStartText}>Get Started</Text><Text style={styles.welcomeStartArrow}>→</Text>
         </Pressable>
-        <Text style={styles.welcomeAddress}>Blk. 2, Brgy. San Jose, Tarlac City · 0918-967-9623</Text>
+        <Text style={[styles.welcomeAddress, isLandscape && styles.welcomeAddressLandscape]}>Blk. 2, Brgy. San Jose, Tarlac City · 0918-967-9623</Text>
       </View>
+      </ScrollView>
     </LinearGradient>
   );
 }
@@ -1123,7 +1132,6 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
                 <Text style={styles.greeting}>Choose your services</Text>
                 <Text style={styles.welcomeCopy}>Add or remove quantities, then schedule your pickup or delivery.</Text>
               </View>
-              <View style={styles.pickupBadge}><Text style={styles.pickupBadgeText}>PICKUP OR DELIVERY</Text></View>
             </View>
             {toast ? <Text style={styles.successBox}>{toast}</Text> : null}
             {error ? <Text style={styles.errorBox}>{error}</Text> : null}
@@ -1565,21 +1573,32 @@ function TicketCard({ ticket, onShareLocation, onRevokeLocation, locationBusy, l
 
 const styles = StyleSheet.create({
 
-  welcomeRoot: { flex: 1, overflow: 'hidden', alignItems: 'center', justifyContent: 'center', padding: 24 },
+  welcomeRoot: { flex: 1, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
+  welcomeScroll: { flex: 1, width: '100%' },
+  welcomeScrollContent: { flexGrow: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
+  welcomeScrollContentLandscape: { paddingVertical: 10, paddingHorizontal: 20 },
   welcomeContent: { width: '100%', maxWidth: 520, alignItems: 'center', zIndex: 2 },
+  welcomeContentLandscape: { maxWidth: 680 },
+  welcomeLogoShellLandscape: { width: 82, height: 82, borderRadius: 25, padding: 8, marginBottom: 8 },
   welcomeLogoShell: { width: 168, height: 168, borderRadius: 48, backgroundColor: COLORS.white, padding: 14, marginBottom: 24, shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 18, shadowOffset: { width: 0, height: 10 }, elevation: 8 },
   welcomeLogo: { width: '100%', height: '100%' },
+  welcomeBrandLandscape: { fontSize: 26, lineHeight: 31 },
   welcomeBrand: { color: COLORS.white, fontSize: 34, lineHeight: 40, fontWeight: '900', textAlign: 'center' },
+  welcomeTaglineLandscape: { fontSize: 15, marginTop: 2 },
   welcomeTagline: { color: '#f3d4f7', fontSize: 19, fontWeight: '700', marginTop: 8, textAlign: 'center' },
+  welcomeDescriptionLandscape: { fontSize: 12, lineHeight: 16, marginTop: 6 },
   welcomeDescription: { color: '#f3e8f4', fontSize: 15, lineHeight: 23, textAlign: 'center', maxWidth: 440, marginTop: 14 },
   welcomeFeatureRow: { width: '100%', flexDirection: 'row', gap: 8, marginVertical: 26 },
+  welcomeFeatureRowLandscape: { marginVertical: 10 },
   welcomeFeature: { flex: 1, minHeight: 85, borderRadius: 16, backgroundColor: '#ffffff17', borderColor: '#ffffff2d', borderWidth: 1, alignItems: 'center', justifyContent: 'center', padding: 8 },
   welcomeFeatureIcon: { fontSize: 25, marginBottom: 5 },
   welcomeFeatureText: { color: COLORS.white, fontSize: 11, lineHeight: 15, fontWeight: '700', textAlign: 'center' },
+  welcomeStartLandscape: { minHeight: 48 },
   welcomeStart: { width: '100%', minHeight: 56, borderRadius: 28, paddingHorizontal: 22, backgroundColor: COLORS.cream, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
   welcomeStartText: { color: COLORS.plum, fontWeight: '900', fontSize: 16 },
   welcomeStartArrow: { position: 'absolute', right: 22, color: COLORS.plum, fontSize: 25 },
   welcomeAddress: { color: '#decce2', fontSize: 11, textAlign: 'center', marginTop: 20 },
+  welcomeAddressLandscape: { marginTop: 8 },
   welcomeBubbleOne: { position: 'absolute', width: 340, height: 340, borderRadius: 170, backgroundColor: '#ffffff09', right: -155, top: -80 },
   welcomeBubbleTwo: { position: 'absolute', width: 270, height: 270, borderRadius: 135, backgroundColor: '#e5a6ed0c', left: -150, bottom: -65 },
   app: { flex: 1, backgroundColor: COLORS.dark },
@@ -1668,7 +1687,6 @@ const styles = StyleSheet.create({
   welcomeLine: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 13 },
   greeting: { color: COLORS.cream, fontSize: 23, fontWeight: '800' },
   welcomeCopy: { color: '#c7bac8', fontSize: 14, marginTop: 3, lineHeight: 20 },
-  pickupBadge: { backgroundColor: '#34273a', borderColor: '#6e4a78', borderWidth: 1, borderRadius: 20, paddingHorizontal: 13, paddingVertical: 8 },
   pickupBadgeText: { color: '#d9bce0', fontSize: 10, letterSpacing: 0.7, fontWeight: '800' },
   searchRow: { minHeight: 48, flexDirection: 'row', alignItems: 'center', backgroundColor: '#211c23', borderColor: '#443b46', borderWidth: 1, borderRadius: 24, paddingLeft: 15, paddingRight: 5, marginTop: 4 },
   searchIcon: { color: '#d9cadc', fontSize: 26, marginRight: 8 },
