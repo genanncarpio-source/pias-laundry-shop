@@ -8,7 +8,7 @@ $password = is_string($data['password'] ?? null) ? $data['password'] : '';
 if ($email === '' || $password === '') api_json(422, ['success' => false, 'error' => 'Enter your email and password.']);
 
 $stmt = db()->prepare(
-    'SELECT c.id, c.name, c.email, c.phone, c.address, c.location_latitude, c.location_longitude, a.password_hash, a.email_verified_at
+    'SELECT c.id, c.name, c.email, c.phone, c.address, c.location_latitude, c.location_longitude, c.profile_photo, a.password_hash, a.email_verified_at
        FROM customer_accounts a
        JOIN customers c ON c.id = a.customer_id
       WHERE a.email = ? AND c.is_active = 1

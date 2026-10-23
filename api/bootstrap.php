@@ -184,7 +184,7 @@ function api_current_customer(): array
     }
 
     $stmt = db()->prepare(
-        'SELECT c.id, c.name, c.email, c.phone, c.address, c.location_latitude, c.location_longitude
+        'SELECT c.id, c.name, c.email, c.phone, c.address, c.location_latitude, c.location_longitude, c.profile_photo
            FROM customer_sessions s
            JOIN customers c ON c.id = s.customer_id
           WHERE s.token_hash = ? AND s.expires_at > NOW() AND c.is_active = 1
