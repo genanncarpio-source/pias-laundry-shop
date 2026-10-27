@@ -94,18 +94,13 @@ if (!in_array($fulfillment, ['pickup_delivery', 'dropoff_delivery', 'dropoff_pic
 $customerLatitude = isset($customer['location_latitude']) ? (float)$customer['location_latitude'] : 0.0;
 $customerLongitude = isset($customer['location_longitude']) ? (float)$customer['location_longitude'] : 0.0;
 $hasDelivery = in_array($fulfillment, ['pickup_delivery', 'dropoff_delivery'], true);
-$deliveryQuote = ['free_delivery' => true, 'distance_km' => 0, 'delivery_fee' => 0.0];
-if ($hasDelivery) {
-    if ($customerLatitude < -90 || $customerLatitude > 90 || $customerLongitude < -180 || $customerLongitude > 180 || ($customerLatitude === 0.0 && $customerLongitude === 0.0)) {
-        mobile_booking_json(422, ['success' => false, 'error' => 'Pin your delivery location in your account profile first.']);
-    }
-    try {
-        $deliveryQuote = api_delivery_quote($customerLatitude, $customerLongitude);
-    } catch (RuntimeException $e) {
-        mobile_booking_json(503, ['success' => false, 'error' => $e->getMessage()]);
-    }
+if ($hasDelivery && ($customerLatitude < -90 || $customerLatitude > 90 || $customerLongitude < -180 || $customerLongitude > 180 || ($customerLatitude === 0.0 && $customerLongitude === 0.0))) {
+    mobile_booking_json(422, ['success' => false, 'error' => 'Pin your delivery location in your account profile first.']);
 }
-$deliveryFee = (float)$deliveryQuote['delivery_fee'];
+if ($hasDelivery && !api_is_delivery_area($customerLatitude, $customerLongitude)) {
+    mobile_booking_json(422, ['success' => false, 'error' => api_delivery_area_error()]);
+}
+$deliveryFee = 0.0;
 $grandTotal = round($subtotal + $deliveryFee, 2);
 if ($paymentMethod === 'gcash') {
     if ($reportedAmount === false || round((float)$reportedAmount, 2) !== $grandTotal) mobile_booking_json(422, ['success' => false, 'error' => 'The payment amount must match the service subtotal and delivery fee.']);
@@ -173,7 +168,7 @@ try {
 $response = [
     'success' => true,
     'message' => $paymentMethod === 'gcash' ? 'Your booking and GCash reference were submitted. The shop will verify the transfer before processing.' : 'Your laundry service request was submitted. The shop will confirm it.',
-    'ticket' => ['id' => $ticketId, 'ticket_number' => $ticketNumber, 'status' => 'pending', 'estimated_total' => $grandTotal, 'service_subtotal' => $subtotal, 'delivery_fee' => $deliveryFee, 'delivery_distance_km' => $deliveryQuote['distance_km'], 'payment_status' => $paymentMethod === 'gcash' ? 'pending_verification' : 'pay_during_handoff'],
+    'ticket' => ['id' => $ticketId, 'ticket_number' => $ticketNumber, 'status' => 'pending', 'estimated_total' => $grandTotal, 'service_subtotal' => $subtotal, 'delivery_fee' => $deliveryFee, 'delivery_distance_km' => 0, 'payment_status' => $paymentMethod === 'gcash' ? 'pending_verification' : 'pay_during_handoff'],
 ];
 
     if ($requestId !== null) {
