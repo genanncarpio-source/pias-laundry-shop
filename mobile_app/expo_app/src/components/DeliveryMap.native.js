@@ -19,7 +19,7 @@ export default function DeliveryMap({ location, label = 'Driver', offline = fals
   };
   const map = (expanded = false) => failed
     ? <Text style={styles.copy}>Map unavailable. Try again when you have an internet connection.</Text>
-    : <WebView source={{ html: pinMapHtml({ latitude, longitude, zoom: expanded ? 13 : 17 }) }} style={expanded ? styles.fullMap : styles.map} originWhitelist={['*']} javaScriptEnabled domStorageEnabled accessibilityLabel={label} onMessage={onMessage} onError={() => setFailed(true)} />;
+    : <WebView source={{ html: pinMapHtml({ latitude, longitude, zoom: 17 }) }} style={expanded ? styles.fullMap : styles.map} originWhitelist={['*']} javaScriptEnabled domStorageEnabled accessibilityLabel={label} onMessage={onMessage} onError={() => setFailed(true)} />;
 
   if (editable) {
     return <View style={styles.container}>
