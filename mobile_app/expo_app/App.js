@@ -239,7 +239,7 @@ function WelcomeScreen({ onStart }) {
         <Pressable accessibilityRole="button" onPress={onStart} style={({ pressed }) => [styles.welcomeStart, isLandscape && styles.welcomeStartLandscape, pressed && styles.pressed]}>
           <Text style={styles.welcomeStartText}>Get Started</Text><Text style={styles.welcomeStartArrow}>→</Text>
         </Pressable>
-        <Text style={[styles.welcomeAddress, isLandscape && styles.welcomeAddressLandscape]}>Blk. 2, Brgy. San Jose, Tarlac City · 0918-967-9623</Text>
+        <Text style={[styles.welcomeAddress, isLandscape && styles.welcomeAddressLandscape]}>Blk. 2, Brgy. San Manuel, Tarlac City · 0918-967-9623</Text>
       </View>
       </ScrollView>
     </LinearGradient>
@@ -279,7 +279,7 @@ function HeroBanner({ compact = false, keyboardCompact = false }) {
         <View style={[styles.heroIcon, keyboardCompact && styles.heroIconKeyboardCompact]}><Text style={[styles.heroEmoji, keyboardCompact && styles.heroEmojiKeyboardCompact]}>🫧</Text></View>
         <View style={styles.heroTextBlock}>
           <Text style={[styles.heroTitle, keyboardCompact && styles.heroTitleKeyboardCompact]}>Pia&apos;s Laundry Shop</Text>
-          <Text style={[styles.heroDetail, keyboardCompact && styles.heroDetailKeyboardCompact]}>Blk. 2, Brgy. San Jose, Tarlac City</Text>
+          <Text style={[styles.heroDetail, keyboardCompact && styles.heroDetailKeyboardCompact]}>Blk. 2, Brgy. San Manuel, Tarlac City</Text>
           <Text style={[styles.heroDetail, keyboardCompact && styles.heroDetailKeyboardCompact]}>Contact: 0918-967-9623</Text>
         </View>
         <Text style={[styles.heroFloatingEmoji, keyboardCompact && styles.heroFloatingEmojiKeyboardCompact]}>🧺</Text>
@@ -1277,7 +1277,7 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
               <Text style={styles.contentText}>Pia&apos;s Laundry Shop provides reliable laundry care with online booking, shop confirmation, pickup or delivery choices, and service ticket tracking.</Text>
             </View>
             <View style={styles.aboutGrid}>
-              <View style={styles.aboutCard}><Text style={styles.aboutIcon}>📍</Text><Text style={styles.aboutTitle}>Visit us</Text><Text style={styles.aboutText}>Blk. 2, Brgy. San Jose, Tarlac City</Text></View>
+              <View style={styles.aboutCard}><Text style={styles.aboutIcon}>📍</Text><Text style={styles.aboutTitle}>Visit us</Text><Text style={styles.aboutText}>Blk. 2, Brgy. San Manuel, Tarlac City</Text></View>
               <View style={styles.aboutCard}><Text style={styles.aboutIcon}>☎️</Text><Text style={styles.aboutTitle}>Contact us</Text><Text style={styles.aboutText}>0918-967-9623</Text></View>
               <View style={styles.aboutCard}><Text style={styles.aboutIcon}>✅</Text><Text style={styles.aboutTitle}>Shop confirmed</Text><Text style={styles.aboutText}>The shop confirms the final service, price, and schedule.</Text></View>
               <View style={styles.aboutCard}><Text style={styles.aboutIcon}>📱</Text><Text style={styles.aboutTitle}>Track online</Text><Text style={styles.aboutText}>Follow the latest status of every service ticket.</Text></View>
