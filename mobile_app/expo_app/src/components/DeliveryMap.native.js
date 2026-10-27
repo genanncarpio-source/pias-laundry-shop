@@ -6,12 +6,17 @@ import { pinMapHtml } from './pinMapHtml';
 export default function DeliveryMap({ location, label = 'Driver', offline = false, editable = false, onLocationChange }) {
   const [failed, setFailed] = useState(false);
   const [fullScreen, setFullScreen] = useState(false);
+  const [baseLayer, setBaseLayer] = useState('Street map');
   const latitude = Number(location.latitude);
   const longitude = Number(location.longitude);
   const onMessage = (event) => {
     if (!editable || typeof onLocationChange !== 'function') return;
     try {
       const point = JSON.parse(event.nativeEvent.data);
+      if (point.type === 'delivery-map-layer') {
+        setBaseLayer(point.layer === 'Satellite' ? 'Satellite' : 'Street map');
+        return;
+      }
       if (point.type === 'delivery-pin' && Number.isFinite(point.latitude) && Number.isFinite(point.longitude)) {
         onLocationChange({ latitude: point.latitude, longitude: point.longitude });
       }
@@ -19,7 +24,7 @@ export default function DeliveryMap({ location, label = 'Driver', offline = fals
   };
   const map = (expanded = false) => failed
     ? <Text style={styles.copy}>Map unavailable. Try again when you have an internet connection.</Text>
-    : <WebView source={{ html: pinMapHtml({ latitude, longitude, zoom: 17 }) }} style={expanded ? styles.fullMap : styles.map} originWhitelist={['*']} javaScriptEnabled domStorageEnabled accessibilityLabel={label} onMessage={onMessage} onError={() => setFailed(true)} />;
+    : <WebView source={{ html: pinMapHtml({ latitude, longitude, zoom: 17, baseLayer }) }} style={expanded ? styles.fullMap : styles.map} originWhitelist={['*']} javaScriptEnabled domStorageEnabled accessibilityLabel={label} onMessage={onMessage} onError={() => setFailed(true)} />;
 
   if (editable) {
     return <View style={styles.container}>

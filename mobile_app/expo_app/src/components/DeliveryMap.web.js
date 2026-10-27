@@ -13,6 +13,7 @@ function MapFrame({ mapFrame, label, html, expanded = false }) {
 export default function DeliveryMap({ location, label = 'Driver', offline = false, editable = false, onLocationChange }) {
   const mapFrame = useRef(null);
   const [fullScreen, setFullScreen] = useState(false);
+  const [baseLayer, setBaseLayer] = useState('Street map');
   const latitude = Number(location.latitude);
   const longitude = Number(location.longitude);
   const url = 'https://www.openstreetmap.org/?mlat=' + latitude + '&mlon=' + longitude + '#map=16/' + latitude + '/' + longitude;
@@ -20,9 +21,14 @@ export default function DeliveryMap({ location, label = 'Driver', offline = fals
   useEffect(() => {
     if (!editable || typeof window === 'undefined') return undefined;
     const receivePin = (event) => {
-      if (event.source !== mapFrame.current?.contentWindow || event.data?.type !== 'delivery-pin') return;
-      const pin = event.data;
-      if (Number.isFinite(pin.latitude) && Number.isFinite(pin.longitude)) onLocationChange?.({ latitude: pin.latitude, longitude: pin.longitude });
+      if (event.source !== mapFrame.current?.contentWindow) return;
+      const message = event.data;
+      if (message?.type === 'delivery-map-layer') {
+        setBaseLayer(message.layer === 'Satellite' ? 'Satellite' : 'Street map');
+        return;
+      }
+      if (message?.type !== 'delivery-pin') return;
+      if (Number.isFinite(message.latitude) && Number.isFinite(message.longitude)) onLocationChange?.({ latitude: message.latitude, longitude: message.longitude });
     };
     window.addEventListener('message', receivePin);
     return () => window.removeEventListener('message', receivePin);
@@ -32,14 +38,14 @@ export default function DeliveryMap({ location, label = 'Driver', offline = fals
 
     return <View style={styles.editableWrap}>
       <Text style={styles.coordinates}>{label}: {latitude.toFixed(7)}, {longitude.toFixed(7)}</Text>
-      {offline ? <Text style={styles.coordinates}>Reconnect to adjust your pin.</Text> : !fullScreen ? <MapFrame mapFrame={mapFrame} label={label} html={pinMapHtml({ latitude, longitude })} /> : null}
+      {offline ? <Text style={styles.coordinates}>Reconnect to adjust your pin.</Text> : !fullScreen ? <MapFrame mapFrame={mapFrame} label={label} html={pinMapHtml({ latitude, longitude, baseLayer })} /> : null}
       {!offline ? <Pressable accessibilityRole="button" onPress={() => setFullScreen(true)} style={styles.previewButton}><Text style={styles.previewButtonText}>Full-screen map</Text></Pressable> : null}
       <Modal visible={fullScreen} animationType="slide" onRequestClose={() => setFullScreen(false)}>
         <View style={styles.fullScreen}>
           <View style={styles.fullHeader}><Text style={styles.fullTitle}>Pin Address</Text><Pressable accessibilityRole="button" accessibilityLabel="Close full-screen map" onPress={() => setFullScreen(false)} style={styles.closeButton}><Text style={styles.closeText}>Close</Text></Pressable></View>
           <Text style={styles.coordinates}>{label}: {latitude.toFixed(7)}, {longitude.toFixed(7)}</Text>
           <Text style={styles.hint}>Drag the pin or tap the map to adjust your delivery location.</Text>
-          <View style={styles.expandedMap}>{offline ? <Text style={styles.coordinates}>Reconnect to adjust your pin.</Text> : <MapFrame mapFrame={mapFrame} label={label} html={pinMapHtml({ latitude, longitude, zoom: 17 })} expanded />}</View>
+          <View style={styles.expandedMap}>{offline ? <Text style={styles.coordinates}>Reconnect to adjust your pin.</Text> : <MapFrame mapFrame={mapFrame} label={label} html={pinMapHtml({ latitude, longitude, zoom: 17, baseLayer })} expanded />}</View>
         </View>
       </Modal>
     </View>;
