@@ -106,6 +106,23 @@ function serviceCategory(service) {
   return 'Other';
 }
 
+function isCoreLoadService(service) {
+  return service?.unit === 'load' && ['Wash', 'Dry', 'Full service'].includes(serviceCategory(service));
+}
+
+function loadPriceForWeight(weightKg, basePrice) {
+  const requestedWeight = Number(weightKg);
+  if (!Number.isFinite(requestedWeight) || requestedWeight <= 0 || requestedWeight > 500) return 0;
+  let remaining = requestedWeight;
+  let total = 0;
+  while (remaining > 0.0001) {
+    const loadWeight = Math.min(8, remaining);
+    total += (Number(basePrice) || 0) + (loadWeight > 7 ? 29 : 0);
+    remaining = Math.max(0, Number((remaining - loadWeight).toFixed(2)));
+  }
+  return total;
+}
+
 function serviceEmoji(service) {
   const name = String(service.name || '').toLowerCase();
   if (name.includes('detergent')) return '🧴';
@@ -924,7 +941,10 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
   const serviceSubtotal = useMemo(() => services.reduce((total, service) => {
     const id = String(service.id);
     const quantity = Number(quantities[id] || 0);
-    return total + (Number(service.price) || 0) * (Number.isFinite(quantity) ? quantity : 0);
+    if (!Number.isFinite(quantity) || quantity <= 0) return total;
+    return total + (isCoreLoadService(service)
+      ? loadPriceForWeight(quantity, service.price)
+      : (Number(service.price) || 0) * quantity);
   }, 0), [quantities, services]);
   const estimate = serviceSubtotal + deliveryFee;
 
@@ -968,13 +988,19 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
 
   const bookService = async () => {
     if (bookingBusy.current) return;
-    const chosen = services.map((service) => ({
-      service_id: Number(service.id), quantity: Number(quantities[String(service.id)] || 0),
-    })).filter((line) => line.quantity > 0);
+    const chosen = services.map((service) => {
+      const amount = Number(quantities[String(service.id)] || 0);
+      const weightBased = isCoreLoadService(service);
+      return {
+        service_id: Number(service.id),
+        quantity: weightBased ? Math.ceil(amount / 8) : amount,
+        ...(weightBased ? { weight_kg: Number(amount.toFixed(2)) } : {}),
+      };
+    }).filter((line) => line.quantity > 0);
     if (!chosen.length) return setError('Add at least one service before booking.');
-    if (chosen.some((line) => !Number.isFinite(line.quantity) || line.quantity > 500 ||
+    if (chosen.some((line) => !Number.isFinite(line.quantity) || line.quantity > 500 || line.weight_kg > 500 ||
       (['piece', 'load'].includes(services.find((service) => Number(service.id) === line.service_id)?.unit) && !Number.isInteger(line.quantity)))) {
-      return setError('Use up to 500 per service, with whole numbers for loads and pieces.');
+      return setError('Enter laundry weight up to 500 kg. Load and piece quantities must be whole numbers.');
     }
     if (pickupAt && new Date(pickupAt) <= new Date()) return setError('Choose a future schedule or remove the suggested time.');
     if (['pickup_delivery', 'dropoff_delivery'].includes(fulfillment) && !deliveryAvailable) return setError('Delivery is available only in San Jose, San Manuel, and Balingcanaway, Tarlac. Choose Drop-off & Pick-up at the shop for other locations.');
@@ -1113,7 +1139,7 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
             <View style={styles.welcomeLine}>
               <View>
                 <Text style={styles.greeting}>Choose your services</Text>
-                <Text style={styles.welcomeCopy}>Add or remove quantities, then schedule your pickup or delivery.</Text>
+                <Text style={styles.welcomeCopy}>Enter your laundry weight, then schedule your pickup or delivery.</Text>
               </View>
             </View>
             {toast ? <Text style={styles.successBox}>{toast}</Text> : null}
@@ -1133,7 +1159,7 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
             </ScrollView>
             <View style={styles.serviceRuleNote}>
               <Text style={styles.serviceRuleTitle}>Choose one main laundry service</Text>
-              <Text style={styles.serviceRuleCopy}>Select Wash, Dry, or Full Service. Add-ons such as detergent and fabcon can still be included.</Text>
+              <Text style={styles.serviceRuleCopy}>Select Wash, Dry, or Full Service. Each load covers up to 7 kg; an 8 kg load adds ₱29. Every load holds up to 8 kg, so 9 kg is split into two loads. Add-ons such as detergent and fabcon can still be included.</Text>
             </View>
 
             {loading && !services.length ? (
@@ -1395,7 +1421,10 @@ function ServiceCard({ service, quantity, onQuantityChange, wide, index }) {
     ['#3b334b', '#776c94'],
   ];
   const colors = gradients[index % gradients.length];
-  const description = service.description || `Laundry service · ${service.unit || 'unit'}`;
+  const weightBased = isCoreLoadService(service);
+  const description = weightBased
+    ? 'Base price covers up to 7 kg per load. Maximum 8 kg; add ₱29 at 8 kg.'
+    : service.description || 'Laundry service · ' + (service.unit || 'unit');
   return (
     <View style={[styles.serviceCard, wide ? styles.serviceCardWide : styles.serviceCardNarrow]}>
       <LinearGradient colors={colors} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0.8 }} style={styles.serviceImageBand}>
@@ -1408,15 +1437,15 @@ function ServiceCard({ service, quantity, onQuantityChange, wide, index }) {
           <View style={styles.serviceTextBlock}>
             <Text style={styles.serviceTitle}>{service.name || 'Laundry service'}</Text>
             <Text style={styles.serviceDescription} numberOfLines={2}>{description}</Text>
-            <Text style={styles.servicePrice}>{money(service.price)} <Text style={styles.serviceUnit}>/ {service.unit || 'unit'}</Text></Text>
+            <Text style={styles.servicePrice}>{money(service.price)} <Text style={styles.serviceUnit}>/ {weightBased ? 'up to 7 kg' : (service.unit || 'unit')}</Text></Text>
           </View>
           <View style={styles.quantityControl}>
-            <Pressable accessibilityLabel={'Remove one ' + service.name} onPress={() => onQuantityChange(String(Math.max(0, (Number(quantity) || 0) - 1)))} style={styles.quantityButton}><Text style={styles.quantityButtonText}>−</Text></Pressable>
+            <Pressable accessibilityLabel={weightBased ? 'Remove 1 kg of ' + service.name : 'Remove one ' + service.name} onPress={() => onQuantityChange(String(Math.max(0, (Number(quantity) || 0) - 1)))} style={styles.quantityButton}><Text style={styles.quantityButtonText}>−</Text></Pressable>
             <View style={styles.quantityBox}>
-              <TextInput value={String(quantity)} onChangeText={onQuantityChange} keyboardType="decimal-pad" placeholder="0" placeholderTextColor="#9d929c" style={styles.quantityInput} accessibilityLabel={'Quantity for ' + service.name} />
-              <Text style={styles.quantityUnit}>{service.unit || 'unit'}</Text>
+              <TextInput value={String(quantity)} onChangeText={onQuantityChange} keyboardType="decimal-pad" maxLength={weightBased ? 6 : undefined} placeholder="0" placeholderTextColor="#9d929c" style={styles.quantityInput} accessibilityLabel={weightBased ? 'Estimated laundry weight in kg for ' + service.name : 'Quantity for ' + service.name} />
+              <Text style={styles.quantityUnit}>{weightBased ? 'kg total' : (service.unit || 'unit')}</Text>
             </View>
-            <Pressable accessibilityLabel={'Add one ' + service.name} onPress={() => onQuantityChange(String((Number(quantity) || 0) + 1))} style={styles.quantityButton}><Text style={styles.quantityButtonText}>+</Text></Pressable>
+            <Pressable accessibilityLabel={weightBased ? 'Add 1 kg of ' + service.name : 'Add one ' + service.name} onPress={() => onQuantityChange(String((Number(quantity) || 0) + 1))} style={styles.quantityButton}><Text style={styles.quantityButtonText}>+</Text></Pressable>
           </View>
         </View>
       </View>
@@ -1483,7 +1512,9 @@ function OrderProgress({ ticket }) {
   );
 }
 function TicketCard({ ticket, onShareLocation, onRevokeLocation, locationBusy, locationError, retryReference, onRetryReferenceChange, onResubmitGcash, retryBusy }) {
-  const lines = (ticket.services || []).map((line) => `${line.service_name} (${line.quantity} ${line.unit})`).join(' · ');
+  const lines = (ticket.services || []).map((line) => line.estimated_weight_kg
+    ? `${line.service_name} (${line.estimated_weight_kg} kg estimated · ${line.quantity} ${line.unit})`
+    : `${line.service_name} (${line.quantity} ${line.unit})`).join(' · ');
   const status = ticket.handoff_type === 'dropoff_pickup' && ['ready', 'ready_for_pickup'].includes(ticket.status)
     ? 'Ready to claim'
     : ticket.order_type === 'delivery_request' && ticket.status === 'ready_for_pickup' ? 'Ready for delivery' : statusLabel(ticket.status);

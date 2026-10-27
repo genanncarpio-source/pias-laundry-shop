@@ -70,7 +70,7 @@ $isNew = isset($_GET['new']);
       <?php foreach ($lines as $l): ?>
       <tr>
         <td><?= e($l['service_name']) ?></td>
-        <td style="text-align:right;"><?= e(rtrim(rtrim(number_format($l['quantity'], 2), '0'), '.')) ?> <?= e($l['unit']) ?></td>
+        <td style="text-align:right;"><?= e(rtrim(rtrim(number_format($l['quantity'], 2), '0'), '.')) ?> <?= e($l['unit']) ?><?php if (($l['estimated_weight_kg'] ?? null) !== null): ?> (<?= e(rtrim(rtrim(number_format($l['estimated_weight_kg'], 2), '0'), '.')) ?> kg est.)<?php endif; ?></td>
         <td style="text-align:right;"><?= money($l['subtotal']) ?></td>
       </tr>
       <?php endforeach; ?>

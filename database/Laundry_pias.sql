@@ -147,6 +147,7 @@ CREATE TABLE order_items (
   service_name VARCHAR(120) NOT NULL,
   unit         VARCHAR(10)  NOT NULL DEFAULT 'kg',
   quantity     DECIMAL(10,2) NOT NULL DEFAULT 1.00,
+  estimated_weight_kg DECIMAL(10,2) DEFAULT NULL,
   unit_price   DECIMAL(10,2) NOT NULL DEFAULT 0.00,
   subtotal     DECIMAL(10,2) NOT NULL DEFAULT 0.00,
   PRIMARY KEY (id),

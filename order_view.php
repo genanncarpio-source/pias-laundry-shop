@@ -2,6 +2,7 @@
 require_once __DIR__ . '/includes/auth.php';
 require_login();
 require_once __DIR__ . '/includes/feature_schema.php';
+require_once __DIR__ . '/includes/service_pricing.php';
 ensure_feature_schema();
 ensure_workflow_schema();
 
@@ -124,15 +125,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['update_status']) || 
                 $hasKg = false;
                 $estimatedKgTotal = 0.0;
                 foreach ($orderLines as $line) {
-                    if ($line['unit'] === 'kg') {
+                    $estimate = $line['estimated_weight_kg'] !== null
+                        ? (float)$line['estimated_weight_kg']
+                        : ($line['unit'] === 'kg' ? (float)$line['quantity'] : 0.0);
+                    if ($estimate > 0) {
                         $hasKg = true;
-                        $estimatedKgTotal += (float)$line['quantity'];
+                        $estimatedKgTotal += $estimate;
                     }
                 }
                 $newSubtotal = 0.0;
                 $updates = [];
                 foreach ($orderLines as $line) {
-                    if ($line['unit'] === 'kg') {
+                    if ($line['estimated_weight_kg'] !== null) {
+                        $estimatedQty = (float)$line['estimated_weight_kg'];
+                        $actualQty = $estimatedKgTotal > 0 ? $weight * $estimatedQty / $estimatedKgTotal : $weight;
+                        $unitPrice = (float)$line['unit_price'];
+                        $lineTotal = service_weight_load_price($actualQty, $unitPrice);
+                        $loadCount = service_weight_load_count($actualQty);
+                        $updates[] = [$loadCount, $unitPrice, $lineTotal, $line['id']];
+                        $newSubtotal += $lineTotal;
+                    } elseif ($line['unit'] === 'kg') {
                         $estimatedQty = (float)$line['quantity'];
                         $actualQty = $estimatedKgTotal > 0 ? $weight * $estimatedQty / $estimatedKgTotal : $weight;
                         $perKg = (float)$line['subtotal'] / max(7.0, $estimatedQty);
@@ -205,7 +217,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['update_status']) || 
                 if ($isDeliveryOrder && $status === 'completed' && $currentOrder['status'] !== 'out_for_delivery') throw new InvalidArgumentException('Mark this delivery as Out for Delivery before completing it.');
                 if ($status === 'out_for_delivery' && trim((string)($currentOrder['delivery_address'] ?? '')) === '') throw new InvalidArgumentException('Add a delivery address before sending this order out.');
                 if ($status === 'completed') {
-                    $kgCheck = $pdo->prepare("SELECT COUNT(*) FROM order_items WHERE order_id = ? AND unit = 'kg'");
+                    $kgCheck = $pdo->prepare("SELECT COUNT(*) FROM order_items WHERE order_id = ? AND (unit = 'kg' OR estimated_weight_kg IS NOT NULL)");
                     $kgCheck->execute([$id]);
                     if ((int)$kgCheck->fetchColumn() > 0 && $currentOrder['actual_weight'] === null) throw new InvalidArgumentException('Record the actual weight before completing this order.');
                     $alreadyPaid = max(0, (float)$currentOrder['amount_paid'] - (float)$currentOrder['change_due']);
@@ -278,7 +290,7 @@ $items->execute([$id]);
 $lines = $items->fetchAll();
 $isFullService = order_has_full_service($lines);
 $hasWeightService = false;
-foreach ($lines as $line) if ($line['unit'] === 'kg') $hasWeightService = true;
+foreach ($lines as $line) if ($line['unit'] === 'kg' || $line['estimated_weight_kg'] !== null) $hasWeightService = true;
 
 $statusFlow   = order_next_statuses($order['status'], $lines);
 if ($order['order_type'] === 'delivery_request') {
@@ -380,8 +392,8 @@ include __DIR__ . '/includes/header.php';
           <?php foreach ($lines as $l): ?>
           <tr>
             <td><?= e($l['service_name']) ?></td>
-            <td><?= e(rtrim(rtrim(number_format($l['quantity'], 2), '0'), '.')) ?> <?= e($l['unit']) ?></td>
-            <td class="num"><?= money($l['unit_price']) ?><?= $l['unit'] === 'kg' ? ' / kg' : ' / piece' ?></td>
+            <td><?= e(rtrim(rtrim(number_format($l['quantity'], 2), '0'), '.')) ?> <?= e($l['unit']) ?><?php if ($l['estimated_weight_kg'] !== null): ?> (<?= e(rtrim(rtrim(number_format($l['estimated_weight_kg'], 2), '0'), '.')) ?> kg estimated)<?php endif; ?></td>
+            <td class="num"><?= money($l['unit_price']) ?><?= $l['unit'] === 'kg' ? ' / kg' : ($l['unit'] === 'load' ? ' / load' : ' / piece') ?></td>
             <td class="num"><?= money($l['subtotal']) ?></td>
           </tr>
           <?php endforeach; ?>

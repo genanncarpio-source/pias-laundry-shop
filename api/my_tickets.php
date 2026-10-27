@@ -13,7 +13,7 @@ $stmt = db()->prepare('SELECT o.id, o.order_number, o.order_type, o.handoff_type
     FROM orders o WHERE o.customer_id = ? ORDER BY o.id DESC LIMIT 50');
 $stmt->execute([(int)$customer['id']]);
 $tickets = $stmt->fetchAll();
-$itemsQuery = db()->prepare('SELECT service_name, unit, quantity, subtotal FROM order_items WHERE order_id = ? ORDER BY id');
+$itemsQuery = db()->prepare('SELECT service_name, unit, quantity, subtotal, estimated_weight_kg FROM order_items WHERE order_id = ? ORDER BY id');
 foreach ($tickets as &$ticket) {
     $itemsQuery->execute([(int)$ticket['id']]);
     $ticket['services'] = $itemsQuery->fetchAll();

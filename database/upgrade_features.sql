@@ -157,6 +157,12 @@ PREPARE order_actual_weight_stmt FROM @order_actual_weight_sql;
 EXECUTE order_actual_weight_stmt;
 DEALLOCATE PREPARE order_actual_weight_stmt;
 
+SET @order_item_estimated_weight = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'order_items' AND COLUMN_NAME = 'estimated_weight_kg');
+SET @order_item_estimated_weight_sql = IF(@order_item_estimated_weight = 0, 'ALTER TABLE order_items ADD COLUMN estimated_weight_kg DECIMAL(10,2) DEFAULT NULL AFTER quantity', 'SELECT 1');
+PREPARE order_item_estimated_weight_stmt FROM @order_item_estimated_weight_sql;
+EXECUTE order_item_estimated_weight_stmt;
+DEALLOCATE PREPARE order_item_estimated_weight_stmt;
+
 SET @order_assigned_staff = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'orders' AND COLUMN_NAME = 'assigned_staff_id');
 SET @order_assigned_staff_sql = IF(@order_assigned_staff = 0, 'ALTER TABLE orders ADD COLUMN assigned_staff_id INT UNSIGNED DEFAULT NULL AFTER created_by', 'SELECT 1');
 PREPARE order_assigned_staff_stmt FROM @order_assigned_staff_sql;

@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/bootstrap.php';
 require_once __DIR__ . '/../includes/mobile_booking.php';
+require_once __DIR__ . '/../includes/service_pricing.php';
 api_require_method('POST');
 $customer = api_current_customer();
 $data = api_input();
@@ -18,6 +19,7 @@ if (!is_array($items) || count($items) < 1 || count($items) > 30) {
 }
 
 $quantities = [];
+$weights = [];
 foreach ($items as $item) {
     if (!is_array($item)) mobile_booking_json(422, ['success' => false, 'error' => 'Each service must include a service ID and quantity.']);
     $serviceId = is_scalar($item['service_id'] ?? null) ? filter_var($item['service_id'], FILTER_VALIDATE_INT) : false;
@@ -26,6 +28,13 @@ foreach ($items as $item) {
         mobile_booking_json(422, ['success' => false, 'error' => 'Enter a valid service and quantity.']);
     }
     $quantities[$serviceId] = ($quantities[$serviceId] ?? 0) + (float)$quantity;
+    if (array_key_exists('weight_kg', $item)) {
+        $weight = is_scalar($item['weight_kg']) ? filter_var($item['weight_kg'], FILTER_VALIDATE_FLOAT) : false;
+        if ($weight === false || !is_finite((float)$weight) || round((float)$weight, 2) <= 0 || $weight > 500) {
+            mobile_booking_json(422, ['success' => false, 'error' => 'Enter a laundry weight between 0.01 and 500 kg.']);
+        }
+        $weights[$serviceId] = ($weights[$serviceId] ?? 0) + (float)$weight;
+    }
 }
 
 $ids = array_keys($quantities);
@@ -53,10 +62,22 @@ $lines = [];
 $subtotal = 0.0;
 foreach ($quantities as $serviceId => $quantity) {
     $service = $serviceMap[$serviceId];
+    $category = strtolower(trim((string)($service['category'] ?? '')));
+    $name = strtolower(trim((string)($service['name'] ?? '')));
+    $isMainService = in_array($category, ['wash', 'dry', 'full service', 'wash & fold'], true)
+        || in_array($name, ['wash', 'dry', 'full service'], true);
+    $hasEstimatedWeight = array_key_exists($serviceId, $weights);
+    $isWeightLoadService = strtolower((string)$service['unit']) === 'load' && $isMainService;
+    if ($hasEstimatedWeight && !$isWeightLoadService) {
+        mobile_booking_json(422, ['success' => false, 'error' => 'Laundry weight can only be entered for Wash, Dry, or Full Service loads.']);
+    }
+    if ($hasEstimatedWeight) $quantity = service_weight_load_count((float)$weights[$serviceId]);
     if (in_array($service['unit'], ['piece', 'load'], true) && floor($quantity) !== $quantity) {
         mobile_booking_json(422, ['success' => false, 'error' => 'Piece- and load-based services require whole-number quantities.']);
     }
-    $lineTotal = round((float)$service['price'] * $quantity, 2);
+    $lineTotal = $hasEstimatedWeight
+        ? service_weight_load_price((float)$weights[$serviceId], (float)$service['price'])
+        : round((float)$service['price'] * $quantity, 2);
     $subtotal += $lineTotal;
     $lines[] = [
         'service_id' => (int)$service['id'],
@@ -65,6 +86,7 @@ foreach ($quantities as $serviceId => $quantity) {
         'quantity' => $quantity,
         'unit_price' => (float)$service['price'],
         'subtotal' => $lineTotal,
+        'estimated_weight_kg' => $hasEstimatedWeight ? (float)$weights[$serviceId] : null,
     ];
 }
 $subtotal = round($subtotal, 2);
@@ -147,9 +169,9 @@ try {
     if ($paymentMethod === 'gcash') {
         $pdo->prepare('INSERT INTO gcash_payment_submissions (order_id, amount, reference_number) VALUES (?, ?, ?)')->execute([$ticketId, $grandTotal, $paymentReference]);
     }
-    $insertLine = $pdo->prepare('INSERT INTO order_items (order_id, service_id, service_name, unit, quantity, unit_price, subtotal) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    $insertLine = $pdo->prepare('INSERT INTO order_items (order_id, service_id, service_name, unit, quantity, unit_price, subtotal, estimated_weight_kg) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
     foreach ($lines as $line) {
-        $insertLine->execute([$ticketId, $line['service_id'], $line['service_name'], $line['unit'], $line['quantity'], $line['unit_price'], $line['subtotal']]);
+        $insertLine->execute([$ticketId, $line['service_id'], $line['service_name'], $line['unit'], $line['quantity'], $line['unit_price'], $line['subtotal'], $line['estimated_weight_kg']]);
     }
     $historyNote = $paymentMethod === 'gcash'
         ? 'Mobile app request submitted; GCash payment is awaiting shop verification'
