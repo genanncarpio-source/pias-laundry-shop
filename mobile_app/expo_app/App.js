@@ -239,7 +239,7 @@ function WelcomeScreen({ onStart }) {
         <Pressable accessibilityRole="button" onPress={onStart} style={({ pressed }) => [styles.welcomeStart, isLandscape && styles.welcomeStartLandscape, pressed && styles.pressed]}>
           <Text style={styles.welcomeStartText}>Get Started</Text><Text style={styles.welcomeStartArrow}>→</Text>
         </Pressable>
-        <Text style={[styles.welcomeAddress, isLandscape && styles.welcomeAddressLandscape]}>Blk. 2, Brgy. San Manuel, Tarlac City · 0918-967-9623</Text>
+        <Text style={[styles.welcomeAddress, isLandscape && styles.welcomeAddressLandscape]}>Brgy. San Manuel, Tarlac City · 0918-967-9623</Text>
       </View>
       </ScrollView>
     </LinearGradient>
@@ -279,7 +279,7 @@ function HeroBanner({ compact = false, keyboardCompact = false }) {
         <View style={[styles.heroIcon, keyboardCompact && styles.heroIconKeyboardCompact]}><Text style={[styles.heroEmoji, keyboardCompact && styles.heroEmojiKeyboardCompact]}>🫧</Text></View>
         <View style={styles.heroTextBlock}>
           <Text style={[styles.heroTitle, keyboardCompact && styles.heroTitleKeyboardCompact]}>Pia&apos;s Laundry Shop</Text>
-          <Text style={[styles.heroDetail, keyboardCompact && styles.heroDetailKeyboardCompact]}>Blk. 2, Brgy. San Manuel, Tarlac City</Text>
+          <Text style={[styles.heroDetail, keyboardCompact && styles.heroDetailKeyboardCompact]}>Brgy. San Manuel, Tarlac City</Text>
           <Text style={[styles.heroDetail, keyboardCompact && styles.heroDetailKeyboardCompact]}>Contact: 0918-967-9623</Text>
         </View>
         <Text style={[styles.heroFloatingEmoji, keyboardCompact && styles.heroFloatingEmojiKeyboardCompact]}>🧺</Text>
@@ -1259,12 +1259,11 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
               <Text style={styles.contentText}>Pia&apos;s Laundry Shop provides reliable laundry care with online booking, shop confirmation, pickup or delivery choices, and service ticket tracking.</Text>
             </View>
             <View style={styles.aboutGrid}>
-              <View style={styles.aboutCard}><Text style={styles.aboutIcon}>📍</Text><Text style={styles.aboutTitle}>Visit us</Text><Text style={styles.aboutText}>Blk. 2, Brgy. San Manuel, Tarlac City</Text></View>
+              <View style={styles.aboutCard}><Text style={styles.aboutIcon}>📍</Text><Text style={styles.aboutTitle}>Visit us</Text><Text style={styles.aboutText}>Brgy. San Manuel, Tarlac City</Text></View>
               <View style={styles.aboutCard}><Text style={styles.aboutIcon}>☎️</Text><Text style={styles.aboutTitle}>Contact us</Text><Text style={styles.aboutText}>0918-967-9623</Text></View>
               <View style={styles.aboutCard}><Text style={styles.aboutIcon}>✅</Text><Text style={styles.aboutTitle}>Shop confirmed</Text><Text style={styles.aboutText}>The shop confirms the final service, price, and schedule.</Text></View>
               <View style={styles.aboutCard}><Text style={styles.aboutIcon}>📱</Text><Text style={styles.aboutTitle}>Track online</Text><Text style={styles.aboutText}>Follow the latest status of every service ticket.</Text></View>
             </View>
-            <View style={styles.iconAttribution}><Text style={styles.iconAttributionLabel}>Navigation icon credits</Text><Text style={styles.iconAttributionText}>Designed by <Text style={styles.iconAttributionLink} onPress={() => Linking.openURL('https://www.flaticon.com/free-icon/home_16812417')}>pictranoosa</Text>, <Text style={styles.iconAttributionLink} onPress={() => Linking.openURL('https://www.flaticon.com/free-icon/receipt_12449398')}>zero_wing</Text>, <Text style={styles.iconAttributionLink} onPress={() => Linking.openURL('https://www.flaticon.com/free-icon/laundry-basket_10638619')}>Phoebeicons</Text>, <Text style={styles.iconAttributionLink} onPress={() => Linking.openURL('https://www.flaticon.com/free-icon/information_9554031')}>Anggara</Text>, and <Text style={styles.iconAttributionLink} onPress={() => Linking.openURL('https://www.flaticon.com/free-icon/user-profile_10994782')}>Saepul Nahwan</Text> from Flaticon.</Text></View>
           </View>
         </ScrollView>
       ) : (
@@ -1798,10 +1797,6 @@ const styles = StyleSheet.create({
   contentTitle: { color: COLORS.ink, fontSize: 22, lineHeight: 29, fontWeight: '900', marginTop: 7 },
   contentText: { color: COLORS.muted, fontSize: 14, lineHeight: 22, marginTop: 10 },
   aboutGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  iconAttribution: { marginTop: 16, padding: 12, borderRadius: 12, backgroundColor: '#2e2631' },
-  iconAttributionLabel: { color: '#f5e9f3', fontSize: 11, fontWeight: '800', marginBottom: 4 },
-  iconAttributionText: { color: '#c7bac8', fontSize: 10, lineHeight: 16 },
-  iconAttributionLink: { color: '#f1d4f5', textDecorationLine: 'underline' },
   aboutCard: { flexGrow: 1, width: '48%', minHeight: 145, borderRadius: 17, padding: 16, backgroundColor: COLORS.darkPanel, borderColor: '#493b4c', borderWidth: 1 },
   aboutIcon: { fontSize: 27 },
   aboutTitle: { color: COLORS.cream, fontSize: 15, fontWeight: '800', marginTop: 9 },

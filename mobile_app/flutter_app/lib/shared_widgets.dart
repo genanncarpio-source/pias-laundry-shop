@@ -55,7 +55,7 @@ class ShopBrandHeader extends StatelessWidget {
           const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text("Pia's Laundry Shop", style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w800)),
             SizedBox(height: 5),
-            Text('Blk. 2, Brgy. San Jose, Tarlac City', style: TextStyle(color: Colors.white)),
+            Text('Brgy. San Manuel, Tarlac City', style: TextStyle(color: Colors.white)),
             Text('Contact: 0918-967-9623', style: TextStyle(color: Colors.white)),
           ])),
           if (!compact) const Padding(padding: EdgeInsets.only(left: 8), child: Icon(Icons.local_laundry_service, color: Colors.white, size: 38)),
