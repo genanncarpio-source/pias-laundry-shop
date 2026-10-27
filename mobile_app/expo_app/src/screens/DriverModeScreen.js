@@ -84,6 +84,7 @@ export default function DriverModeScreen() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [deliveries, setDeliveries] = useState([]);
+  const [history, setHistory] = useState([]);
   const [booting, setBooting] = useState(true);
   const [busy, setBusy] = useState(false);
   const [sharing, setSharing] = useState(false);
@@ -92,10 +93,12 @@ export default function DriverModeScreen() {
   const [message, setMessage] = useState('');
   const [lastSent, setLastSent] = useState('');
   const foregroundSubscription = useRef(null);
+  const assignedDeliveries = deliveries.filter((delivery) => delivery.assigned_to_me);
 
   const loadDeliveries = useCallback(async (activeToken) => {
     const data = await driverRequest('driver_deliveries.php', { token: activeToken });
     setDeliveries(data.deliveries || []);
+    setHistory(data.history || []);
     return data.deliveries || [];
   }, []);
 
@@ -224,7 +227,7 @@ export default function DriverModeScreen() {
       return;
     }
     if (!token) return;
-    if (!deliveries.length) {
+    if (!assignedDeliveries.length) {
       setError('There are no active deliveries assigned to your account yet.');
       return;
     }
@@ -363,27 +366,28 @@ export default function DriverModeScreen() {
         ) : (
           <>
             <View style={styles.card}>
-              <Text style={styles.cardTitle}>Assigned deliveries</Text>
+              <Text style={styles.cardTitle}>Delivery queue</Text>
+              <Text style={styles.info}>All active pickup and delivery jobs are listed here. Customer details and actions are available only for jobs assigned to you.</Text>
               {deliveries.length ? deliveries.map((delivery) => (
                 <View key={delivery.id} style={styles.deliveryCard}>
                   <View style={styles.deliveryHeader}>
                     <Text style={styles.ticket}>{delivery.ticket_number}</Text>
                     <Text style={styles.schedule}>{formatDate(delivery.expected_delivery)}</Text>
                   </View>
-                  <Text style={styles.customerName}>{delivery.customer_name}</Text>
-                  {delivery.customer_phone ? <Pressable onPress={() => Linking.openURL('tel:' + delivery.customer_phone)}><Text style={styles.phone}>Call {delivery.customer_phone}</Text></Pressable> : null}
+                  {delivery.assigned_to_me ? <Text style={styles.customerName}>{delivery.customer_name}</Text> : <Text style={styles.info}>Awaiting assignment. Customer details are hidden.</Text>}
+                  {delivery.assigned_to_me && delivery.customer_phone ? <Pressable onPress={() => Linking.openURL('tel:' + delivery.customer_phone)}><Text style={styles.phone}>Call {delivery.customer_phone}</Text></Pressable> : null}
                   <View style={styles.stagePill}><Text style={styles.stagePillText}>{delivery.status === 'confirmed' ? 'PICK UP FROM CUSTOMER' : 'DELIVER CLEAN LAUNDRY'}</Text></View>
-                  <Text style={styles.address}>{delivery.status === 'confirmed' ? (delivery.pickup_address || delivery.delivery_address) : (delivery.delivery_address || 'No delivery address was saved.')}</Text>
-                  {(delivery.status === 'confirmed' ? (delivery.pickup_address || delivery.delivery_address) : delivery.delivery_address) ? <Pressable onPress={() => Linking.openURL(delivery.delivery_latitude != null && delivery.delivery_longitude != null ? 'https://www.google.com/maps/search/?api=1&query=' + delivery.delivery_latitude + ',' + delivery.delivery_longitude : 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(delivery.status === 'confirmed' ? (delivery.pickup_address || delivery.delivery_address) : delivery.delivery_address))} style={styles.mapLink}><Text style={styles.mapLinkText}>Open address in Maps</Text></Pressable> : null}
-                  {delivery.status === 'confirmed' ? (
+                  {delivery.assigned_to_me ? <Text style={styles.address}>{delivery.assigned_to_me && delivery.status === 'confirmed' ? (delivery.pickup_address || delivery.delivery_address) : (delivery.delivery_address || 'No delivery address was saved.')}</Text> : null}
+                  {delivery.assigned_to_me && (delivery.status === 'confirmed' ? (delivery.pickup_address || delivery.delivery_address) : delivery.delivery_address) ? <Pressable onPress={() => Linking.openURL(delivery.delivery_latitude != null && delivery.delivery_longitude != null ? 'https://www.google.com/maps/search/?api=1&query=' + delivery.delivery_latitude + ',' + delivery.delivery_longitude : 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(delivery.status === 'confirmed' ? (delivery.pickup_address || delivery.delivery_address) : delivery.delivery_address))} style={styles.mapLink}><Text style={styles.mapLinkText}>Open address in Maps</Text></Pressable> : null}
+                  {delivery.assigned_to_me && delivery.status === 'confirmed' ? (
                     <View style={styles.actionPanel}>
                       <Text style={styles.info}>{delivery.payment_method === 'cash_on_handoff' ? 'Collect ₱' + Number(delivery.total || 0).toFixed(2) + ' when receiving the laundry.' : 'GCash payment is handled by the shop.'}</Text>
                       <Pressable disabled={busy} onPress={() => updateOrder(delivery, 'collect')} style={[styles.button, busy && styles.disabled]}><Text style={styles.buttonText}>Confirm laundry collected</Text></Pressable>
                     </View>
-                  ) : (
+                  ) : delivery.assigned_to_me ? (
                     <Pressable disabled={busy} onPress={() => updateOrder(delivery, 'deliver')} style={[styles.button, styles.deliveredButton, busy && styles.disabled]}><Text style={styles.buttonText}>Confirm delivered to customer</Text></Pressable>
-                  )}
-                  <View style={styles.customerPin}>
+                  ) : null}
+                  {delivery.assigned_to_me ? <View style={styles.customerPin}>
                     <Text style={styles.pinTitle}>Customer location</Text>
                     {delivery.customer_location ? (
                       <>
@@ -392,9 +396,9 @@ export default function DriverModeScreen() {
                         <Text style={styles.schedule}>Shared at {formatDate(delivery.customer_location.updated_at)}</Text>
                       </>
                     ) : <Text style={styles.info}>The customer has not shared a GPS location. Use the saved delivery address above.</Text>}
-                  </View>
+                  </View> : null}
                 </View>
-              )) : <Text style={styles.info}>No active deliveries are assigned to you. Staff can assign a delivery from its order page.</Text>}
+              )) : <Text style={styles.info}>There are no active pickup or delivery jobs right now.</Text>}
               {sharing ? (
                 <View style={styles.sharingPanel}>
                   <Text style={styles.sharingTitle}>{backgroundSharing ? 'Background location sharing is active' : 'Location sharing is active'}</Text>
@@ -404,10 +408,28 @@ export default function DriverModeScreen() {
                   </Pressable>
                 </View>
               ) : (
-                <Pressable disabled={busy || !deliveries.length} onPress={startSharing} style={[styles.button, (busy || !deliveries.length) && styles.disabled]}>
+                <Pressable disabled={busy || !assignedDeliveries.length} onPress={startSharing} style={[styles.button, (busy || !assignedDeliveries.length) && styles.disabled]}>
                   {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Start sharing my location</Text>}
                 </Pressable>
               )}
+<Text style={styles.cardTitle}>Transaction history</Text>
+              {history.length ? history.map((item) => (
+                <View key={'history-' + item.id} style={styles.deliveryCard}>
+                  <View style={styles.deliveryHeader}>
+                    <Text style={styles.ticket}>{item.ticket_number}</Text>
+                    <Text style={styles.schedule}>{formatDate(item.updated_at)}</Text>
+                  </View>
+                  <Text style={styles.stagePillText}>{String(item.status || '').replace(/_/g, ' ').toUpperCase()}</Text>
+                  {item.assigned_to_me ? (
+                    <>
+                      <Text style={styles.customerName}>{item.customer_name}</Text>
+                      {item.customer_phone ? <Text style={styles.info}>Phone: {item.customer_phone}</Text> : null}
+                      {item.delivery_address ? <Text style={styles.address}>{item.delivery_address}</Text> : null}
+                      {item.total != null ? <Text style={styles.info}>Total: ₱{Number(item.total).toFixed(2)} · {item.payment_method || 'Payment not recorded'}</Text> : null}
+                    </>
+                  ) : <Text style={styles.info}>Closed delivery. Customer and payment details are hidden.</Text>}
+                </View>
+              )) : <Text style={styles.info}>No delivery transactions in the history yet.</Text>}
               <Text style={styles.footnote}>Your GPS location is visible only to customers with one of your active assigned deliveries. Tracking stops when the delivery ends or you stop sharing.</Text>
             </View>
           </>
