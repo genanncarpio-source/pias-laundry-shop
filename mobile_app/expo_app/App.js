@@ -110,14 +110,16 @@ function isCoreLoadService(service) {
   return service?.unit === 'load' && ['Wash', 'Dry', 'Full service'].includes(serviceCategory(service));
 }
 
-function loadPriceForWeight(weightKg, basePrice) {
+function loadPriceForWeight(weightKg, basePrice, category) {
   const requestedWeight = Number(weightKg);
   if (!Number.isFinite(requestedWeight) || requestedWeight <= 0 || requestedWeight > 500) return 0;
+  const isFullService = String(category || '').toLowerCase() === 'full service';
+  const loadCapacity = isFullService ? 8 : 7;
   let remaining = requestedWeight;
   let total = 0;
   while (remaining > 0.0001) {
-    const loadWeight = Math.min(8, remaining);
-    total += (Number(basePrice) || 0) + (loadWeight > 7 ? 29 : 0);
+    const loadWeight = Math.min(loadCapacity, remaining);
+    total += (Number(basePrice) || 0) + (isFullService && loadWeight > 7 ? 39 : 0);
     remaining = Math.max(0, Number((remaining - loadWeight).toFixed(2)));
   }
   return total;
@@ -943,7 +945,7 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
     const quantity = Number(quantities[id] || 0);
     if (!Number.isFinite(quantity) || quantity <= 0) return total;
     return total + (isCoreLoadService(service)
-      ? loadPriceForWeight(quantity, service.price)
+      ? loadPriceForWeight(quantity, service.price, serviceCategory(service))
       : (Number(service.price) || 0) * quantity);
   }, 0), [quantities, services]);
   const estimate = serviceSubtotal + deliveryFee;
@@ -993,7 +995,7 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
       const weightBased = isCoreLoadService(service);
       return {
         service_id: Number(service.id),
-        quantity: weightBased ? Math.ceil(amount / 8) : amount,
+        quantity: weightBased ? Math.ceil(amount / (serviceCategory(service) === 'Full service' ? 8 : 7)) : amount,
         ...(weightBased ? { weight_kg: Number(amount.toFixed(2)) } : {}),
       };
     }).filter((line) => line.quantity > 0);
@@ -1159,7 +1161,7 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
             </ScrollView>
             <View style={styles.serviceRuleNote}>
               <Text style={styles.serviceRuleTitle}>Choose one main laundry service</Text>
-              <Text style={styles.serviceRuleCopy}>Select Wash, Dry, or Full Service. Each load covers up to 7 kg; an 8 kg load adds ₱29. Every load holds up to 8 kg, so 9 kg is split into two loads. Add-ons such as detergent and fabcon can still be included.</Text>
+              <Text style={styles.serviceRuleCopy}>Wash and Dry are ₱85 per load up to 7 kg; 8 kg starts another load. Full Service is ₱199 up to 7 kg, or ₱238 at 8 kg. Above 8 kg starts another Full Service load. Add-ons such as detergent and fabcon can still be included.</Text>
             </View>
 
             {loading && !services.length ? (
@@ -1423,7 +1425,9 @@ function ServiceCard({ service, quantity, onQuantityChange, wide, index }) {
   const colors = gradients[index % gradients.length];
   const weightBased = isCoreLoadService(service);
   const description = weightBased
-    ? 'Base price covers up to 7 kg per load. Maximum 8 kg; add ₱29 at 8 kg.'
+    ? (serviceCategory(service) === 'Full service'
+      ? '₱199 covers up to 7 kg. An 8 kg load is ₱238; over 8 kg starts another load.'
+      : '₱85 per load covers up to 7 kg. Every additional kilogram starts another load.')
     : service.description || 'Laundry service · ' + (service.unit || 'unit');
   return (
     <View style={[styles.serviceCard, wide ? styles.serviceCardWide : styles.serviceCardNarrow]}>

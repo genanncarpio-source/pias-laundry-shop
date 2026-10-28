@@ -71,12 +71,12 @@ foreach ($quantities as $serviceId => $quantity) {
     if ($hasEstimatedWeight && !$isWeightLoadService) {
         mobile_booking_json(422, ['success' => false, 'error' => 'Laundry weight can only be entered for Wash, Dry, or Full Service loads.']);
     }
-    if ($hasEstimatedWeight) $quantity = service_weight_load_count((float)$weights[$serviceId]);
+    if ($hasEstimatedWeight) $quantity = service_weight_load_count((float)$weights[$serviceId], (string)$service['category']);
     if (in_array($service['unit'], ['piece', 'load'], true) && floor($quantity) !== $quantity) {
         mobile_booking_json(422, ['success' => false, 'error' => 'Piece- and load-based services require whole-number quantities.']);
     }
     $lineTotal = $hasEstimatedWeight
-        ? service_weight_load_price((float)$weights[$serviceId], (float)$service['price'])
+        ? service_weight_load_price((float)$weights[$serviceId], (float)$service['price'], (string)$service['category'])
         : round((float)$service['price'] * $quantity, 2);
     $subtotal += $lineTotal;
     $lines[] = [

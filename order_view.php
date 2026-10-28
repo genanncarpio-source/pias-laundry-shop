@@ -140,8 +140,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['update_status']) || 
                         $estimatedQty = (float)$line['estimated_weight_kg'];
                         $actualQty = $estimatedKgTotal > 0 ? $weight * $estimatedQty / $estimatedKgTotal : $weight;
                         $unitPrice = (float)$line['unit_price'];
-                        $lineTotal = service_weight_load_price($actualQty, $unitPrice);
-                        $loadCount = service_weight_load_count($actualQty);
+                        $category = (string)($line['category'] ?? 'Wash');
+                        $lineTotal = service_weight_load_price($actualQty, $unitPrice, $category);
+                        $loadCount = service_weight_load_count($actualQty, $category);
                         $updates[] = [$loadCount, $unitPrice, $lineTotal, $line['id']];
                         $newSubtotal += $lineTotal;
                     } elseif ($line['unit'] === 'kg') {
