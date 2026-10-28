@@ -22,8 +22,11 @@ function service_weight_load_count(float $weightKg, string $category = 'Wash'): 
 function service_weight_load_price(float $weightKg, float $basePrice, string $category = 'Wash'): float
 {
     $remaining = max(0, round($weightKg, 2));
-    $total = 0.0;
     $isFullService = in_array(strtolower(trim($category)), ['full service', 'wash & fold'], true);
+    if ($isFullService && $remaining > 8) {
+        return round(service_weight_load_count($remaining, $category) * $basePrice, 2);
+    }
+    $total = 0.0;
     $capacity = $isFullService ? 8 : 7;
     while ($remaining > 0.0001) {
         $loadWeight = min($capacity, $remaining);

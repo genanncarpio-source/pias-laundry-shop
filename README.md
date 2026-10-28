@@ -22,7 +22,7 @@ A complete Point-of-Sale and laundry shop management system built with **PHP, My
 ### Customer service requests
 - Customers register, sign in, book pickup or delivery, and track orders in the Expo mobile app
 - Customer accounts and service records remain in the shared database for the app and staff POS
-- Wash and Dry cost ₱85 per load, capped at 7 kg per load. Full Service costs ₱199 up to 7 kg, plus ₱39 at 8 kg; more than 8 kg starts another load, capped at 8 kg.
+- Wash and Dry cost ₱85 per load, capped at 7 kg per load. Full Service costs ₱199 up to 7 kg and ₱238 at 8 kg; above 8 kg is counted as separate ₱199 loads (9 kg costs ₱398).
 - Staff can print order receipts
 
 ### Order management

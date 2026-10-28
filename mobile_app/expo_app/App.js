@@ -114,6 +114,7 @@ function loadPriceForWeight(weightKg, basePrice, category) {
   const requestedWeight = Number(weightKg);
   if (!Number.isFinite(requestedWeight) || requestedWeight <= 0 || requestedWeight > 500) return 0;
   const isFullService = String(category || '').toLowerCase() === 'full service';
+  if (isFullService && requestedWeight > 8) return Math.ceil(requestedWeight / 8) * (Number(basePrice) || 0);
   const loadCapacity = isFullService ? 8 : 7;
   let remaining = requestedWeight;
   let total = 0;
@@ -1161,7 +1162,7 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
             </ScrollView>
             <View style={styles.serviceRuleNote}>
               <Text style={styles.serviceRuleTitle}>Choose one main laundry service</Text>
-              <Text style={styles.serviceRuleCopy}>Wash and Dry are ₱85 per load up to 7 kg; 8 kg starts another load. Full Service is ₱199 up to 7 kg, or ₱238 at 8 kg. Above 8 kg starts another Full Service load. Add-ons such as detergent and fabcon can still be included.</Text>
+              <Text style={styles.serviceRuleCopy}>Wash and Dry are ₱85 per load, up to 7 kg each. Full Service is ₱199 up to 7 kg and ₱238 at 8 kg. Above 8 kg is counted as separate ₱199 loads (9 kg = ₱398). Add-ons such as detergent and fabcon can still be included.</Text>
             </View>
 
             {loading && !services.length ? (
@@ -1426,7 +1427,7 @@ function ServiceCard({ service, quantity, onQuantityChange, wide, index }) {
   const weightBased = isCoreLoadService(service);
   const description = weightBased
     ? (serviceCategory(service) === 'Full service'
-      ? '₱199 covers up to 7 kg. An 8 kg load is ₱238; over 8 kg starts another load.'
+      ? '₱199 covers up to 7 kg; 8 kg is ₱238. Over 8 kg uses separate ₱199 loads (9 kg = ₱398).'
       : '₱85 per load covers up to 7 kg. Every additional kilogram starts another load.')
     : service.description || 'Laundry service · ' + (service.unit || 'unit');
   return (
