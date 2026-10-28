@@ -3,3 +3,6 @@ node_modules/
 dist/
 .env*.local
 pias-laundry-shop.apk
+
+.tmp-*/
+*.apk
