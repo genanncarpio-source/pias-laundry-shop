@@ -42,8 +42,23 @@ $shopName = get_setting('shop_name', "Pia's Laundry Shop");
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Login · <?= e($shopName) ?></title>
 <link rel="stylesheet" href="assets/css/style.css?v=8">
+<meta name="theme-color" content="#f5e8ff">
+<style>
+.login-page .login-wrap{position:relative;isolation:isolate;overflow:hidden;min-height:100vh;padding:30px 18px;background:#f5e8ff url('assets/img/login-lavender.svg') center/cover no-repeat}
+.login-page .login-card{background:rgba(255,250,255,.94);border:1px solid #dfc5ef;border-top:4px solid #7b31a8;box-shadow:0 22px 65px rgba(61,24,82,.2);backdrop-filter:blur(8px)}
+.login-page .login-brand .icon{filter:drop-shadow(0 4px 12px rgba(123,49,168,.22))}
+.login-page .login-brand h1{color:#321a3d}
+.login-page .login-brand p{color:#78617f}
+.login-page .login-card label{color:#4b3154}
+.login-page .login-card input{background:#fffaff;border-color:#d9c5e2;color:#29182d}
+.login-page .login-card input:focus{border-color:#8d48c2;box-shadow:0 0 0 3px rgba(141,72,194,.16)}
+.login-page .login-card .btn-primary{background:#58265f;border-color:#58265f;color:#fff}
+.login-page .login-card .btn-primary:hover{background:#49204f}
+.login-page .login-wrap>p a{color:#704478}
+@media(max-width:560px){.login-page .login-wrap{padding:20px 16px;background-position:center}}
+</style>
 </head>
-<body>
+<body class="login-page">
 <div class="login-wrap">
   <div class="login-card">
     <div class="login-brand">
