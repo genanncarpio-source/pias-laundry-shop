@@ -56,6 +56,10 @@ body.public-site{background:#f6efe6;color:var(--site-ink)}
 .site-footer{background:#18131a;color:#ded3df}
 .site-footer a{color:#fffaf2}
 .footer-note{color:#b5a7b8}
+.washer-card{border-color:#f4edf3;background:linear-gradient(145deg,#f5edf4,#d8c5de)}
+.washer-window{border-color:#d8cadb;background:radial-gradient(circle at 43% 37%,#f2eaf4 0 13%,#bd91c4 14% 35%,#81548c 60%,#49204f 100%);box-shadow:inset 0 0 35px #29182d}
+.washer-window:after{background:#c99bd6a3}
+.washer-controls{background:#fffaf2;color:#704478}
 </style>
 </head>
 <body class="public-site">
