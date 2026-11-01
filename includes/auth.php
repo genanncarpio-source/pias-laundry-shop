@@ -76,7 +76,7 @@ function current_user(): ?array
 function require_login(): void
 {
     if (!current_user()) {
-        redirect('index.php');
+        redirect('login.php');
     }
 }
 
