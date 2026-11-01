@@ -9,8 +9,7 @@ $shopName = get_setting('shop_name', "Pia's Laundry Shop");
 $address = get_setting('shop_address', '');
 $phone = get_setting('shop_phone', '');
 $services = db()->query('SELECT name, category, unit, price, description FROM services WHERE is_active = 1 ORDER BY category, name')->fetchAll();
-$appPath = 'mobile_app/expo_app/pias-laundry-shop-updated.apk';
-$appAvailable = is_file(__DIR__ . '/' . $appPath);
+$appBuildUrl = 'https://expo.dev/accounts/tengen10s-team/projects/pias-laundry-shop-customer/builds/9adda2aa-a242-4bf9-969e-26c1bcc21295';
 ?>
 <!doctype html>
 <html lang="en">
@@ -65,7 +64,7 @@ body.public-site{background:#f6efe6;color:var(--site-ink)}
 <body class="public-site">
 <header class="site-wrap site-nav">
   <a class="site-logo" href="index.php"><span class="logo-mark">◉</span><span><?= e($shopName) ?></span></a>
-  <nav class="site-links" aria-label="Main navigation"><a href="#services">Services</a><a href="#app">Mobile App</a><a href="#visit">Visit Us</a><a class="pill-button" href="#app">↓ Get the App</a></nav>
+  <nav class="site-links" aria-label="Main navigation"><a href="#services">Services</a><a href="#app">Mobile App</a><a href="#visit">Visit Us</a><a class="pill-button" href="<?= e($appBuildUrl) ?>" target="_blank" rel="noopener">↓ Get the App</a></nav>
 </header>
 <main>
   <section class="hero">
@@ -73,7 +72,7 @@ body.public-site{background:#f6efe6;color:var(--site-ink)}
       <span class="eyebrow">✦ FRESH CARE, MADE EASY</span>
       <h1>Fresh clothes.<br><span>More time for you.</span></h1>
       <p>Meet <?= e($shopName) ?>: your neighborhood laundry team for everyday washing, careful garment care, and a simpler way to keep laundry moving.</p>
-      <div class="hero-actions"><a class="pill-button" href="#app">↓ Download our app</a><a class="outline-button" href="#services">Explore services&nbsp; →</a></div>
+      <div class="hero-actions"><a class="pill-button" href="<?= e($appBuildUrl) ?>" target="_blank" rel="noopener">↓ Download our app</a><a class="outline-button" href="#services">Explore services&nbsp; →</a></div>
       <div class="hero-facts"><span>Care for every load</span><span>Simple mobile booking</span></div>
     </div>
     <div class="washer-art" aria-hidden="true"><div class="washer-card"><div class="washer-controls"></div><div class="washer-window"></div></div><div class="floating-note"><strong>LAUNDRY DAY, SORTED</strong>Fresh care, less hassle ✨</div></div>
@@ -83,7 +82,7 @@ body.public-site{background:#f6efe6;color:var(--site-ink)}
     <article class="service-card"><span class="service-icon" aria-hidden="true">✳</span><h3><?= e($service['name']) ?></h3><p><?= e($service['description'] ?: $service['category']) ?></p><div class="service-price">₱<?= number_format((float)$service['price'], 2) ?> / <?= e($service['unit']) ?></div></article>
   <?php endforeach; else: ?><p class="empty-services">Service details are being updated. Please contact the shop for current offerings.</p><?php endif; ?>
   </div></div></section>
-  <section class="app-section" id="app"><div class="site-wrap"><div class="app-panel"><div><span class="tag" style="color:var(--site-teal);font-weight:800;text-transform:uppercase;letter-spacing:1.3px;font-size:12px">Laundry Pia's on your phone</span><h2>Your laundry, a little easier.</h2><p>Get the <?= e($shopName) ?> customer app to browse services, place orders, and keep up with your laundry. The app is a separate customer experience from the staff website.</p><?php if ($appAvailable): ?><a class="pill-button teal" href="<?= e($appPath) ?>" download>↓ Download the Android app (APK)</a><p style="font-size:12px;margin-top:11px">Android app · APK download</p><?php else: ?><p>The app download is temporarily unavailable. Please contact the shop.</p><?php endif; ?></div><div class="phone-mock" aria-label="Preview of the customer mobile app"><div class="phone-top"></div><div class="app-icon">◉</div><h3><?= e($shopName) ?></h3><div class="app-row">Book a laundry service</div><div class="app-row">Track your order</div><div class="app-row">Browse services</div></div></div></div></section>
+  <section class="app-section" id="app"><div class="site-wrap"><div class="app-panel"><div><span class="tag" style="color:var(--site-teal);font-weight:800;text-transform:uppercase;letter-spacing:1.3px;font-size:12px">Laundry Pia's on your phone</span><h2>Your laundry, a little easier.</h2><p>Get the <?= e($shopName) ?> customer app to browse services, place orders, and keep up with your laundry. The app is a separate customer experience from the staff website.</p><a class="pill-button teal" href="<?= e($appBuildUrl) ?>" target="_blank" rel="noopener">↓ Download the Android app (APK)</a><p style="font-size:12px;margin-top:11px">Opens the Expo build page. Tap Install there to download the APK.</p></div><div class="phone-mock" aria-label="Preview of the customer mobile app"><div class="phone-top"></div><div class="app-icon">◉</div><h3><?= e($shopName) ?></h3><div class="app-row">Book a laundry service</div><div class="app-row">Track your order</div><div class="app-row">Browse services</div></div></div></div></section>
   <section class="section" id="visit" style="padding-top:5px"><div class="site-wrap"><div class="section-head"><span class="tag">Come say hello</span><h2>Find your laundry place</h2><p>Questions about a service? Get in touch or drop by.</p></div><div class="business"><article class="business-card"><h3>📍 Shop address</h3><p><?= $address !== '' ? nl2br(e($address)) : 'Please contact us for our current shop address.' ?></p></article><article class="business-card"><h3>☎ Get in touch</h3><p><?= $phone !== '' ? '<a href="tel:' . e(preg_replace('/[^0-9+]/', '', $phone)) . '">' . e($phone) . '</a>' : 'Contact details are available at the shop.' ?></p></article></div></div></section>
 </main>
 <footer class="site-footer"><div class="site-wrap footer-row"><div><strong><?= e($shopName) ?></strong><div class="footer-note">Laundry care made simpler.</div></div><a class="staff-link" href="login.php">Staff &amp; admin login&nbsp; →</a></div></footer>
