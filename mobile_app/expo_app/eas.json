@@ -6,12 +6,16 @@
     "preview": {
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_API_BASE_URL": "https://web-production-01b9f.up.railway.app/api"
+        "EXPO_PUBLIC_API_BASE_URL": "https://pias-laundry-shop.up.railway.app/api"
       },
       "android": {
         "buildType": "apk"
       }
     },
-    "production": {}
+    "production": {
+      "env": {
+        "EXPO_PUBLIC_API_BASE_URL": "https://pias-laundry-shop.up.railway.app/api"
+      }
+    }
   }
 }
