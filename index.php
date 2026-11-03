@@ -9,7 +9,7 @@ $shopName = get_setting('shop_name', "Pia's Laundry Shop");
 $address = get_setting('shop_address', '');
 $phone = get_setting('shop_phone', '');
 $services = db()->query('SELECT name, category, unit, price, description FROM services WHERE is_active = 1 ORDER BY category, name')->fetchAll();
-$appDownloadUrl = 'https://github.com/genanncarpio-source/pias-laundry-shop/releases/download/pias-laundry-app-v1.0.5/pias-laundry-shop-v1.0.5.apk';
+$appDownloadUrl = 'https://github.com/genanncarpio-source/pias-laundry-shop/releases/download/pias-laundry-app-v1.0.6/pias-laundry-shop-v1.0.6.apk';
 ?>
 <!doctype html>
 <html lang="en">

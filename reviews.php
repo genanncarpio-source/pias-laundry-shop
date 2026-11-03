@@ -22,7 +22,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_review'])) {
 }
 $reviews = $pdo->query('SELECT r.*, c.name AS customer_name, o.order_number FROM reviews r JOIN customers c ON c.id = r.customer_id JOIN orders o ON o.id = r.order_id ORDER BY r.id DESC LIMIT 300')->fetchAll();
 $pageTitle = 'Customer Reviews';
-$pageSubtitle = 'Review feedback for completed orders';
+$pageSubtitle = 'Five-star feedback from customer bookings';
 include __DIR__ . '/includes/header.php';
 ?>
 <div class="card"><div class="table-wrap"><table><thead><tr><th>Date</th><th>Customer</th><th>Order</th><th>Rating</th><th>Comment</th><th></th></tr></thead><tbody><?php foreach ($reviews as $review): ?><tr><td><?= e(date('M j, Y g:i A', strtotime($review['created_at']))) ?></td><td><?= e($review['customer_name']) ?></td><td><a href="order_view.php?id=<?= (int)$review['order_id'] ?>"><?= e($review['order_number']) ?></a></td><td><?= str_repeat('★', (int)$review['rating']) ?> (<?= (int)$review['rating'] ?>/5)</td><td><?= nl2br(e($review['comment'] ?? '')) ?></td><td><form method="post" onsubmit="return confirm('Remove this review?');"><?= csrf_field() ?><input type="hidden" name="review_id" value="<?= (int)$review['id'] ?>"><button class="btn btn-danger btn-sm" name="delete_review" value="1">Remove</button></form></td></tr><?php endforeach; ?><?php if (!$reviews): ?><tr><td colspan="6" class="muted">No customer reviews yet.</td></tr><?php endif; ?></tbody></table></div></div>

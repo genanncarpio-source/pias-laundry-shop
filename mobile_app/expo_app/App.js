@@ -8,7 +8,7 @@ import * as Location from 'expo-location';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import DeliveryMap from './src/components/DeliveryMap';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -99,7 +99,7 @@ function money(value) {
 function serviceCategory(service) {
   const name = String(service.name || '').toLowerCase();
   const category = String(service.category || '').toLowerCase();
-  if (category.includes('add') || /detergent|fabcon|fabric conditioner/.test(name) || name === 'fold') return 'Add-ons';
+  if (category.includes('add') || /detergent|fabcon|fabric conditioner|downy|surf/.test(name) || name === 'fold') return 'Add-ons';
   if (/full service|wash.?dry.?fold|wash and fold/.test(name) || category.includes('full service') || category.includes('wash & fold')) return 'Full service';
   if (name === 'wash' || category === 'wash') return 'Wash';
   if (name === 'dry' || name.includes('dry clean') || category === 'dry') return 'Dry';
@@ -703,6 +703,7 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
   const pathname = usePathname();
   const router = useRouter();
   const params = useLocalSearchParams();
+  const insets = useSafeAreaInsets();
   const tab = pathname === '/track' ? 'track'
     : pathname === '/offers' ? 'offers'
     : pathname === '/about' ? 'about'
@@ -711,6 +712,11 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
   const { services, tickets, payment: gcashInfo, loading, refreshing,
     error, setError, refresh: loadShopData } = useOnlineShop({ apiBase, customer, token, onSessionExpired });
   const bookingBusy = useRef(false);
+  const [publicReviews, setPublicReviews] = useState([]);
+  const [reviewPrompt, setReviewPrompt] = useState(null);
+  const [reviewComment, setReviewComment] = useState('');
+  const [reviewSaving, setReviewSaving] = useState(false);
+  const [reviewError, setReviewError] = useState('');
   const [quantities, setQuantities] = useState({});
   const [filter, setFilter] = useState('All');
   const [search, setSearch] = useState('');
@@ -768,6 +774,24 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
 
   const { width } = useWindowDimensions();
   const wide = width >= 760;
+  useEffect(() => {
+    if (tab !== 'about') return undefined;
+    let active = true;
+    apiRequest(apiBase, 'reviews.php').then((result) => { if (active) setPublicReviews(result.reviews || []); }).catch(() => { if (active) setPublicReviews([]); });
+    return () => { active = false; };
+  }, [apiBase, tab]);
+  const submitReview = async () => {
+    if (!reviewPrompt?.id || reviewSaving) return;
+    setReviewSaving(true); setReviewError('');
+    try {
+      await apiRequest(apiBase, 'reviews.php', { method: 'POST', token, body: { order_id: reviewPrompt.id, rating: 5, comment: reviewComment.trim() } });
+      setReviewPrompt(null); setReviewComment('');
+      const result = await apiRequest(apiBase, 'reviews.php'); setPublicReviews(result.reviews || []);
+    } catch (problem) {
+      if (problem.status === 401) await onSessionExpired();
+      setReviewError(problem.message || 'Could not submit your review.');
+    } finally { setReviewSaving(false); }
+  };
   const selectProfilePlace = (place) => {
     setProfileAddress(place.address);
     setProfileAddressDetails('');
@@ -941,14 +965,16 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
     return matchesCategory && matchesSearch;
   }), [filter, search, services]);
 
+  const mainLaundry = services.find((service) => isCoreLoadService(service) && Number(quantities[String(service.id)] || 0) > 0);
+  const mainLaundryWeight = mainLaundry ? Number(quantities[String(mainLaundry.id)] || 0) : 0;
+  const mainLoadCount = mainLaundry ? Math.ceil(mainLaundryWeight / (serviceCategory(mainLaundry) === 'Full service' ? 8 : 7)) : 0;
   const serviceSubtotal = useMemo(() => services.reduce((total, service) => {
-    const id = String(service.id);
-    const quantity = Number(quantities[id] || 0);
+    const quantity = Number(quantities[String(service.id)] || 0);
     if (!Number.isFinite(quantity) || quantity <= 0) return total;
-    return total + (isCoreLoadService(service)
-      ? loadPriceForWeight(quantity, service.price, serviceCategory(service))
-      : (Number(service.price) || 0) * quantity);
-  }, 0), [quantities, services]);
+    if (isCoreLoadService(service)) return total + loadPriceForWeight(quantity, service.price, serviceCategory(service));
+    if (serviceCategory(service) === 'Add-ons') return total + (Number(service.price) || 0) * mainLoadCount;
+    return total + (Number(service.price) || 0) * quantity;
+  }, 0), [quantities, services, mainLoadCount]);
   const estimate = serviceSubtotal + deliveryFee;
 
   const updateQuantity = (service, value) => {
@@ -994,13 +1020,15 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
     const chosen = services.map((service) => {
       const amount = Number(quantities[String(service.id)] || 0);
       const weightBased = isCoreLoadService(service);
+      const isAddon = serviceCategory(service) === 'Add-ons';
       return {
         service_id: Number(service.id),
-        quantity: weightBased ? Math.ceil(amount / (serviceCategory(service) === 'Full service' ? 8 : 7)) : amount,
+        quantity: isAddon ? (amount > 0 ? mainLoadCount : 0) : (weightBased ? Math.ceil(amount / (serviceCategory(service) === 'Full service' ? 8 : 7)) : amount),
         ...(weightBased ? { weight_kg: Number(amount.toFixed(2)) } : {}),
       };
     }).filter((line) => line.quantity > 0);
     if (!chosen.length) return setError('Add at least one service before booking.');
+    if (chosen.some((line) => line.service_id < 0) && mainLoadCount < 1) return setError('Choose a main laundry service to calculate the add-on loads.');
     if (chosen.some((line) => !Number.isFinite(line.quantity) || line.quantity > 500 || line.weight_kg > 500 ||
       (['piece', 'load'].includes(services.find((service) => Number(service.id) === line.service_id)?.unit) && !Number.isInteger(line.quantity)))) {
       return setError('Enter laundry weight up to 500 kg. Load and piece quantities must be whole numbers.');
@@ -1038,6 +1066,9 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
       setPaymentMethod('cash_on_handoff');
       setGcashReference('');
       await loadShopData(true);
+      setReviewComment('');
+      setReviewError('');
+      setReviewPrompt(result.ticket?.id ? { id: Number(result.ticket.id), number: result.ticket.ticket_number || result.ticket.order_number } : null);
       navigateTo('track', result.ticket?.ticket_number || result.ticket?.order_number);
     } catch (problem) {
       if (problem.status === 401 || problem.status === 403) await onSessionExpired();
@@ -1162,7 +1193,7 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
             </ScrollView>
             <View style={styles.serviceRuleNote}>
               <Text style={styles.serviceRuleTitle}>Choose one main laundry service</Text>
-              <Text style={styles.serviceRuleCopy}>Wash and Dry are ₱85 per load, up to 7 kg each. Full Service is ₱199 up to 7 kg and ₱238 at 8 kg. Above 8 kg is counted as separate ₱199 loads (9 kg = ₱398). Add-ons such as detergent and fabcon can still be included.</Text>
+              <Text style={styles.serviceRuleCopy}>Wash and Dry are ₱85 per load, up to 7 kg each. Full Service is ₱199 up to 7 kg and ₱238 at 8 kg. Above 8 kg is counted as separate ₱199 loads (9 kg = ₱398). Downy and Surf add ₱21 each per load.</Text>
             </View>
 
             {loading && !services.length ? (
@@ -1170,14 +1201,11 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
             ) : visibleServices.length ? (
               <View style={styles.serviceGrid}>
                 {visibleServices.map((service, index) => (
-                  <ServiceCard
-                    key={service.id}
-                    service={service}
-                    quantity={quantities[String(service.id)] || ''}
-                    onQuantityChange={(value) => updateQuantity(service, value)}
-                    wide={wide}
-                    index={index}
-                  />
+                  serviceCategory(service) === 'Add-ons' ? (
+                    <AddonCard key={service.id} service={service} selected={Number(quantities[String(service.id)] || 0) > 0} loadCount={mainLoadCount} onToggle={(selected) => updateQuantity(service, selected ? '1' : '')} wide={wide} />
+                  ) : (
+                    <ServiceCard key={service.id} service={service} quantity={quantities[String(service.id)] || ''} onQuantityChange={(value) => updateQuantity(service, value)} wide={wide} index={index} />
+                  )
                 ))}
               </View>
             ) : (
@@ -1293,6 +1321,17 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
               <View style={styles.aboutCard}><Text style={styles.aboutIcon}>✅</Text><Text style={styles.aboutTitle}>Shop confirmed</Text><Text style={styles.aboutText}>The shop confirms the final service, price, and schedule.</Text></View>
               <View style={styles.aboutCard}><Text style={styles.aboutIcon}>📱</Text><Text style={styles.aboutTitle}>Track online</Text><Text style={styles.aboutText}>Follow the latest status of every service ticket.</Text></View>
             </View>
+            <View style={styles.reviewsSection}>
+              <Text style={styles.reviewsHeading}>Customer reviews</Text>
+              <Text style={styles.reviewsIntro}>Five-star feedback from Pia's Laundry Shop customers.</Text>
+              {publicReviews.length ? publicReviews.map((review) => (
+                <View key={review.id} style={styles.reviewCard}>
+                  <View style={styles.reviewHeader}><Text style={styles.reviewName}>{review.customer_name || 'Customer'}</Text><Text style={styles.reviewStars}>{'★★★★★'}</Text></View>
+                  {review.comment ? <Text style={styles.reviewComment}>{review.comment}</Text> : <Text style={styles.reviewCommentMuted}>No comment left.</Text>}
+                  <Text style={styles.reviewDate}>{review.created_at || ''}</Text>
+                </View>
+              )) : <View style={styles.reviewCard}><Text style={styles.reviewCommentMuted}>No five-star reviews yet.</Text></View>}
+            </View>
           </View>
         </ScrollView>
       ) : (
@@ -1327,7 +1366,7 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
         </ScrollView>
       )}
 
-      <View style={styles.bottomNav}>
+      <View style={[styles.bottomNav, { paddingBottom: Math.max(insets.bottom, Platform.OS === 'android' ? 24 : 8) }]}>
         <NavItem icon="home" label="Home" active={tab === 'home'} onPress={() => navigateTo('home')} />
         <NavItem icon="track" label="Track" active={tab === 'track'} onPress={() => navigateTo('track')} />
         <NavItem icon="offers" label="Offers" active={tab === 'offers'} onPress={() => navigateTo('offers')} />
@@ -1335,6 +1374,18 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
         <NavItem icon="profile" label="Profile" active={tab === 'profile'} onPress={() => navigateTo('profile')} />
       </View>
 
+      <Modal transparent visible={Boolean(reviewPrompt)} animationType="fade" onRequestClose={() => setReviewPrompt(null)}>
+        <View style={styles.modalShade}><View style={styles.modalCard}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Close review" disabled={reviewSaving} onPress={() => setReviewPrompt(null)} style={styles.reviewClose}><Text style={styles.reviewCloseText}>×</Text></Pressable>
+          <Text style={styles.modalTitle}>How was your booking?</Text>
+          <Text style={styles.modalCopy}>Rate your booking experience for {reviewPrompt?.number || 'this ticket'}. You can close this if you do not want to review.</Text>
+          <View style={styles.reviewRatingRow}><Text style={styles.reviewRatingStars}>{'★★★★★'}</Text><Text style={styles.reviewRatingLabel}>5 stars</Text></View>
+          <TextInput value={reviewComment} onChangeText={setReviewComment} maxLength={1000} multiline placeholder="Comment (optional)" placeholderTextColor="#a59ba5" style={styles.reviewInput} editable={!reviewSaving} />
+          {reviewError ? <Text style={styles.errorBox}>{reviewError}</Text> : null}
+          <Pressable disabled={reviewSaving} onPress={submitReview} style={[styles.primaryButton, reviewSaving && styles.disabledButton]}>{reviewSaving ? <ActivityIndicator color={COLORS.white} /> : <Text style={styles.primaryButtonText}>Submit 5-star review</Text>}</Pressable>
+          <Pressable disabled={reviewSaving} onPress={() => setReviewPrompt(null)} style={styles.secondaryButton}><Text style={styles.secondaryButtonText}>Close</Text></Pressable>
+        </View></View>
+      </Modal>
       <Modal transparent visible={profilePhotoPickerVisible} animationType="fade" onRequestClose={() => setProfilePhotoPickerVisible(false)}>
         <View style={styles.modalShade}><View style={styles.modalCard}>
           <Text style={styles.modalTitle}>Profile picture</Text><Text style={styles.modalCopy}>Take a new photo or choose one from your gallery.</Text>
@@ -1416,6 +1467,23 @@ function ProfileRow({ icon, label, value, last = false, editable = false, editin
   return <View style={[styles.profileRow, last && styles.profileRowLast]}><View style={styles.profileRowIcon}><Text style={styles.profileRowIconText}>{icon}</Text></View><View style={styles.flexOne}><Text style={styles.profileRowLabel}>{label}</Text>{editing ? <TextInput autoFocus value={draft} onChangeText={onChangeDraft} keyboardType={keyboardType} maxLength={label === 'Full name' ? 100 : 11} placeholder={label === 'Full name' ? 'Your full name' : '09xx xxx xxxx'} placeholderTextColor="#a59ba5" style={styles.profileRowInput} editable={!saving} /> : <Text style={styles.profileRowValue}>{value || 'Not provided'}</Text>}</View>{editable ? editing ? <View style={styles.profileRowEditActions}><Pressable accessibilityRole="button" accessibilityLabel={'Save ' + label} disabled={saving} onPress={onSave} style={styles.profileRowEditButton}><Text style={styles.profileRowEditText}>{saving ? '…' : '✓'}</Text></Pressable><Pressable accessibilityRole="button" accessibilityLabel="Cancel edit" disabled={saving} onPress={onCancel} style={styles.profileRowEditButton}><Text style={styles.profileRowCancelText}>×</Text></Pressable></View> : <Pressable accessibilityRole="button" accessibilityLabel={'Edit ' + label} onPress={onEdit} style={styles.profileRowEditButton}><Text style={styles.profileRowEditText}>✎</Text></Pressable> : null}</View>;
 }
 
+function AddonCard({ service, selected, loadCount, onToggle, wide }) {
+  const count = selected ? loadCount : 0;
+  return (
+    <View style={[styles.serviceCard, wide ? styles.serviceCardWide : styles.serviceCardNarrow]}>
+      <LinearGradient colors={['#45234f', '#88568c']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0.8 }} style={styles.serviceImageBand}>
+        <Text style={styles.serviceHeroEmoji}>{serviceEmoji(service)}</Text><Text style={styles.serviceBandCaption}>ADD-ON</Text><View style={styles.bandBubble} />
+      </LinearGradient>
+      <View style={styles.serviceCardBody}>
+        <View style={styles.addonRow}>
+          <View style={styles.serviceTextBlock}><Text style={styles.serviceTitle}>{service.name}</Text><Text style={styles.serviceDescription}>Added to every laundry load</Text><Text style={styles.servicePrice}>{money(service.price)} <Text style={styles.serviceUnit}>/ load</Text></Text>{selected ? <Text style={styles.addonTotal}>{count} {count === 1 ? 'load' : 'loads'} · {money(Number(service.price) * count)}</Text> : null}</View>
+          <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: selected }} onPress={() => onToggle(!selected)} style={[styles.addonToggle, selected && styles.addonToggleActive]}><Text style={[styles.addonToggleText, selected && styles.addonToggleTextActive]}>{selected ? 'Added' : 'Add'}</Text></Pressable>
+        </View>
+        {selected && !loadCount ? <Text style={styles.addonHelp}>Choose Wash, Dry, or Full Service to set the number of loads.</Text> : null}
+      </View>
+    </View>
+  );
+}
 function ServiceCard({ service, quantity, onQuantityChange, wide, index }) {
   const gradients = [
     ['#45234f', '#88568c'],
@@ -1726,6 +1794,13 @@ const styles = StyleSheet.create({
   serviceBandCaption: { color: '#fff9f5', fontWeight: '800', fontSize: 12, letterSpacing: 1, zIndex: 1 },
   bandBubble: { position: 'absolute', width: 125, height: 125, right: 35, top: -76, borderRadius: 80, backgroundColor: '#ffffff1a' },
   serviceCardBody: { padding: 15 },
+  addonRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  addonToggle: { minWidth: 68, minHeight: 42, borderRadius: 12, borderWidth: 1, borderColor: '#8a5594', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 12 },
+  addonToggleActive: { backgroundColor: COLORS.plum },
+  addonToggleText: { color: COLORS.plum, fontSize: 13, fontWeight: '800' },
+  addonToggleTextActive: { color: COLORS.white },
+  addonTotal: { color: COLORS.plum, fontSize: 12, fontWeight: '800', marginTop: 4 },
+  addonHelp: { color: COLORS.red, fontSize: 11, marginTop: 8 },
   serviceTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   serviceTextBlock: { flex: 1, minWidth: 0, gap: 3 },
   serviceTitle: { color: COLORS.ink, fontSize: 16, fontWeight: '800' },
@@ -1793,7 +1868,7 @@ const styles = StyleSheet.create({
   bookButtonDisabled: { backgroundColor: '#777078' },
   bookButtonText: { color: COLORS.white, fontSize: 15, fontWeight: '800' },
   estimateNote: { color: COLORS.muted, fontSize: 11, lineHeight: 16, textAlign: 'center', marginTop: 9 },
-  bottomNav: { minHeight: 68, paddingBottom: Platform.OS === 'ios' ? 8 : 2, backgroundColor: COLORS.cream, borderTopColor: '#ded3df', borderTopWidth: 1, flexDirection: 'row', paddingHorizontal: 3, zIndex: 3 },
+  bottomNav: { minHeight: 68, backgroundColor: COLORS.cream, borderTopColor: '#ded3df', borderTopWidth: 1, flexDirection: 'row', paddingHorizontal: 3, zIndex: 3 },
   navItem: { flex: 1, minWidth: 0, alignItems: 'center', justifyContent: 'center', gap: 2, borderTopWidth: 3, borderTopColor: 'transparent', paddingVertical: 5 },
   navItemActive: { borderTopColor: COLORS.copper, backgroundColor: '#fbf2e9' },
   navIcon: { width: 20, height: 20 },
@@ -1832,6 +1907,22 @@ const styles = StyleSheet.create({
   contentEyebrow: { color: COLORS.copper, fontWeight: '900', fontSize: 11, letterSpacing: 1.3 },
   contentTitle: { color: COLORS.ink, fontSize: 22, lineHeight: 29, fontWeight: '900', marginTop: 7 },
   contentText: { color: COLORS.muted, fontSize: 14, lineHeight: 22, marginTop: 10 },
+  reviewsSection: { marginTop: 24, marginBottom: 20, gap: 10 },
+  reviewsHeading: { color: COLORS.cream, fontSize: 21, fontWeight: '900' },
+  reviewsIntro: { color: '#c7bac8', fontSize: 13, marginBottom: 3 },
+  reviewCard: { borderRadius: 15, padding: 14, backgroundColor: COLORS.darkPanel, borderColor: '#493b4c', borderWidth: 1, marginBottom: 8 },
+  reviewHeader: { flexDirection: 'row', justifyContent: 'space-between', gap: 8 },
+  reviewName: { color: COLORS.cream, fontSize: 14, fontWeight: '800' },
+  reviewStars: { color: '#e2b348', fontSize: 16, letterSpacing: 1 },
+  reviewComment: { color: '#e4d6e6', fontSize: 13, lineHeight: 19, marginTop: 7 },
+  reviewCommentMuted: { color: '#bcb0bd', fontSize: 12, marginTop: 7 },
+  reviewDate: { color: '#9c8f9d', fontSize: 10, marginTop: 8 },
+  reviewClose: { position: 'absolute', right: 3, top: 0, zIndex: 1, paddingHorizontal: 10, paddingVertical: 3 },
+  reviewCloseText: { color: COLORS.muted, fontSize: 26, fontWeight: '700' },
+  reviewRatingRow: { alignItems: 'center', marginVertical: 12, gap: 3 },
+  reviewRatingStars: { color: '#e2b348', fontSize: 35, letterSpacing: 3 },
+  reviewRatingLabel: { color: COLORS.plum, fontSize: 13, fontWeight: '800' },
+  reviewInput: { minHeight: 90, maxHeight: 150, textAlignVertical: 'top', color: COLORS.ink, backgroundColor: '#fffdf9', borderColor: '#d0c3d1', borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 12 },
   aboutGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   aboutCard: { flexGrow: 1, width: '48%', minHeight: 145, borderRadius: 17, padding: 16, backgroundColor: COLORS.darkPanel, borderColor: '#493b4c', borderWidth: 1 },
   aboutIcon: { fontSize: 27 },
