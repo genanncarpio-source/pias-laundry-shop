@@ -44,6 +44,13 @@ export async function readSession(apiBase) {
 }
 
 export async function readLegacyToken() { return get(LEGACY_TOKEN_KEY); }
+const reviewPromptDismissalKey = (customerId) => 'pias_review_prompt_dismissed_' + String(customerId);
+export async function hasDismissedReviewPrompt(customerId) {
+  return (await get(reviewPromptDismissalKey(customerId))) === '1';
+}
+export function dismissReviewPrompt(customerId) {
+  return set(reviewPromptDismissalKey(customerId), '1');
+}
 
 export function saveVerifiedSession(apiBase, token, customer, options = {}) {
   const started = generation;

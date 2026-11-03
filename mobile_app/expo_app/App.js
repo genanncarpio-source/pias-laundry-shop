@@ -2,7 +2,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useLocalSearchParams, usePathname, useRouter } from 'expo-router';
 import Constants from 'expo-constants';
 import { apiRequest } from './src/api';
-import { readSession, readLegacyToken, saveVerifiedSession, clearSession, getActiveSession } from './src/session';
+import { readSession, readLegacyToken, saveVerifiedSession, clearSession, getActiveSession, hasDismissedReviewPrompt, dismissReviewPrompt } from './src/session';
 import { useOnlineShop } from './src/useOnlineShop';
 import * as Location from 'expo-location';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -718,6 +718,9 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
   const [reviewRating, setReviewRating] = useState(0);
   const [reviewSaving, setReviewSaving] = useState(false);
   const [reviewError, setReviewError] = useState('');
+  const [reviewAvailability, setReviewAvailability] = useState(null);
+  const [reviewAvailabilityLoading, setReviewAvailabilityLoading] = useState(false);
+  const [reviewAvailabilityError, setReviewAvailabilityError] = useState('');
   const [quantities, setQuantities] = useState({});
   const [filter, setFilter] = useState('All');
   const [search, setSearch] = useState('');
@@ -762,6 +765,15 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
   const toast = typeof params.booking === 'string' && params.booking ? 'Booking submitted. Ticket ' + params.booking : '';
 
   useEffect(() => {
+    if (tab !== 'about') return undefined;
+    let active = true;
+    setReviewAvailabilityLoading(true);
+    setReviewAvailabilityError('');
+    apiRequest(apiBase, 'reviews.php', { token }).then((status) => { if (active) setReviewAvailability(status); }).catch((problem) => { if (active) setReviewAvailabilityError(problem.message || 'Could not load your rating status.'); }).finally(() => { if (active) setReviewAvailabilityLoading(false); });
+    return () => { active = false; };
+  }, [apiBase, tab, token]);
+
+  useEffect(() => {
     if (!toast) return undefined;
     const timer = setTimeout(() => router.replace(pathname), 3000);
     return () => clearTimeout(timer);
@@ -775,12 +787,22 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
 
   const { width } = useWindowDimensions();
   const wide = width >= 760;
+  const closeReviewPrompt = (dismissed = true) => {
+    const prompt = reviewPrompt;
+    setReviewPrompt(null);
+    if (prompt?.source !== 'about' && prompt?.number) {
+      if (dismissed) void dismissReviewPrompt(customer.id).catch(() => {});
+      navigateTo('track', prompt.number);
+    }
+  };
   const submitReview = async () => {
     if (!reviewPrompt?.id || reviewSaving || reviewRating < 1 || reviewRating > 5) return;
     setReviewSaving(true); setReviewError('');
     try {
       await apiRequest(apiBase, 'reviews.php', { method: 'POST', token, body: { order_id: reviewPrompt.id, rating: reviewRating, comment: reviewComment.trim() } });
-      setReviewPrompt(null); setReviewComment('');
+      setReviewComment('');
+      setReviewAvailability((current) => ({ ...(current || {}), has_reviewed: true, eligible_order: null }));
+      closeReviewPrompt(false);
     } catch (problem) {
       if (problem.status === 401) await onSessionExpired();
       setReviewError(problem.message || 'Could not submit your review.');
@@ -1064,8 +1086,17 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
       setReviewComment('');
       setReviewRating(0);
       setReviewError('');
-      setReviewPrompt(result.ticket?.id ? { id: Number(result.ticket.id), number: result.ticket.ticket_number || result.ticket.order_number } : null);
-      navigateTo('track', result.ticket?.ticket_number || result.ticket?.order_number);
+      let reviewStatus = null;
+      try {
+        reviewStatus = await apiRequest(apiBase, 'reviews.php', { token });
+        setReviewAvailability(reviewStatus);
+      } catch (_reviewStatusError) {}
+      const promptDismissed = await hasDismissedReviewPrompt(customer.id).catch(() => true);
+      if (result.ticket?.id && reviewStatus && !reviewStatus.has_reviewed && !promptDismissed) {
+        setReviewPrompt({ id: Number(result.ticket.id), number: result.ticket.ticket_number || result.ticket.order_number, source: 'booking' });
+      } else {
+        navigateTo('track', result.ticket?.ticket_number || result.ticket?.order_number);
+      }
     } catch (problem) {
       if (problem.status === 401 || problem.status === 403) await onSessionExpired();
       setBookingError((problem.message || 'Could not submit the booking.') + ' Your selections are still here. Please review the details and try again.');
@@ -1318,6 +1349,14 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
               <View style={styles.aboutCard}><Text style={styles.aboutIcon}>✅</Text><Text style={styles.aboutTitle}>Shop confirmed</Text><Text style={styles.aboutText}>The shop confirms the final service, price, and schedule.</Text></View>
               <View style={styles.aboutCard}><Text style={styles.aboutIcon}>📱</Text><Text style={styles.aboutTitle}>Track online</Text><Text style={styles.aboutText}>Follow the latest status of every service ticket.</Text></View>
             </View>
+              <View style={styles.aboutReviewCard}>
+                <Text style={styles.aboutTitle}>Rate your experience</Text>
+                <Text style={styles.aboutText}>{reviewAvailability?.has_reviewed ? 'Thank you — you have already rated Pia’s Laundry Shop.' : 'You can leave a rating anytime. A comment is optional.'}</Text>
+                {reviewAvailabilityLoading ? <ActivityIndicator color={COLORS.purple} style={{ marginTop: 12 }} /> : null}
+                {!reviewAvailability?.has_reviewed && reviewAvailability?.eligible_order ? <Pressable accessibilityRole="button" onPress={() => { setReviewRating(0); setReviewComment(''); setReviewError(''); setReviewPrompt({ id: Number(reviewAvailability.eligible_order.id), number: reviewAvailability.eligible_order.order_number, source: 'about' }); }} style={styles.aboutReviewButton}><Text style={styles.aboutReviewButtonText}>Rate now</Text></Pressable> : null}
+                {reviewAvailability && !reviewAvailabilityLoading && !reviewAvailability.has_reviewed && !reviewAvailability.eligible_order ? <Text style={styles.aboutText}>Book a service first, then you can rate it here.</Text> : null}
+                {reviewAvailabilityError ? <Text style={styles.aboutText}>{reviewAvailabilityError}</Text> : null}
+              </View>
           </View>
         </ScrollView>
       ) : (
@@ -1360,16 +1399,16 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
         <NavItem icon="profile" label="Profile" active={tab === 'profile'} onPress={() => navigateTo('profile')} />
       </View>
 
-      <Modal transparent visible={Boolean(reviewPrompt)} animationType="fade" onRequestClose={() => setReviewPrompt(null)}>
+      <Modal transparent visible={Boolean(reviewPrompt)} animationType="fade" onRequestClose={closeReviewPrompt}>
         <View style={styles.modalShade}><View style={styles.modalCard}>
-          <Pressable accessibilityRole="button" accessibilityLabel="Close review" disabled={reviewSaving} onPress={() => setReviewPrompt(null)} style={styles.reviewClose}><Text style={styles.reviewCloseText}>×</Text></Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel="Close review" disabled={reviewSaving} onPress={closeReviewPrompt} style={styles.reviewClose}><Text style={styles.reviewCloseText}>×</Text></Pressable>
           <Text style={styles.modalTitle}>How was your service?</Text>
           <Text style={styles.modalCopy}>Rate your booking experience for {reviewPrompt?.number || 'this ticket'}. You can close this if you do not want to review.</Text>
           <View style={styles.reviewRatingRow}>{[1, 2, 3, 4, 5].map((rating) => <Pressable key={rating} accessibilityRole="radio" accessibilityState={{ checked: reviewRating === rating }} accessibilityLabel={String(rating) + ' stars'} disabled={reviewSaving} onPress={() => setReviewRating(rating)} style={styles.reviewStarButton}><Text style={[styles.reviewRatingStars, rating <= reviewRating && styles.reviewStarSelected]}>{rating <= reviewRating ? '★' : '☆'}</Text></Pressable>)}<Text style={styles.reviewRatingLabel}>{reviewRating > 0 ? reviewRating + ' out of 5 stars' : 'Tap a star to rate'}</Text></View>
           <TextInput value={reviewComment} onChangeText={setReviewComment} maxLength={1000} multiline placeholder="Comment (optional)" placeholderTextColor="#a59ba5" style={styles.reviewInput} editable={!reviewSaving} />
           {reviewError ? <Text style={styles.errorBox}>{reviewError}</Text> : null}
           <Pressable disabled={reviewSaving || reviewRating < 1} onPress={submitReview} style={[styles.primaryButton, reviewSaving && styles.disabledButton]}>{reviewSaving ? <ActivityIndicator color={COLORS.white} /> : <Text style={styles.primaryButtonText}>Submit rating</Text>}</Pressable>
-          <Pressable disabled={reviewSaving} onPress={() => setReviewPrompt(null)} style={styles.secondaryButton}><Text style={styles.secondaryButtonText}>Close</Text></Pressable>
+          <Pressable disabled={reviewSaving} onPress={closeReviewPrompt} style={styles.secondaryButton}><Text style={styles.secondaryButtonText}>Close</Text></Pressable>
         </View></View>
       </Modal>
       <Modal transparent visible={profilePhotoPickerVisible} animationType="fade" onRequestClose={() => setProfilePhotoPickerVisible(false)}>
@@ -1912,6 +1951,9 @@ const styles = StyleSheet.create({
   reviewRatingLabel: { color: COLORS.plum, fontSize: 13, fontWeight: '800' },
   reviewInput: { minHeight: 90, maxHeight: 150, textAlignVertical: 'top', color: COLORS.ink, backgroundColor: '#fffdf9', borderColor: '#d0c3d1', borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 12 },
   aboutGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  aboutReviewCard: { backgroundColor: COLORS.darkPanel, borderColor: '#403444', borderWidth: 1, borderRadius: 18, padding: 18, marginTop: 18 },
+  aboutReviewButton: { alignSelf: 'flex-start', marginTop: 14, backgroundColor: COLORS.plum, borderRadius: 12, paddingHorizontal: 20, paddingVertical: 12 },
+  aboutReviewButtonText: { color: COLORS.white, fontSize: 14, fontWeight: '800' },
   aboutCard: { flexGrow: 1, width: '48%', minHeight: 145, borderRadius: 17, padding: 16, backgroundColor: COLORS.darkPanel, borderColor: '#493b4c', borderWidth: 1 },
   aboutIcon: { fontSize: 27 },
   aboutTitle: { color: COLORS.cream, fontSize: 15, fontWeight: '800', marginTop: 9 },
