@@ -1532,8 +1532,8 @@ function AddonCard({ service, selected, loadCount, onToggle, wide }) {
   const count = selected ? loadCount : 0;
   const serviceName = String(service.name || '').toLowerCase();
   const addonIcon = serviceName.includes('detergent')
-    ? 'https://cdn-icons-png.flaticon.com/128/4596/4596057.png'
-    : 'https://cdn-icons-png.flaticon.com/128/4596/4596060.png';
+    ? 'https://cdn-icons-png.flaticon.com/128/4596/4596056.png'
+    : 'https://cdn-icons-png.flaticon.com/128/4596/4596059.png';
   return (
     <View style={[styles.serviceCard, wide ? styles.serviceCardWide : styles.serviceCardNarrow]}>
       <LinearGradient colors={['#45234f', '#88568c']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0.8 }} style={styles.serviceImageBand}>
