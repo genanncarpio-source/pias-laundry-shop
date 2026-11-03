@@ -18,7 +18,7 @@ export async function apiRequest(baseUrl, endpoint, { method = 'GET', body, toke
     });
     text = await response.text();
   } catch {
-    const error = new Error('The shop cannot be reached. Check your internet connection and try again.');
+    const error = new Error('Check your internet connection and try again.');
     throw error;
   } finally { clearTimeout(timer); }
   let data;
