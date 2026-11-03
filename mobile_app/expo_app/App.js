@@ -1446,7 +1446,8 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
             <Pressable onPress={() => setTransactionDetail(null)} style={styles.secondaryButton}><Text style={styles.secondaryButtonText}>Close</Text></Pressable>
           </View>
         </View>
-      </Modal>      <Modal transparent visible={profilePhotoPickerVisible} animationType="fade" onRequestClose={() => setProfilePhotoPickerVisible(false)}>
+      </Modal>
+      <Modal transparent visible={profilePhotoPickerVisible} animationType="fade" onRequestClose={() => setProfilePhotoPickerVisible(false)}>
         <View style={styles.modalShade}><View style={styles.modalCard}>
           <Text style={styles.modalTitle}>Profile picture</Text><Text style={styles.modalCopy}>Take a new photo or choose one from your gallery.</Text>
           <Pressable disabled={profileDetailsSaving} onPress={() => chooseProfilePhoto('camera')} style={styles.profilePhotoOption}><Text style={styles.profilePhotoOptionText}>📷  Take photo</Text></Pressable>
@@ -1529,10 +1530,14 @@ function ProfileRow({ icon, label, value, last = false, editable = false, editin
 
 function AddonCard({ service, selected, loadCount, onToggle, wide }) {
   const count = selected ? loadCount : 0;
+  const serviceName = String(service.name || '').toLowerCase();
+  const addonIcon = serviceName.includes('detergent')
+    ? 'https://cdn-icons-png.flaticon.com/128/4596/4596057.png'
+    : 'https://cdn-icons-png.flaticon.com/128/4596/4596060.png';
   return (
     <View style={[styles.serviceCard, wide ? styles.serviceCardWide : styles.serviceCardNarrow]}>
       <LinearGradient colors={['#45234f', '#88568c']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0.8 }} style={styles.serviceImageBand}>
-        <Text style={styles.serviceHeroEmoji}>{serviceEmoji(service)}</Text><Text style={styles.serviceBandCaption}>ADD-ON</Text><View style={styles.bandBubble} />
+        <Image accessibilityLabel={serviceName.includes('detergent') ? 'Detergent icon' : 'Fabric softener icon'} source={{ uri: addonIcon }} resizeMode="contain" style={styles.addonIcon} /><Text style={styles.serviceBandCaption}>ADD-ON</Text><View style={styles.bandBubble} />
       </LinearGradient>
       <View style={styles.serviceCardBody}>
         <View style={styles.addonRow}>
@@ -1891,6 +1896,7 @@ const styles = StyleSheet.create({
   serviceCardNarrow: { width: '100%' },
   serviceImageBand: { height: 90, overflow: 'hidden', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, justifyContent: 'space-between' },
   serviceHeroEmoji: { fontSize: 42, zIndex: 1 },
+  addonIcon: { width: 54, height: 54, zIndex: 1 },
   serviceBandCaption: { color: '#fff9f5', fontWeight: '800', fontSize: 12, letterSpacing: 1, zIndex: 1 },
   bandBubble: { position: 'absolute', width: 125, height: 125, right: 35, top: -76, borderRadius: 80, backgroundColor: '#ffffff1a' },
   serviceCardBody: { padding: 15 },
