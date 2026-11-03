@@ -712,9 +712,10 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
   const { services, tickets, payment: gcashInfo, loading, refreshing,
     error, setError, refresh: loadShopData } = useOnlineShop({ apiBase, customer, token, onSessionExpired });
   const bookingBusy = useRef(false);
-  const [publicReviews, setPublicReviews] = useState([]);
+  const [bookingError, setBookingError] = useState('');
   const [reviewPrompt, setReviewPrompt] = useState(null);
   const [reviewComment, setReviewComment] = useState('');
+  const [reviewRating, setReviewRating] = useState(0);
   const [reviewSaving, setReviewSaving] = useState(false);
   const [reviewError, setReviewError] = useState('');
   const [quantities, setQuantities] = useState({});
@@ -774,19 +775,12 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
 
   const { width } = useWindowDimensions();
   const wide = width >= 760;
-  useEffect(() => {
-    if (tab !== 'about') return undefined;
-    let active = true;
-    apiRequest(apiBase, 'reviews.php').then((result) => { if (active) setPublicReviews(result.reviews || []); }).catch(() => { if (active) setPublicReviews([]); });
-    return () => { active = false; };
-  }, [apiBase, tab]);
   const submitReview = async () => {
-    if (!reviewPrompt?.id || reviewSaving) return;
+    if (!reviewPrompt?.id || reviewSaving || reviewRating < 1 || reviewRating > 5) return;
     setReviewSaving(true); setReviewError('');
     try {
-      await apiRequest(apiBase, 'reviews.php', { method: 'POST', token, body: { order_id: reviewPrompt.id, rating: 5, comment: reviewComment.trim() } });
+      await apiRequest(apiBase, 'reviews.php', { method: 'POST', token, body: { order_id: reviewPrompt.id, rating: reviewRating, comment: reviewComment.trim() } });
       setReviewPrompt(null); setReviewComment('');
-      const result = await apiRequest(apiBase, 'reviews.php'); setPublicReviews(result.reviews || []);
     } catch (problem) {
       if (problem.status === 401) await onSessionExpired();
       setReviewError(problem.message || 'Could not submit your review.');
@@ -1017,6 +1011,7 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
 
   const bookService = async () => {
     if (bookingBusy.current) return;
+    setBookingError('');
     const chosen = services.map((service) => {
       const amount = Number(quantities[String(service.id)] || 0);
       const weightBased = isCoreLoadService(service);
@@ -1027,25 +1022,25 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
         ...(weightBased ? { weight_kg: Number(amount.toFixed(2)) } : {}),
       };
     }).filter((line) => line.quantity > 0);
-    if (!chosen.length) return setError('Add at least one service before booking.');
-    if (chosen.some((line) => line.service_id < 0) && mainLoadCount < 1) return setError('Choose a main laundry service to calculate the add-on loads.');
+    if (!chosen.length) return setBookingError('Choose a laundry service before booking.');
+    if (chosen.some((line) => line.service_id < 0) && mainLoadCount < 1) return setBookingError('Choose Wash, Dry, or Full Service first so Fabcon and Detergent can be priced per load.');
     if (chosen.some((line) => !Number.isFinite(line.quantity) || line.quantity > 500 || line.weight_kg > 500 ||
       (['piece', 'load'].includes(services.find((service) => Number(service.id) === line.service_id)?.unit) && !Number.isInteger(line.quantity)))) {
-      return setError('Enter laundry weight up to 500 kg. Load and piece quantities must be whole numbers.');
+      return setBookingError('Enter laundry weight up to 500 kg. Load and piece quantities must be whole numbers.');
     }
-    if (pickupAt && new Date(pickupAt) <= new Date()) return setError('Choose a future schedule or remove the suggested time.');
-    if (['pickup_delivery', 'dropoff_delivery'].includes(fulfillment) && !deliveryAvailable) return setError('Delivery is available only in San Jose, San Manuel, and Balingcanaway, Tarlac. Choose Drop-off & Pick-up at the shop for other locations.');
-    if (fulfillment !== 'dropoff_pickup' && !deliveryAddress.trim()) return setError('Add an address to your profile and pin its location before booking delivery.');
+    if (pickupAt && new Date(pickupAt) <= new Date()) return setBookingError('Choose a future schedule or remove the suggested time.');
+    if (['pickup_delivery', 'dropoff_delivery'].includes(fulfillment) && !deliveryAvailable) return setBookingError('Delivery is available only in San Jose, San Manuel, and Balingcanaway, Tarlac. Choose Drop-off & Pick-up at the shop for other locations.');
+    if (fulfillment !== 'dropoff_pickup' && !deliveryAddress.trim()) return setBookingError('Add an address to your profile before booking delivery.');
     if (paymentMethod === 'gcash') {
-      if (!gcashInfo?.configured) return setError('The shop has not configured GCash payments yet.');
-      if (gcashReference.trim().length < 6) return setError('Enter the GCash reference from your completed transfer.');
+      if (!gcashInfo?.configured) return setBookingError('The shop has not configured GCash payments yet.');
+      if (gcashReference.trim().length < 6) return setBookingError('Enter the GCash reference from your completed transfer.');
     }
     bookingBusy.current = true;
     setSending(true);
     setError('');
     try {
       const result = await apiRequest(apiBase, 'tickets.php', {
-        method: 'POST', token, timeoutMs: 20000,
+        method: 'POST', token, timeoutMs: 30000,
         body: {
           services: chosen,
           fulfillment_type: fulfillment,
@@ -1065,14 +1060,15 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
       setPickupAt(null);
       setPaymentMethod('cash_on_handoff');
       setGcashReference('');
-      await loadShopData(true);
+      void loadShopData(true);
       setReviewComment('');
+      setReviewRating(0);
       setReviewError('');
       setReviewPrompt(result.ticket?.id ? { id: Number(result.ticket.id), number: result.ticket.ticket_number || result.ticket.order_number } : null);
       navigateTo('track', result.ticket?.ticket_number || result.ticket?.order_number);
     } catch (problem) {
       if (problem.status === 401 || problem.status === 403) await onSessionExpired();
-      setError((problem.message || 'Could not submit the booking.') + ' Your form has been kept.');
+      setBookingError((problem.message || 'Could not submit the booking.') + ' Your selections are still here. Please review the details and try again.');
     } finally {
       bookingBusy.current = false;
       setSending(false);
@@ -1193,7 +1189,7 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
             </ScrollView>
             <View style={styles.serviceRuleNote}>
               <Text style={styles.serviceRuleTitle}>Choose one main laundry service</Text>
-              <Text style={styles.serviceRuleCopy}>Wash and Dry are ₱85 per load, up to 7 kg each. Full Service is ₱199 up to 7 kg and ₱238 at 8 kg. Above 8 kg is counted as separate ₱199 loads (9 kg = ₱398). Downy and Surf add ₱21 each per load.</Text>
+              <Text style={styles.serviceRuleCopy}>Wash and Dry are ₱85 per load, up to 7 kg each. Full Service is ₱199 up to 7 kg and ₱238 at 8 kg. Above 8 kg is counted as separate ₱199 loads (9 kg = ₱398). Fabcon (Downy) and Detergent (Surf) are ₱21 each per load.</Text>
             </View>
 
             {loading && !services.length ? (
@@ -1283,6 +1279,7 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
               <Text style={styles.panelTitle}>Special instructions</Text>
               <TextInput value={notes} onChangeText={(value) => setNotes(value.slice(0, 255))} multiline maxLength={255} placeholder="Add a note for the shop (optional)" placeholderTextColor="#a59ba5" style={styles.notesInput} />
               <Text style={styles.noteCount}>{notes.length}/255</Text>
+              {bookingError ? <Text accessibilityRole="alert" style={styles.errorBox}>{bookingError}</Text> : null}
               <View style={styles.estimateRow}><Text style={styles.estimateLabel}>Estimated total</Text><Text style={styles.estimateValue}>{money(estimate)}</Text></View>
               <Pressable onPress={bookService} disabled={sending || estimate <= 0 || (fulfillment !== 'dropoff_pickup' && !deliveryAvailable) || (paymentMethod === 'gcash' && gcashReference.trim().length < 6)} style={[styles.bookButton, (sending || estimate <= 0 || (fulfillment !== 'dropoff_pickup' && !deliveryAvailable) || (paymentMethod === 'gcash' && gcashReference.trim().length < 6)) && styles.bookButtonDisabled]}>
                 {sending ? <ActivityIndicator color={COLORS.white} /> : <Text style={styles.bookButtonText}>Book Service</Text>}
@@ -1320,17 +1317,6 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
               <View style={styles.aboutCard}><Text style={styles.aboutIcon}>☎️</Text><Text style={styles.aboutTitle}>Contact us</Text><Text style={styles.aboutText}>0918-967-9623</Text></View>
               <View style={styles.aboutCard}><Text style={styles.aboutIcon}>✅</Text><Text style={styles.aboutTitle}>Shop confirmed</Text><Text style={styles.aboutText}>The shop confirms the final service, price, and schedule.</Text></View>
               <View style={styles.aboutCard}><Text style={styles.aboutIcon}>📱</Text><Text style={styles.aboutTitle}>Track online</Text><Text style={styles.aboutText}>Follow the latest status of every service ticket.</Text></View>
-            </View>
-            <View style={styles.reviewsSection}>
-              <Text style={styles.reviewsHeading}>Customer reviews</Text>
-              <Text style={styles.reviewsIntro}>Five-star feedback from Pia's Laundry Shop customers.</Text>
-              {publicReviews.length ? publicReviews.map((review) => (
-                <View key={review.id} style={styles.reviewCard}>
-                  <View style={styles.reviewHeader}><Text style={styles.reviewName}>{review.customer_name || 'Customer'}</Text><Text style={styles.reviewStars}>{'★★★★★'}</Text></View>
-                  {review.comment ? <Text style={styles.reviewComment}>{review.comment}</Text> : <Text style={styles.reviewCommentMuted}>No comment left.</Text>}
-                  <Text style={styles.reviewDate}>{review.created_at || ''}</Text>
-                </View>
-              )) : <View style={styles.reviewCard}><Text style={styles.reviewCommentMuted}>No five-star reviews yet.</Text></View>}
             </View>
           </View>
         </ScrollView>
@@ -1377,12 +1363,12 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
       <Modal transparent visible={Boolean(reviewPrompt)} animationType="fade" onRequestClose={() => setReviewPrompt(null)}>
         <View style={styles.modalShade}><View style={styles.modalCard}>
           <Pressable accessibilityRole="button" accessibilityLabel="Close review" disabled={reviewSaving} onPress={() => setReviewPrompt(null)} style={styles.reviewClose}><Text style={styles.reviewCloseText}>×</Text></Pressable>
-          <Text style={styles.modalTitle}>How was your booking?</Text>
+          <Text style={styles.modalTitle}>How was your service?</Text>
           <Text style={styles.modalCopy}>Rate your booking experience for {reviewPrompt?.number || 'this ticket'}. You can close this if you do not want to review.</Text>
-          <View style={styles.reviewRatingRow}><Text style={styles.reviewRatingStars}>{'★★★★★'}</Text><Text style={styles.reviewRatingLabel}>5 stars</Text></View>
+          <View style={styles.reviewRatingRow}>{[1, 2, 3, 4, 5].map((rating) => <Pressable key={rating} accessibilityRole="radio" accessibilityState={{ checked: reviewRating === rating }} accessibilityLabel={String(rating) + ' stars'} disabled={reviewSaving} onPress={() => setReviewRating(rating)} style={styles.reviewStarButton}><Text style={[styles.reviewRatingStars, rating <= reviewRating && styles.reviewStarSelected]}>{rating <= reviewRating ? '★' : '☆'}</Text></Pressable>)}<Text style={styles.reviewRatingLabel}>{reviewRating > 0 ? reviewRating + ' out of 5 stars' : 'Tap a star to rate'}</Text></View>
           <TextInput value={reviewComment} onChangeText={setReviewComment} maxLength={1000} multiline placeholder="Comment (optional)" placeholderTextColor="#a59ba5" style={styles.reviewInput} editable={!reviewSaving} />
           {reviewError ? <Text style={styles.errorBox}>{reviewError}</Text> : null}
-          <Pressable disabled={reviewSaving} onPress={submitReview} style={[styles.primaryButton, reviewSaving && styles.disabledButton]}>{reviewSaving ? <ActivityIndicator color={COLORS.white} /> : <Text style={styles.primaryButtonText}>Submit 5-star review</Text>}</Pressable>
+          <Pressable disabled={reviewSaving || reviewRating < 1} onPress={submitReview} style={[styles.primaryButton, reviewSaving && styles.disabledButton]}>{reviewSaving ? <ActivityIndicator color={COLORS.white} /> : <Text style={styles.primaryButtonText}>Submit rating</Text>}</Pressable>
           <Pressable disabled={reviewSaving} onPress={() => setReviewPrompt(null)} style={styles.secondaryButton}><Text style={styles.secondaryButtonText}>Close</Text></Pressable>
         </View></View>
       </Modal>
@@ -1919,8 +1905,10 @@ const styles = StyleSheet.create({
   reviewDate: { color: '#9c8f9d', fontSize: 10, marginTop: 8 },
   reviewClose: { position: 'absolute', right: 3, top: 0, zIndex: 1, paddingHorizontal: 10, paddingVertical: 3 },
   reviewCloseText: { color: COLORS.muted, fontSize: 26, fontWeight: '700' },
-  reviewRatingRow: { alignItems: 'center', marginVertical: 12, gap: 3 },
-  reviewRatingStars: { color: '#e2b348', fontSize: 35, letterSpacing: 3 },
+  reviewRatingRow: { flexDirection: 'row', justifyContent: 'center', flexWrap: 'wrap', alignItems: 'center', marginVertical: 12, gap: 4 },
+  reviewStarButton: { paddingHorizontal: 2, paddingVertical: 4 },
+  reviewStarSelected: { color: '#e2b348' },
+  reviewRatingStars: { color: '#b8acb9', fontSize: 35, letterSpacing: 3 },
   reviewRatingLabel: { color: COLORS.plum, fontSize: 13, fontWeight: '800' },
   reviewInput: { minHeight: 90, maxHeight: 150, textAlignVertical: 'top', color: COLORS.ink, backgroundColor: '#fffdf9', borderColor: '#d0c3d1', borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 12 },
   aboutGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },

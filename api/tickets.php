@@ -50,8 +50,8 @@ if ($dbIds) {
     }
 }
 $addonCatalog = [
-    -1 => ['id' => -1, 'name' => 'Downy', 'category' => 'Add-ons', 'unit' => 'load', 'price' => 21.00],
-    -2 => ['id' => -2, 'name' => 'Surf', 'category' => 'Add-ons', 'unit' => 'load', 'price' => 21.00],
+    -1 => ['id' => -1, 'name' => 'Fabcon (Downy)', 'category' => 'Add-ons', 'unit' => 'load', 'price' => 21.00],
+    -2 => ['id' => -2, 'name' => 'Detergent (Surf)', 'category' => 'Add-ons', 'unit' => 'load', 'price' => 21.00],
 ];
 foreach ($ids as $id) if ((int)$id < 0 && isset($addonCatalog[(int)$id])) $serviceMap[(int)$id] = $addonCatalog[(int)$id];
 if (count($serviceMap) !== count($ids)) mobile_booking_json(422, ['success' => false, 'error' => 'One or more selected services are unavailable. Refresh the service list and try again.']);
@@ -81,7 +81,7 @@ if (count($coreServices) > 1) {
 
 $hasAddons = count(array_filter($ids, static fn ($id) => (int)$id < 0)) > 0;
 if ($hasAddons && (count($coreServices) !== 1 || $expectedAddonLoads < 1)) {
-    mobile_booking_json(422, ['success' => false, 'error' => 'Choose one main laundry service before adding Downy or Surf.']);
+    mobile_booking_json(422, ['success' => false, 'error' => 'Choose one main laundry service before adding Fabcon or Detergent.']);
 }
 
 $lines = [];
@@ -94,7 +94,7 @@ foreach ($quantities as $serviceId => $quantity) {
         || in_array($name, ['wash', 'dry', 'full service'], true);
     if ((int)$serviceId < 0) {
         if (array_key_exists($serviceId, $weights) || (float)$quantity !== (float)$expectedAddonLoads) {
-            mobile_booking_json(422, ['success' => false, 'error' => 'Downy and Surf quantities must match the number of laundry loads. Refresh the estimate and try again.']);
+            mobile_booking_json(422, ['success' => false, 'error' => 'Fabcon and Detergent quantities must match the number of laundry loads. Refresh the estimate and try again.']);
         }
         $lineTotal = round((float)$service['price'] * $quantity, 2);
         $subtotal += $lineTotal;
