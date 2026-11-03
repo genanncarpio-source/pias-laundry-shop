@@ -51,6 +51,14 @@ export async function hasDismissedReviewPrompt(customerId) {
 export function dismissReviewPrompt(customerId) {
   return set(reviewPromptDismissalKey(customerId), '1');
 }
+const hiddenTicketIdsKey = (customerId) => 'pias_hidden_track_tickets_' + String(customerId);
+export async function readHiddenTicketIds(customerId) {
+  const raw = await get(hiddenTicketIdsKey(customerId));
+  try { const ids = JSON.parse(raw || '[]'); return Array.isArray(ids) ? ids.map(String) : []; } catch { return []; }
+}
+export async function saveHiddenTicketIds(customerId, ticketIds) {
+  return set(hiddenTicketIdsKey(customerId), JSON.stringify([...new Set(ticketIds.map(String))]));
+}
 
 export function saveVerifiedSession(apiBase, token, customer, options = {}) {
   const started = generation;

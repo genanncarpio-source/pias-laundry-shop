@@ -52,7 +52,21 @@ $isNew = isset($_GET['new']);
 
   <div class="rc-line"><span>Order #:</span><span><?= e($order['order_number']) ?></span></div>
   <div class="rc-line"><span>Date:</span><span><?= e(date('M j, Y g:i A', strtotime($order['created_at']))) ?></span></div>
-  <div class="rc-line"><span>Type:</span><span><?= $order['order_type'] === 'drop_off' ? 'Drop-off' : 'Walk-in' ?></span></div>
+  <?php
+    $handoffType = (string)($order['handoff_type'] ?? '');
+    $receiptType = match ($handoffType) {
+      'pickup_delivery' => 'Pickup & Delivery',
+      'dropoff_delivery' => 'Drop-off & Delivery',
+      'dropoff_pickup' => 'Drop-off & Pick-up',
+      default => match ((string)$order['order_type']) {
+        'pickup_request' => 'Pick-up Request',
+        'delivery_request' => 'Delivery Request',
+        'drop_off' => 'Drop-off',
+        default => 'Walk-in',
+      },
+    };
+  ?>
+  <div class="rc-line"><span>Type:</span><span><?= e($receiptType) ?></span></div>
   <?php if ($order['customer_name']): ?>
     <div class="rc-line"><span>Customer:</span><span><?= e($order['customer_name']) ?></span></div>
   <?php endif; ?>

@@ -2,7 +2,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useLocalSearchParams, usePathname, useRouter } from 'expo-router';
 import Constants from 'expo-constants';
 import { apiRequest } from './src/api';
-import { readSession, readLegacyToken, saveVerifiedSession, clearSession, getActiveSession, hasDismissedReviewPrompt, dismissReviewPrompt } from './src/session';
+import { readSession, readLegacyToken, saveVerifiedSession, clearSession, getActiveSession, hasDismissedReviewPrompt, dismissReviewPrompt, readHiddenTicketIds, saveHiddenTicketIds } from './src/session';
 import { useOnlineShop } from './src/useOnlineShop';
 import * as Location from 'expo-location';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -709,7 +709,7 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
     : pathname === '/about' ? 'about'
     : pathname === '/profile' ? 'profile'
     : 'home';
-  const { services, tickets, payment: gcashInfo, loading, refreshing,
+  const { services, tickets, loading, refreshing,
     error, setError, refresh: loadShopData } = useOnlineShop({ apiBase, customer, token, onSessionExpired });
   const bookingBusy = useRef(false);
   const [bookingError, setBookingError] = useState('');
@@ -721,6 +721,9 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
   const [reviewAvailability, setReviewAvailability] = useState(null);
   const [reviewAvailabilityLoading, setReviewAvailabilityLoading] = useState(false);
   const [reviewAvailabilityError, setReviewAvailabilityError] = useState('');
+  const [hiddenTicketIds, setHiddenTicketIds] = useState([]);
+  const [hiddenTicketIdsLoading, setHiddenTicketIdsLoading] = useState(true);
+  const [transactionDetail, setTransactionDetail] = useState(null);
   const [quantities, setQuantities] = useState({});
   const [filter, setFilter] = useState('All');
   const [search, setSearch] = useState('');
@@ -744,8 +747,6 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
   const [sending, setSending] = useState(false);
   const [locationBusy, setLocationBusy] = useState({});
   const [locationError, setLocationError] = useState({});
-  const [paymentMethod, setPaymentMethod] = useState('cash_on_handoff');
-  const [gcashReference, setGcashReference] = useState('');
   const [retryReferences, setRetryReferences] = useState({});
   const [retryBusy, setRetryBusy] = useState({});
   const [editingLocation, setEditingLocation] = useState(false);
@@ -763,6 +764,14 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
   const [profileDetailsSaving, setProfileDetailsSaving] = useState(false);
   const [profileDetailsError, setProfileDetailsError] = useState('');
   const toast = typeof params.booking === 'string' && params.booking ? 'Booking submitted. Ticket ' + params.booking : '';
+  const trackTickets = tickets.filter((ticket) => !hiddenTicketIds.includes(String(ticket.id || ticket.order_number)));
+
+  useEffect(() => {
+    let active = true;
+    setHiddenTicketIdsLoading(true);
+    readHiddenTicketIds(customer.id).then((ids) => { if (active) setHiddenTicketIds(ids); }).catch(() => {}).finally(() => { if (active) setHiddenTicketIdsLoading(false); });
+    return () => { active = false; };
+  }, [customer.id]);
 
   useEffect(() => {
     if (tab !== 'about') return undefined;
@@ -903,6 +912,17 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
     }
     const paths = { home: '/', track: '/track', offers: '/offers', about: '/about', profile: '/profile' };
     router.replace(paths[nextTab] || '/');
+  };
+  const clearTrackTickets = async () => {
+    const clearedIds = trackTickets.map((ticket) => String(ticket.id || ticket.order_number));
+    const nextIds = [...new Set([...hiddenTicketIds, ...clearedIds])];
+    try {
+      await saveHiddenTicketIds(customer.id, nextIds);
+      setHiddenTicketIds(nextIds);
+      setError('');
+    } catch (_storageError) {
+      setError('Could not clear the Track list. Please try again.');
+    }
   };
 
 
@@ -1053,10 +1073,6 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
     if (pickupAt && new Date(pickupAt) <= new Date()) return setBookingError('Choose a future schedule or remove the suggested time.');
     if (['pickup_delivery', 'dropoff_delivery'].includes(fulfillment) && !deliveryAvailable) return setBookingError('Delivery is available only in San Jose, San Manuel, and Balingcanaway, Tarlac. Choose Drop-off & Pick-up at the shop for other locations.');
     if (fulfillment !== 'dropoff_pickup' && !deliveryAddress.trim()) return setBookingError('Add an address to your profile before booking delivery.');
-    if (paymentMethod === 'gcash') {
-      if (!gcashInfo?.configured) return setBookingError('The shop has not configured GCash payments yet.');
-      if (gcashReference.trim().length < 6) return setBookingError('Enter the GCash reference from your completed transfer.');
-    }
     bookingBusy.current = true;
     setSending(true);
     setError('');
@@ -1070,18 +1086,12 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
           expected_pickup: pickupAt,
           notes: notes.trim(),
           quoted_total: Number(serviceSubtotal.toFixed(2)),
-          payment_method: paymentMethod,
-          ...(paymentMethod === 'gcash' ? {
-            payment_amount: Number(estimate.toFixed(2)),
-            payment_reference: gcashReference.trim(),
-          } : {}),
+          payment_method: 'cash_on_handoff',
         },
       });
       setQuantities({});
       setNotes('');
       setPickupAt(null);
-      setPaymentMethod('cash_on_handoff');
-      setGcashReference('');
       void loadShopData(true);
       setReviewComment('');
       setReviewRating(0);
@@ -1243,15 +1253,15 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
               <Text style={styles.panelTitle}>Service handoff</Text>
               <View style={[styles.deliveryRestriction, deliveryAvailable && styles.deliveryRestrictionAvailable]}><Text style={[styles.deliveryRestrictionTitle, deliveryAvailable && styles.deliveryRestrictionTitleAvailable]}>{deliveryAvailable ? 'Pickup and delivery available' : 'Delivery unavailable at this location'}</Text><Text style={[styles.deliveryRestrictionCopy, deliveryAvailable && styles.deliveryRestrictionCopyAvailable]}>{deliveryAvailable ? 'Free pickup and delivery are available in San Jose, San Manuel, and Balingcanaway, Tarlac.' : 'Pickup and delivery are available only in San Jose, San Manuel, and Balingcanaway, Tarlac. For other locations, choose Drop-off & Pick-up and bring your laundry to the shop.'}</Text></View>
               <View style={styles.handoffChoices}>
-                <Pressable disabled={!deliveryAvailable} onPress={() => { setFulfillment('pickup_delivery'); setPaymentMethod('cash_on_handoff'); }} style={[styles.handoffCard, fulfillment === 'pickup_delivery' && styles.handoffCardActive, !deliveryAvailable && styles.handoffCardDisabled]}>
+                <Pressable disabled={!deliveryAvailable} onPress={() => { setFulfillment('pickup_delivery'); }} style={[styles.handoffCard, fulfillment === 'pickup_delivery' && styles.handoffCardActive, !deliveryAvailable && styles.handoffCardDisabled]}>
                   <Text style={styles.handoffIcon}>🚚</Text>
                   <View style={styles.flexOne}><Text style={[styles.handoffTitle, fulfillment === 'pickup_delivery' && styles.handoffTitleActive]}>Pickup & Delivery</Text><Text style={[styles.handoffCopy, fulfillment === 'pickup_delivery' && styles.handoffCopyActive]}>Driver collects your laundry and returns it after service.</Text></View>
                 </Pressable>
-                <Pressable disabled={!deliveryAvailable} onPress={() => { setFulfillment('dropoff_delivery'); setPaymentMethod('cash_on_handoff'); }} style={[styles.handoffCard, fulfillment === 'dropoff_delivery' && styles.handoffCardActive, !deliveryAvailable && styles.handoffCardDisabled]}>
+                <Pressable disabled={!deliveryAvailable} onPress={() => { setFulfillment('dropoff_delivery'); }} style={[styles.handoffCard, fulfillment === 'dropoff_delivery' && styles.handoffCardActive, !deliveryAvailable && styles.handoffCardDisabled]}>
                   <Text style={styles.handoffIcon}>🏪</Text>
                   <View style={styles.flexOne}><Text style={[styles.handoffTitle, fulfillment === 'dropoff_delivery' && styles.handoffTitleActive]}>Drop-off & Delivery</Text><Text style={[styles.handoffCopy, fulfillment === 'dropoff_delivery' && styles.handoffCopyActive]}>Bring laundry to the shop; a driver returns it when done.</Text></View>
                 </Pressable>
-                <Pressable onPress={() => { setFulfillment('dropoff_pickup'); setPaymentMethod('cash_on_handoff'); }} style={[styles.handoffCard, fulfillment === 'dropoff_pickup' && styles.handoffCardActive]}>
+                <Pressable onPress={() => { setFulfillment('dropoff_pickup'); }} style={[styles.handoffCard, fulfillment === 'dropoff_pickup' && styles.handoffCardActive]}>
                   <Text style={styles.handoffIcon}>🧺</Text>
                   <View style={styles.flexOne}><Text style={[styles.handoffTitle, fulfillment === 'dropoff_pickup' && styles.handoffTitleActive]}>Drop-off & Pick-up</Text><Text style={[styles.handoffCopy, fulfillment === 'dropoff_pickup' && styles.handoffCopyActive]}>Bring laundry to the shop and collect it when it is ready.</Text></View>
                 </Pressable>
@@ -1283,27 +1293,10 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
 
             <View style={styles.paymentPanel}>
               <Text style={styles.panelTitle}>Payment method</Text>
-              <View style={styles.fulfillmentRow}>
-                <Pressable onPress={() => setPaymentMethod('cash_on_handoff')} style={[styles.fulfillmentChoice, paymentMethod === 'cash_on_handoff' && styles.fulfillmentChoiceActive]}>
-                  <Text style={[styles.fulfillmentChoiceText, paymentMethod === 'cash_on_handoff' && styles.fulfillmentChoiceTextActive]}>{fulfillment === 'pickup_delivery' ? 'Pay driver upon pickup' : 'Pay at shop upon drop-off'}</Text>
-                </Pressable>
-                <Pressable disabled={!gcashInfo?.configured} onPress={() => setPaymentMethod('gcash')} style={[styles.fulfillmentChoice, paymentMethod === 'gcash' && styles.fulfillmentChoiceActive, !gcashInfo?.configured && styles.disabledButton]}>
-                  <Text style={[styles.fulfillmentChoiceText, paymentMethod === 'gcash' && styles.fulfillmentChoiceTextActive]}>GCash transfer</Text>
-                </Pressable>
+              <View style={[styles.fulfillmentChoice, styles.fulfillmentChoiceActive]}>
+                <Text style={[styles.fulfillmentChoiceText, styles.fulfillmentChoiceTextActive]}>{fulfillment === 'pickup_delivery' ? 'Pay driver upon pickup' : fulfillment === 'dropoff_delivery' ? 'Pay at shop upon drop-off' : 'Pay at shop when you drop off'}</Text>
               </View>
-              {gcashInfo?.configured ? (paymentMethod === 'gcash' ? (
-                <View style={styles.gcashDetails}>
-                  <Text style={styles.gcashInstruction}>Transfer the exact amount below to the Admin GCash account. Then enter the reference from your completed transfer. The shop must verify it before processing your order.</Text>
-                  <Text style={styles.gcashAccount}>Account name: {gcashInfo.account_name}</Text>
-                  <Text style={styles.gcashAccount}>GCash number: {gcashInfo.number}</Text>
-                  {gcashInfo.qr_path ? <Image accessibilityLabel="Admin GCash QR code" source={{ uri: normalizeApiUrl(apiBase).replace('/api', '') + '/' + gcashInfo.qr_path }} resizeMode="contain" style={styles.gcashQr} /> : null}
-                  <View style={styles.gcashAmountRow}><Text style={styles.gcashAccount}>Transfer amount</Text><Text style={styles.gcashAmount}>{money(estimate)}</Text></View>
-                  <Text style={styles.addressLabel}>GCash reference number</Text>
-                  <TextInput value={gcashReference} onChangeText={setGcashReference} maxLength={120} autoCapitalize="characters" placeholder="Enter the completed transfer reference" placeholderTextColor="#a59ba5" style={styles.deliveryAddressInput} />
-                </View>
-              ) : <Text style={styles.addressHelp}>Pay during the initial laundry handoff after the shop confirms your request.</Text>) : (
-                <Text style={styles.addressHelp}>The shop has not added its GCash account yet. Payment during handoff is available.</Text>
-              )}
+              <Text style={styles.addressHelp}>Pay during the initial laundry handoff after the shop confirms your request.</Text>
             </View>
 
             <View style={styles.notesPanel}>
@@ -1312,7 +1305,7 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
               <Text style={styles.noteCount}>{notes.length}/255</Text>
               {bookingError ? <Text accessibilityRole="alert" style={styles.errorBox}>{bookingError}</Text> : null}
               <View style={styles.estimateRow}><Text style={styles.estimateLabel}>Estimated total</Text><Text style={styles.estimateValue}>{money(estimate)}</Text></View>
-              <Pressable onPress={bookService} disabled={sending || estimate <= 0 || (fulfillment !== 'dropoff_pickup' && !deliveryAvailable) || (paymentMethod === 'gcash' && gcashReference.trim().length < 6)} style={[styles.bookButton, (sending || estimate <= 0 || (fulfillment !== 'dropoff_pickup' && !deliveryAvailable) || (paymentMethod === 'gcash' && gcashReference.trim().length < 6)) && styles.bookButtonDisabled]}>
+              <Pressable onPress={bookService} disabled={sending || estimate <= 0 || (fulfillment !== 'dropoff_pickup' && !deliveryAvailable)} style={[styles.bookButton, (sending || estimate <= 0 || (fulfillment !== 'dropoff_pickup' && !deliveryAvailable)) && styles.bookButtonDisabled]}>
                 {sending ? <ActivityIndicator color={COLORS.white} /> : <Text style={styles.bookButtonText}>Book Service</Text>}
               </Pressable>
               <Text style={styles.estimateNote}>This is an estimate. The shop will confirm your service, price, and handoff and final delivery schedule.</Text>
@@ -1325,13 +1318,16 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
             <HeroBanner compact />
             <View style={styles.ticketHeadingRow}>
               <View><Text style={styles.greeting}>My service tickets</Text><Text style={styles.welcomeCopy}>Track the status of your laundry bookings.</Text></View>
-              <Pressable accessibilityRole="button" accessibilityLabel="Refresh" disabled={refreshing} onPress={() => loadShopData()} style={[styles.refreshButton, refreshing && styles.disabledButton]}>{refreshing ? <ActivityIndicator color={COLORS.purple} size="small" /> : <Text style={styles.refreshText}>↻</Text>}</Pressable>
+              <View style={styles.trackTools}>
+                <Pressable accessibilityRole="button" accessibilityLabel="Refresh" disabled={refreshing} onPress={() => loadShopData()} style={[styles.refreshButton, refreshing && styles.disabledButton]}>{refreshing ? <ActivityIndicator color={COLORS.purple} size="small" /> : <Text style={styles.refreshText}>↻</Text>}</Pressable>
+                <Pressable accessibilityRole="button" disabled={hiddenTicketIdsLoading || trackTickets.length === 0} onPress={() => { void clearTrackTickets(); }} style={[styles.clearTicketsButton, (hiddenTicketIdsLoading || trackTickets.length === 0) && styles.disabledButton]}><Text style={styles.clearTicketsText}>Clear</Text></Pressable>
+              </View>
             </View>
             {toast ? <Text style={styles.successBox}>{toast}</Text> : null}
             {error ? <Text style={styles.errorBox}>{error}</Text> : null}
             {loading ? <View style={styles.inlineLoading}><ActivityIndicator color={COLORS.purple} /><Text style={styles.mutedText}>Loading your tickets…</Text></View> : null}
-            {!loading && tickets.length === 0 ? <View style={styles.emptyCard}><Text style={styles.emptyEmoji}>📋</Text><Text style={styles.emptyTitle}>No service tickets yet</Text><Text style={styles.mutedText}>Your bookings will appear here after you book a service.</Text><Pressable onPress={() => navigateTo('offers')} style={styles.smallPrimary}><Text style={styles.smallPrimaryText}>Browse services</Text></Pressable></View> : null}
-            {tickets.map((ticket) => <TicketCard key={ticket.id || ticket.order_number} ticket={ticket} onShareLocation={() => updateCustomerLocation(ticket, 'share')} onRevokeLocation={() => updateCustomerLocation(ticket, 'revoke')} locationBusy={Boolean(locationBusy[String(ticket.id)])} locationError={locationError[String(ticket.id)]} retryReference={retryReferences[String(ticket.id)] || ''} onRetryReferenceChange={(value) => setRetryReferences((current) => ({ ...current, [String(ticket.id)]: value }))} onResubmitGcash={() => resubmitGcashReference(ticket)} retryBusy={Boolean(retryBusy[String(ticket.id)])} />)}
+            {!loading && trackTickets.length === 0 ? <View style={styles.emptyCard}><Text style={styles.emptyEmoji}>📋</Text><Text style={styles.emptyTitle}>{tickets.length ? 'Track list cleared' : 'No service tickets yet'}</Text><Text style={styles.mutedText}>{tickets.length ? 'Your recent transactions are still available in Profile.' : 'Your bookings will appear here after you book a service.'}</Text>{!tickets.length ? <Pressable onPress={() => navigateTo('offers')} style={styles.smallPrimary}><Text style={styles.smallPrimaryText}>Browse services</Text></Pressable> : <Pressable onPress={() => navigateTo('profile')} style={styles.smallPrimary}><Text style={styles.smallPrimaryText}>Open transaction history</Text></Pressable>}</View> : null}
+            {trackTickets.map((ticket) => <TicketCard key={ticket.id || ticket.order_number} ticket={ticket} onShareLocation={() => updateCustomerLocation(ticket, 'share')} onRevokeLocation={() => updateCustomerLocation(ticket, 'revoke')} locationBusy={Boolean(locationBusy[String(ticket.id)])} locationError={locationError[String(ticket.id)]} retryReference={retryReferences[String(ticket.id)] || ''} onRetryReferenceChange={(value) => setRetryReferences((current) => ({ ...current, [String(ticket.id)]: value }))} onResubmitGcash={() => resubmitGcashReference(ticket)} retryBusy={Boolean(retryBusy[String(ticket.id)])} />)}
           </View>
         </ScrollView>
       ) : tab === 'about' ? (
@@ -1373,6 +1369,11 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
               <ProfileRow icon={String.fromCodePoint(0x260E)} label="Phone number" value={customer.phone} editable editing={profileDetailsEditing === 'phone'} draft={profilePhoneDraft} onChangeDraft={(value) => setProfilePhoneDraft(value.replace(/[^0-9]/g, '').slice(0, 11))} keyboardType="phone-pad" onEdit={() => { setProfilePhoneDraft(customer.phone || ''); setProfileDetailsError(''); setProfileDetailsEditing('phone'); }} onSave={() => saveProfileDetail('phone')} onCancel={() => setProfileDetailsEditing('')} saving={profileDetailsSaving} />
               <ProfileRow icon={String.fromCodePoint(0x1F4CD)} label="Delivery address" value={customer.address} last />
             </View>
+            <View style={styles.transactionHistoryCard}>
+              <Text style={[styles.profileLocationTitle, styles.transactionHistoryTitle]}>Recent transaction history</Text>
+              <Text style={[styles.profileLocationCopy, styles.transactionHistoryCopy]}>Your latest bookings stay here even after clearing the Track list.</Text>
+              {tickets.length ? tickets.slice(0, 10).map((ticket) => <TransactionHistoryRow key={ticket.id || ticket.order_number} ticket={ticket} onView={() => setTransactionDetail(ticket)} />) : <Text style={styles.mutedText}>No transactions yet.</Text>}
+            </View>
             {profileDetailsError ? <Text style={styles.errorBox}>{profileDetailsError}</Text> : null}
             <View style={styles.profileLocationCard}>
               <Text style={styles.profileLocationTitle}>Address and saved location</Text>
@@ -1411,7 +1412,41 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
           <Pressable disabled={reviewSaving} onPress={closeReviewPrompt} style={styles.secondaryButton}><Text style={styles.secondaryButtonText}>Close</Text></Pressable>
         </View></View>
       </Modal>
-      <Modal transparent visible={profilePhotoPickerVisible} animationType="fade" onRequestClose={() => setProfilePhotoPickerVisible(false)}>
+      <Modal transparent visible={Boolean(transactionDetail)} animationType="fade" onRequestClose={() => setTransactionDetail(null)}>
+        <View style={styles.modalShade}>
+          <View style={[styles.modalCard, styles.transactionDetailModal]}>
+            <View style={styles.transactionDetailHeader}>
+              <View style={{ flex: 1 }}><Text style={styles.modalTitle}>Transaction details</Text><Text style={styles.modalCopy}>{transactionDetail?.order_number || ''}</Text></View>
+              <Pressable accessibilityRole="button" accessibilityLabel="Close transaction details" onPress={() => setTransactionDetail(null)} style={styles.reviewClose}><Text style={styles.reviewCloseText}>×</Text></Pressable>
+            </View>
+            {transactionDetail ? <ScrollView style={styles.transactionDetailScroll} contentContainerStyle={{ paddingBottom: 8 }}>
+              <View style={styles.transactionDetailSection}>
+                <Text style={styles.transactionDetailLabel}>Status</Text><Text style={styles.transactionDetailValue}>{statusLabel(transactionDetail.status)}</Text>
+                <Text style={styles.transactionDetailLabel}>Booked</Text><Text style={styles.transactionDetailValue}>{formatDate(transactionDetail.created_at)}</Text>
+                <Text style={styles.transactionDetailLabel}>Handoff</Text><Text style={styles.transactionDetailValue}>{transactionDetail.handoff_type === 'pickup_delivery' ? 'Pickup & Delivery' : transactionDetail.handoff_type === 'dropoff_delivery' ? 'Drop-off & Delivery' : 'Drop-off & Pick-up'}</Text>
+                {transactionDetail.expected_pickup ? <><Text style={styles.transactionDetailLabel}>Preferred schedule</Text><Text style={styles.transactionDetailValue}>{formatDate(transactionDetail.expected_pickup)}</Text></> : null}
+                {transactionDetail.delivery_address ? <><Text style={styles.transactionDetailLabel}>Delivery address</Text><Text style={styles.transactionDetailValue}>{transactionDetail.delivery_address}</Text></> : null}
+              </View>
+              <View style={styles.transactionDetailSection}>
+                <Text style={styles.transactionDetailHeading}>Services</Text>
+                {(transactionDetail.services || []).map((line, index) => <View key={String(line.service_id || line.service_name) + index} style={styles.transactionDetailLine}><Text style={styles.transactionDetailValue}>{line.service_name}{line.estimated_weight_kg ? ' · ' + line.estimated_weight_kg + ' kg' : ''} ({line.quantity} {line.unit})</Text><Text style={styles.transactionDetailValue}>{money(line.subtotal)}</Text></View>)}
+              </View>
+              <View style={styles.transactionDetailSection}>
+                <Text style={styles.transactionDetailHeading}>Payment</Text>
+                <View style={styles.transactionDetailLine}><Text style={styles.transactionDetailValue}>Payment method</Text><Text style={styles.transactionDetailValue}>{transactionDetail.payment_method === 'gcash_pending' ? 'GCash transfer' : 'Pay during handoff'}</Text></View>
+                {transactionDetail.gcash_reference_number ? <><Text style={styles.transactionDetailLabel}>GCash reference</Text><Text style={styles.transactionDetailValue}>{transactionDetail.gcash_reference_number}</Text></> : null}
+                {transactionDetail.gcash_payment_status ? <><Text style={styles.transactionDetailLabel}>GCash status</Text><Text style={styles.transactionDetailValue}>{statusLabel(transactionDetail.gcash_payment_status)}</Text></> : null}
+                <View style={styles.transactionDetailLine}><Text style={styles.transactionDetailValue}>Estimated total</Text><Text style={styles.transactionDetailValue}>{money(transactionDetail.total)}</Text></View>
+                <View style={styles.transactionDetailLine}><Text style={styles.transactionDetailValue}>Amount paid</Text><Text style={styles.transactionDetailValue}>{money(transactionDetail.amount_paid || 0)}</Text></View>
+                <View style={styles.transactionDetailLine}><Text style={styles.transactionDetailValue}>Balance due</Text><Text style={styles.transactionDetailValue}>{money(transactionDetail.balance_due)}</Text></View>
+              </View>
+              {transactionDetail.notes ? <View style={styles.transactionDetailSection}><Text style={styles.transactionDetailHeading}>Note for the shop</Text><Text style={styles.transactionDetailValue}>{transactionDetail.notes}</Text></View> : null}
+              <OrderProgress ticket={transactionDetail} />
+            </ScrollView> : null}
+            <Pressable onPress={() => setTransactionDetail(null)} style={styles.secondaryButton}><Text style={styles.secondaryButtonText}>Close</Text></Pressable>
+          </View>
+        </View>
+      </Modal>      <Modal transparent visible={profilePhotoPickerVisible} animationType="fade" onRequestClose={() => setProfilePhotoPickerVisible(false)}>
         <View style={styles.modalShade}><View style={styles.modalCard}>
           <Text style={styles.modalTitle}>Profile picture</Text><Text style={styles.modalCopy}>Take a new photo or choose one from your gallery.</Text>
           <Pressable disabled={profileDetailsSaving} onPress={() => chooseProfilePhoto('camera')} style={styles.profilePhotoOption}><Text style={styles.profilePhotoOptionText}>📷  Take photo</Text></Pressable>
@@ -1609,6 +1644,23 @@ function OrderProgress({ ticket }) {
     </View>
   );
 }
+function TransactionHistoryRow({ ticket, onView }) {
+  const services = (ticket.services || []).map((line) => line.service_name).filter(Boolean).join(', ') || 'Laundry service';
+  return (
+    <View style={styles.transactionHistoryRow}>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.transactionHistoryNumber}>{ticket.order_number || 'Laundry ticket'}</Text>
+        <Text style={styles.transactionHistoryService} numberOfLines={1}>{services}</Text>
+        <Text style={styles.transactionHistoryDate}>{formatDate(ticket.created_at)}</Text>
+      </View>
+      <View style={styles.transactionHistoryMeta}>
+        <Text style={styles.transactionHistoryStatus}>{statusLabel(ticket.status)}</Text>
+        <Text style={styles.transactionHistoryTotal}>{money(ticket.total)}</Text>
+      </View>
+      <Pressable accessibilityRole="button" accessibilityLabel={'View transaction ' + (ticket.order_number || '')} onPress={onView} style={styles.transactionViewButton}><Text style={styles.transactionViewButtonText}>View</Text></Pressable>
+    </View>
+  );
+}
 function TicketCard({ ticket, onShareLocation, onRevokeLocation, locationBusy, locationError, retryReference, onRetryReferenceChange, onResubmitGcash, retryBusy }) {
   const lines = (ticket.services || []).map((line) => line.estimated_weight_kg
     ? `${line.service_name} (${line.estimated_weight_kg} kg estimated · ${line.quantity} ${line.unit})`
@@ -1802,6 +1854,29 @@ const styles = StyleSheet.create({
   searchIcon: { color: '#d9cadc', fontSize: 26, marginRight: 8 },
   searchInput: { flex: 1, color: COLORS.cream, paddingVertical: 9, fontSize: 14, outlineStyle: 'none' },
   refreshButton: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 15, backgroundColor: '#302734' },
+  trackTools: { alignItems: 'center', gap: 6 },
+  clearTicketsButton: { minWidth: 40, paddingHorizontal: 8, paddingVertical: 6, alignItems: 'center', borderRadius: 10, backgroundColor: '#302734' },
+  clearTicketsText: { color: '#eaddf0', fontSize: 12, fontWeight: '800' },
+  transactionHistoryCard: { backgroundColor: COLORS.darkPanel, borderColor: '#493b4c', borderWidth: 1, borderRadius: 18, padding: 16, marginBottom: 14 },
+  transactionHistoryTitle: { color: COLORS.cream },
+  transactionHistoryCopy: { color: '#d2c7d2', marginTop: 3 },
+  transactionHistoryRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingVertical: 13, borderBottomWidth: 1, borderBottomColor: '#403444' },
+  transactionHistoryNumber: { color: COLORS.cream, fontSize: 13, fontWeight: '800' },
+  transactionHistoryService: { color: '#d2c7d2', fontSize: 12, marginTop: 4 },
+  transactionHistoryDate: { color: '#a99daa', fontSize: 11, marginTop: 3 },
+  transactionHistoryMeta: { alignItems: 'flex-end', gap: 5 },
+  transactionHistoryTotal: { color: COLORS.cream, fontSize: 13, fontWeight: '800' },
+  transactionHistoryStatus: { color: '#d8b8e0', fontSize: 11, fontWeight: '700' },
+  transactionViewButton: { minWidth: 52, paddingHorizontal: 10, paddingVertical: 8, alignItems: 'center', borderRadius: 10, backgroundColor: COLORS.plum },
+  transactionViewButtonText: { color: COLORS.white, fontSize: 12, fontWeight: '800' },
+  transactionDetailModal: { maxHeight: '92%', padding: 16 },
+  transactionDetailHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  transactionDetailScroll: { flexShrink: 1 },
+  transactionDetailSection: { padding: 13, marginBottom: 10, backgroundColor: '#f4edf5', borderRadius: 12, gap: 5 },
+  transactionDetailHeading: { color: COLORS.plum, fontSize: 14, fontWeight: '900', marginBottom: 4 },
+  transactionDetailLabel: { color: COLORS.muted, fontSize: 11, fontWeight: '700', marginTop: 5 },
+  transactionDetailValue: { flexShrink: 1, color: COLORS.ink, fontSize: 13, fontWeight: '600' },
+  transactionDetailLine: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10, paddingVertical: 4 },
   refreshText: { color: '#eaddf0', fontSize: 23, lineHeight: 27 },
   filtersRow: { gap: 8, paddingVertical: 14 },
   filterChip: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 22, borderWidth: 1, borderColor: '#4b414d', backgroundColor: '#211c23' },
