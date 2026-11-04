@@ -1230,7 +1230,7 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
             </ScrollView>
             <View style={styles.serviceRuleNote}>
               <Text style={styles.serviceRuleTitle}>Choose one main laundry service</Text>
-              <Text style={styles.serviceRuleCopy}>Wash and Dry are ₱85 per load, up to 7 kg each. Full Service is ₱199 up to 7 kg and ₱238 at 8 kg. Above 8 kg is counted as separate ₱199 loads (9 kg = ₱398). Fabcon (Downy) and Detergent (Surf) are ₱21 each per load.</Text>
+              <Text style={styles.serviceRuleCopy}>Wash and Dry are ₱85 per load, up to 7 kg each. Full Service is ₱199 up to 7 kg and ₱238 at 8 kg. Above 8 kg is counted as separate ₱199 loads (9 kg = ₱398). Fabcon (Downy) and Detergent (Surf) are ₱10 each per load.</Text>
             </View>
 
             {loading && !services.length ? (

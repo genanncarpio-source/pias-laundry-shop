@@ -3,7 +3,7 @@
     "name": "Pia's Laundry Shop",
     "slug": "pias-laundry-shop-customer",
     "scheme": "piaslaundry",
-    "version": "1.0.8",
+    "version": "1.0.9",
     "orientation": "default",
     "icon": "./assets/pias-logo-app-icon.png",
     "userInterfaceStyle": "dark",
@@ -14,7 +14,7 @@
     "android": {
       "package": "com.piaslaundry.customer",
       "softwareKeyboardLayoutMode": "resize",
-      "versionCode": 9,
+      "versionCode": 10,
       "adaptiveIcon": {
         "backgroundColor": "#FFFFFF",
         "foregroundImage": "./assets/pias-logo-app-icon.png"

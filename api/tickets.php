@@ -50,8 +50,8 @@ if ($dbIds) {
     }
 }
 $addonCatalog = [
-    -1 => ['id' => -1, 'name' => 'Fabcon (Downy)', 'category' => 'Add-ons', 'unit' => 'load', 'price' => 21.00],
-    -2 => ['id' => -2, 'name' => 'Detergent (Surf)', 'category' => 'Add-ons', 'unit' => 'load', 'price' => 21.00],
+    -1 => ['id' => -1, 'name' => 'Fabcon (Downy)', 'category' => 'Add-ons', 'unit' => 'load', 'price' => 10.00],
+    -2 => ['id' => -2, 'name' => 'Detergent (Surf)', 'category' => 'Add-ons', 'unit' => 'load', 'price' => 10.00],
 ];
 foreach ($ids as $id) if ((int)$id < 0 && isset($addonCatalog[(int)$id])) $serviceMap[(int)$id] = $addonCatalog[(int)$id];
 if (count($serviceMap) !== count($ids)) mobile_booking_json(422, ['success' => false, 'error' => 'One or more selected services are unavailable. Refresh the service list and try again.']);
