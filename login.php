@@ -90,7 +90,6 @@ $shopName = get_setting('shop_name', "Pia's Laundry Shop");
     </form>
 
   </div>
-  <p style="text-align:center;margin:16px 0"><a href="index.php">← Back to shop website</a></p>
 </div>
 
 <script>
