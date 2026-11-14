@@ -106,6 +106,22 @@ function ensure_workflow_schema(): void
         KEY idx_delivery_driver_session_expiry (expires_at),
         CONSTRAINT fk_delivery_driver_session_driver FOREIGN KEY (driver_id) REFERENCES delivery_drivers(id) ON DELETE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS staff_password_reset_otps (
+        id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+        user_id INT UNSIGNED NOT NULL,
+        email VARCHAR(120) NOT NULL,
+        code_hash VARCHAR(255) NOT NULL,
+        attempts TINYINT UNSIGNED NOT NULL DEFAULT 0,
+        resend_count TINYINT UNSIGNED NOT NULL DEFAULT 0,
+        expires_at DATETIME NOT NULL,
+        last_sent_at DATETIME NOT NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_staff_password_reset_user (user_id),
+        KEY idx_staff_password_reset_email (email),
+        KEY idx_staff_password_reset_expiry (expires_at),
+        CONSTRAINT fk_staff_password_reset_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
     $statements = [
         "CREATE TABLE IF NOT EXISTS payments (id INT UNSIGNED NOT NULL AUTO_INCREMENT, order_id INT UNSIGNED NOT NULL, amount DECIMAL(10,2) NOT NULL, payment_method VARCHAR(30) NOT NULL, reference_number VARCHAR(120) DEFAULT NULL, status ENUM('paid','refunded') NOT NULL DEFAULT 'paid', received_by INT UNSIGNED DEFAULT NULL, paid_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (id), KEY idx_payments_order (order_id, paid_at), CONSTRAINT fk_payments_order FOREIGN KEY (order_id) REFERENCES orders(id), CONSTRAINT fk_payments_user FOREIGN KEY (received_by) REFERENCES users(id) ON DELETE SET NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
         "CREATE TABLE IF NOT EXISTS notifications (id INT UNSIGNED NOT NULL AUTO_INCREMENT, audience ENUM('customer','staff') NOT NULL, audience_id INT UNSIGNED NOT NULL, order_id INT UNSIGNED DEFAULT NULL, title VARCHAR(160) NOT NULL, message VARCHAR(500) NOT NULL, type VARCHAR(30) NOT NULL DEFAULT 'info', is_read TINYINT(1) NOT NULL DEFAULT 0, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (id), KEY idx_notifications_audience (audience, audience_id, is_read, created_at), KEY idx_notifications_order (order_id), CONSTRAINT fk_notifications_order FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE SET NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",

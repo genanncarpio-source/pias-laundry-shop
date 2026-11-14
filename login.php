@@ -89,6 +89,7 @@ $loginScript = basename($_SERVER['SCRIPT_NAME'] ?? 'login.php');
         <button type="submit" class="btn btn-primary btn-block">Sign In</button>
       </div>
     </form>
+    <p style="text-align:center;margin:16px 0 0"><a href="staff_forgot_password.php" style="color:#704478">Forgot password?</a></p>
 
   </div>
 </div>
