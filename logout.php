@@ -8,4 +8,4 @@ if (ini_get('session.use_cookies')) {
 }
 session_destroy();
 
-redirect('index.php');
+redirect('staff-login.php');
