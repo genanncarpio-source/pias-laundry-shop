@@ -138,6 +138,7 @@ $shopName = get_setting('shop_name', "Pia's Laundry Shop");
 .reset-page .login-wrap{min-height:100vh;padding:30px 18px;background:#f5e8ff url('assets/img/login-lavender.svg') center/cover no-repeat;display:grid;place-items:center}
 .reset-page .login-card{width:min(100%,430px);background:rgba(255,250,255,.95);border:1px solid #dfc5ef;border-top:4px solid #7b31a8;border-radius:18px;padding:30px;box-shadow:0 22px 65px rgba(61,24,82,.2)}
 .reset-page h1{margin:0;text-align:center;color:#321a3d}.reset-page .intro{text-align:center;color:#78617f;margin:8px 0 24px}.reset-page label{display:block;margin:14px 0 5px;color:#4b3154;font-weight:600}.reset-page input{width:100%;padding:12px;border:1px solid #d9c5e2;border-radius:9px;background:#fffaff}.reset-page button{width:100%;margin-top:18px;padding:13px;border:0;border-radius:10px;background:#58265f;color:white;font-weight:700;cursor:pointer}.reset-page .msg{padding:11px 13px;border-radius:9px;margin:12px 0;background:#fce8e8;color:#8b2424}.reset-page .notice{background:#eaf6ed;color:#205b2e}.reset-page a{color:#704478}
+.reset-page .password-field{position:relative}.reset-page .password-field input{padding-right:48px}.reset-page .toggle-password{position:absolute;right:5px;top:5px;width:38px;height:38px;margin:0;padding:8px;background:transparent;color:#704478;display:grid;place-items:center}.reset-page .toggle-password svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 </style>
 </head>
 <body class="reset-page login-page">
@@ -147,8 +148,8 @@ $shopName = get_setting('shop_name', "Pia's Laundry Shop");
 <?php if ($notice): ?><div class="msg notice" role="status"><?= e($notice) ?></div><?php endif; ?>
 <?php if ($verifiedUserId > 0 && $verifiedUntil >= time()): ?>
 <form method="post" autocomplete="off">
-<?= csrf_field() ?><label for="new_password">New password</label><input id="new_password" name="new_password" type="password" minlength="8" autocomplete="new-password" required>
-<label for="confirm_password">Confirm new password</label><input id="confirm_password" name="confirm_password" type="password" minlength="8" autocomplete="new-password" required>
+<?= csrf_field() ?><label for="new_password">New password</label><div class="password-field"><input id="new_password" name="new_password" type="password" minlength="8" autocomplete="new-password" required><button class="toggle-password" type="button" aria-label="Show password" title="Show password"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></button></div>
+<label for="confirm_password">Confirm new password</label><div class="password-field"><input id="confirm_password" name="confirm_password" type="password" minlength="8" autocomplete="new-password" required><button class="toggle-password" type="button" aria-label="Show password" title="Show password"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></button></div>
 <button type="submit" name="set_password" value="1">Reset password</button>
 </form>
 <?php elseif (!empty($_SESSION['staff_reset_email'])): ?>
@@ -168,5 +169,17 @@ $shopName = get_setting('shop_name', "Pia's Laundry Shop");
 <?php endif; ?>
 <p class="intro" style="margin:20px 0 0"><a href="staff-login.php">Return to staff login</a></p>
 </main></div>
+<script>
+document.querySelectorAll('.toggle-password').forEach(function (toggle) {
+  toggle.addEventListener('click', function () {
+    var input = toggle.parentElement.querySelector('input');
+    var show = input.type === 'password';
+    input.type = show ? 'text' : 'password';
+    toggle.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+    toggle.setAttribute('title', show ? 'Hide password' : 'Show password');
+    input.focus();
+  });
+});
+</script>
 </body>
 </html>
