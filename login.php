@@ -34,6 +34,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $shopName = get_setting('shop_name', "Pia's Laundry Shop");
+$loginScript = basename($_SERVER['SCRIPT_NAME'] ?? 'login.php');
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -71,7 +72,7 @@ $shopName = get_setting('shop_name', "Pia's Laundry Shop");
       <div class="login-err"><?= e($error) ?></div>
     <?php endif; ?>
 
-    <form method="post" action="login.php" autocomplete="off">
+    <form method="post" action="<?= e($loginScript) ?>" autocomplete="off">
       <?= csrf_field() ?>
       <label for="username">Username</label>
       <input type="text" id="username" name="username" required autofocus
