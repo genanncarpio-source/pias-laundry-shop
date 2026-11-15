@@ -16,14 +16,14 @@ RUN curl --fail --location --retry 3 \
       philippines.osm.pbf \
     && rm philippines.osm.pbf
 
-FROM ghcr.io/project-osrm/osrm-backend:v26.11.0 AS prepare
+FROM ghcr.io/project-osrm/osrm-backend:v26.11.0-debian AS prepare
 COPY --from=tarlac-extract /data/tarlac.osm.pbf /data/tarlac.osm.pbf
 RUN osrm-extract -p /opt/car.lua /data/tarlac.osm.pbf \
     && osrm-partition /data/tarlac.osrm \
     && osrm-customize /data/tarlac.osrm \
     && rm /data/tarlac.osm.pbf
 
-FROM ghcr.io/project-osrm/osrm-backend:v26.11.0
+FROM ghcr.io/project-osrm/osrm-backend:v26.11.0-debian
 COPY --from=prepare /data /data
 EXPOSE 5000
 CMD ["osrm-routed", "--algorithm", "mld", "--ip", "0.0.0.0", "--port", "5000", "/data/tarlac.osrm"]
