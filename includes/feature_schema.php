@@ -94,6 +94,12 @@ function ensure_workflow_schema(): void
         KEY idx_delivery_driver_active (is_active),
         CONSTRAINT fk_delivery_driver_creator FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    $driverColumns = [];
+    foreach ($pdo->query('SHOW COLUMNS FROM delivery_drivers')->fetchAll(PDO::FETCH_ASSOC) as $columnInfo) $driverColumns[$columnInfo['Field']] = true;
+    if (!isset($driverColumns['email'])) $pdo->exec('ALTER TABLE delivery_drivers ADD COLUMN email VARCHAR(120) DEFAULT NULL AFTER username');
+    if (!isset($driverColumns['profile_photo'])) $pdo->exec('ALTER TABLE delivery_drivers ADD COLUMN profile_photo MEDIUMTEXT DEFAULT NULL AFTER phone');
+    $driverEmailIndex = $pdo->query("SHOW INDEX FROM delivery_drivers WHERE Key_name = 'uq_delivery_driver_email'")->fetch(PDO::FETCH_ASSOC);
+    if (!$driverEmailIndex) $pdo->exec('ALTER TABLE delivery_drivers ADD UNIQUE KEY uq_delivery_driver_email (email)');
     $pdo->exec("CREATE TABLE IF NOT EXISTS delivery_driver_sessions (
         id INT UNSIGNED NOT NULL AUTO_INCREMENT,
         driver_id INT UNSIGNED NOT NULL,
@@ -105,6 +111,22 @@ function ensure_workflow_schema(): void
         KEY idx_delivery_driver_session_driver (driver_id),
         KEY idx_delivery_driver_session_expiry (expires_at),
         CONSTRAINT fk_delivery_driver_session_driver FOREIGN KEY (driver_id) REFERENCES delivery_drivers(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS delivery_driver_password_reset_otps (
+        id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+        driver_id INT UNSIGNED NOT NULL,
+        email VARCHAR(120) NOT NULL,
+        code_hash VARCHAR(255) NOT NULL,
+        attempts TINYINT UNSIGNED NOT NULL DEFAULT 0,
+        resend_count TINYINT UNSIGNED NOT NULL DEFAULT 0,
+        expires_at DATETIME NOT NULL,
+        last_sent_at DATETIME NOT NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_driver_password_reset_driver (driver_id),
+        KEY idx_driver_password_reset_email (email),
+        KEY idx_driver_password_reset_expiry (expires_at),
+        CONSTRAINT fk_driver_password_reset_driver FOREIGN KEY (driver_id) REFERENCES delivery_drivers(id) ON DELETE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
     $pdo->exec("CREATE TABLE IF NOT EXISTS staff_password_reset_otps (
         id INT UNSIGNED NOT NULL AUTO_INCREMENT,

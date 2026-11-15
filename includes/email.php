@@ -45,3 +45,12 @@ function send_staff_password_reset_otp(string $email, string $name, string $code
         "Hello {$name},\n\nYour staff/admin password reset code is: {$code}\n\nThis code expires in 10 minutes and can only be used once. If you did not request a reset, you can ignore this email."
     );
 }
+
+function send_driver_password_reset_otp(string $email, string $name, string $code): void
+{
+    send_transactional_email(
+        $email,
+        "Reset your Pia's Laundry Shop driver password",
+        "Hello {$name},`n`nYour driver app password reset code is: {$code}`n`nThis code expires in 10 minutes and can only be used once. If you did not request a reset, you can ignore this email."
+    );
+}

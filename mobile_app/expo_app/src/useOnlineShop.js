@@ -71,6 +71,12 @@ export function useOnlineShop({ apiBase, customer, token, onSessionExpired }) {
   }, [refresh]);
 
   useEffect(() => {
+    if (!(snapshot.tickets || []).some((ticket) => ticket.order_type === 'delivery_request' && ticket.status === 'out_for_delivery')) return undefined;
+    const timer = setInterval(() => { void refresh(true); }, 10000);
+    return () => clearInterval(timer);
+  }, [refresh, snapshot.tickets]);
+
+  useEffect(() => {
     const subscription = AppState.addEventListener('change', (state) => {
       if (state === 'active') void refresh(true);
     });

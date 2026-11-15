@@ -26,6 +26,16 @@ try {
         $message = 'Laundry marked as picked up from the customer.';
     } else {
         if ($order['status'] !== 'out_for_delivery') throw new InvalidArgumentException('This laundry is not currently out for delivery.');
+        if ($order['payment_method'] === 'cash_on_handoff') {
+            $paidStmt = $pdo->prepare("SELECT COALESCE(SUM(amount), 0) FROM payments WHERE order_id = ? AND status = 'paid'");
+            $paidStmt->execute([$orderId]);
+            $outstanding = max(0, (float)$order['total'] - (float)$paidStmt->fetchColumn());
+            if ($outstanding > 0.009) {
+                $pdo->prepare("INSERT INTO payments (order_id, amount, payment_method, reference_number, received_by) VALUES (?, ?, 'cash', ?, NULL)")
+                    ->execute([$orderId, $outstanding, 'Collected by driver ' . $driver['full_name']]);
+                $pdo->prepare('UPDATE orders SET amount_paid = total, change_due = 0 WHERE id = ?')->execute([$orderId]);
+            }
+        }
         $pdo->prepare("UPDATE orders SET status = 'completed', completed_at = NOW() WHERE id = ?")->execute([$orderId]);
         $pdo->prepare('UPDATE delivery_tracking SET is_active = 0, stopped_at = NOW(), customer_location_shared = 0 WHERE order_id = ?')->execute([$orderId]);
         add_order_history($orderId, 'completed', 'Driver confirmed delivery to the customer', null);

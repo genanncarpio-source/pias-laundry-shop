@@ -1,486 +1,98 @@
 import * as Location from 'expo-location';
 import * as SecureStore from 'expo-secure-store';
 import * as TaskManager from 'expo-task-manager';
+import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { useRouter } from 'expo-router';
+import { ActivityIndicator, Image, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import Constants from 'expo-constants';
-import DeliveryMap from '../components/DeliveryMap';
 import { DRIVER_API_KEY, DRIVER_LOCATION_TASK, DRIVER_TOKEN_KEY, LEGACY_DELIVERY_LOCATION_TASK } from '../delivery/locationTask';
+import DeliveryMap from '../components/DeliveryMap';
 
 const API_BASE = (process.env.EXPO_PUBLIC_API_BASE_URL?.trim() || getDevelopmentApi()).replace(/\/+$/, '');
-
+const TABS = ['Home', 'Deliveries', 'History', 'Wallet', 'Profile'];
 function getDevelopmentApi() {
   const apiPath = '/laundry-pias/api';
-  if (Platform.OS === 'web') {
-    const host = typeof window !== 'undefined' && window.location.hostname ? window.location.hostname : 'localhost';
-    return 'http://' + host + apiPath;
-  }
+  if (Platform.OS === 'web') return 'http://' + (typeof window !== 'undefined' ? window.location.hostname : 'localhost') + apiPath;
   const hostUri = Constants.expoConfig?.hostUri || '';
   const host = hostUri.startsWith('[') ? hostUri.slice(1, hostUri.indexOf(']')) : hostUri.split(':')[0];
-  const isPrivateIpv4 = /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(host);
-  return isPrivateIpv4 ? 'http://' + host + apiPath : 'http://10.0.2.2' + apiPath;
+  return /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(host) ? 'http://' + host + apiPath : 'http://10.0.2.2' + apiPath;
 }
-
-async function storageGet(key) {
-  try {
-    if (Platform.OS === 'web') return typeof window !== 'undefined' ? window.localStorage.getItem(key) : null;
-    return await SecureStore.getItemAsync(key);
-  } catch (_) {
-    return null;
-  }
-}
-
-async function storageSet(key, value) {
-  if (Platform.OS === 'web') {
-    if (typeof window !== 'undefined') window.localStorage.setItem(key, value);
-    return;
-  }
-  await SecureStore.setItemAsync(key, value);
-}
-
-async function storageDelete(key) {
-  if (Platform.OS === 'web') {
-    if (typeof window !== 'undefined') window.localStorage.removeItem(key);
-    return;
-  }
-  await SecureStore.deleteItemAsync(key);
-}
-
-async function driverRequest(endpoint, { method = 'GET', body, token } = {}) {
+async function get(key) { try { return Platform.OS === 'web' ? window.localStorage.getItem(key) : await SecureStore.getItemAsync(key); } catch { return null; } }
+async function set(key, value) { if (Platform.OS === 'web') window.localStorage.setItem(key, value); else await SecureStore.setItemAsync(key, value); }
+async function del(key) { if (Platform.OS === 'web') window.localStorage.removeItem(key); else await SecureStore.deleteItemAsync(key); }
+async function request(endpoint, { method = 'GET', body, token } = {}) {
   const headers = { Accept: 'application/json' };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   if (token) headers.Authorization = 'Bearer ' + token;
-  const response = await fetch(API_BASE + '/' + endpoint, {
-    method,
-    headers,
-    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-  });
-  let data;
-  try {
-    data = await response.json();
-  } catch (_) {
-    throw new Error('The shop server returned an unreadable response.');
-  }
-  if (!response.ok || data.success !== true) {
-    const error = new Error(data.error || 'The request could not be completed.');
-    error.status = response.status;
-    throw error;
-  }
+  const response = await fetch(API_BASE + '/' + endpoint, { method, headers, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || data.success !== true) throw Object.assign(new Error(data.error || 'Request failed.'), { status: response.status });
   return data;
 }
-
-function formatDate(value) {
-  if (!value) return 'Not scheduled';
-  const parsed = new Date(String(value).replace(' ', 'T'));
-  return Number.isNaN(parsed.getTime()) ? String(value) : parsed.toLocaleString();
-}
+const date = (value) => value ? new Date(String(value).replace(' ', 'T')).toLocaleString() : 'Not scheduled';
+const money = (value) => '₱' + Number(value || 0).toFixed(2);
 
 export default function DriverModeScreen() {
-  const router = useRouter();
-  const [token, setToken] = useState(null);
-  const [driver, setDriver] = useState(null);
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [deliveries, setDeliveries] = useState([]);
-  const [history, setHistory] = useState([]);
-  const [booting, setBooting] = useState(true);
-  const [busy, setBusy] = useState(false);
-  const [sharing, setSharing] = useState(false);
-  const [backgroundSharing, setBackgroundSharing] = useState(false);
-  const [error, setError] = useState('');
-  const [message, setMessage] = useState('');
-  const [lastSent, setLastSent] = useState('');
+  const [token, setToken] = useState(null), [driver, setDriver] = useState(null), [deliveries, setDeliveries] = useState([]), [history, setHistory] = useState([]), [wallet, setWallet] = useState([]);
+  const [identifier, setIdentifier] = useState(''), [password, setPassword] = useState(''), [forgot, setForgot] = useState(false), [otpSent, setOtpSent] = useState(false), [resetEmail, setResetEmail] = useState(''), [code, setCode] = useState(''), [newPassword, setNewPassword] = useState('');
+  const [tab, setTab] = useState('Home'), [nameDraft, setNameDraft] = useState(''), [passwordDraft, setPasswordDraft] = useState(''), [photoDraft, setPhotoDraft] = useState(null);
+  const [booting, setBooting] = useState(true), [busy, setBusy] = useState(false), [sharing, setSharing] = useState(false), [backgroundSharing, setBackgroundSharing] = useState(false), [error, setError] = useState(''), [message, setMessage] = useState('');
   const foregroundSubscription = useRef(null);
-  const assignedDeliveries = deliveries.filter((delivery) => delivery.assigned_to_me);
-
-  const loadDeliveries = useCallback(async (activeToken) => {
-    const data = await driverRequest('driver_deliveries.php', { token: activeToken });
-    setDeliveries(data.deliveries || []);
-    setHistory(data.history || []);
-    return data.deliveries || [];
-  }, []);
-
+  const assigned = deliveries.filter((item) => item.assigned_to_me);
+  const load = useCallback(async (activeToken) => { const data = await request('driver_deliveries.php', { token: activeToken }); setDeliveries(data.deliveries || []); setHistory(data.history || []); setWallet(data.wallet || []); return data; }, []);
   useEffect(() => {
     let active = true;
     (async () => {
-      if (Platform.OS !== 'web') {
-        await Location.stopLocationUpdatesAsync(LEGACY_DELIVERY_LOCATION_TASK).catch(() => {});
-        await SecureStore.deleteItemAsync('pias_delivery_driver_code').catch(() => {});
-        await SecureStore.deleteItemAsync('pias_delivery_api_base').catch(() => {});
-      }
-      const savedToken = await storageGet(DRIVER_TOKEN_KEY);
-      if (savedToken) {
-        try {
-          const session = await driverRequest('driver_me.php', { token: savedToken });
-          const activeDeliveries = await loadDeliveries(savedToken);
-          const taskRunning = Platform.OS !== 'web' && await Location.hasStartedLocationUpdatesAsync(DRIVER_LOCATION_TASK).catch(() => false);
-          if (active) {
-            setToken(savedToken);
-            setDriver(session.driver);
-            setSharing(Boolean(taskRunning));
-            setBackgroundSharing(Boolean(taskRunning));
-            setDeliveries(activeDeliveries);
-          }
-        } catch (_) {
-          await storageDelete(DRIVER_TOKEN_KEY);
-          await storageDelete(DRIVER_API_KEY);
-        }
-      }
+      if (Platform.OS !== 'web') { await Location.stopLocationUpdatesAsync(LEGACY_DELIVERY_LOCATION_TASK).catch(() => {}); await SecureStore.deleteItemAsync('pias_delivery_driver_code').catch(() => {}); await SecureStore.deleteItemAsync('pias_delivery_api_base').catch(() => {}); }
+      const saved = await get(DRIVER_TOKEN_KEY);
+      if (saved) try { const me = await request('driver_me.php', { token: saved }); await load(saved); const running = Platform.OS !== 'web' && await Location.hasStartedLocationUpdatesAsync(DRIVER_LOCATION_TASK).catch(() => false); if (active) { setToken(saved); setDriver(me.driver); setNameDraft(me.driver.full_name || ''); setSharing(Boolean(running)); setBackgroundSharing(Boolean(running)); } } catch { await del(DRIVER_TOKEN_KEY); await del(DRIVER_API_KEY); }
       if (active) setBooting(false);
     })();
-    return () => {
-      active = false;
-      foregroundSubscription.current?.remove();
-    };
-  }, [loadDeliveries]);
-
-  useEffect(() => {
-    if (!token) return undefined;
-    let active = true;
-    const refresh = async () => {
-      try {
-        await loadDeliveries(token);
-      } catch (refreshError) {
-        if (active && refreshError.status === 401) {
-          await storageDelete(DRIVER_TOKEN_KEY);
-          await storageDelete(DRIVER_API_KEY);
-          setToken(null);
-          setDriver(null);
-          setError(refreshError.message);
-        }
-      }
-    };
-    void refresh();
-    const timer = setInterval(refresh, 10000);
-    return () => {
-      active = false;
-      clearInterval(timer);
-    };
-  }, [loadDeliveries, token]);
-
+    return () => { active = false; foregroundSubscription.current?.remove(); };
+  }, [load]);
+  useEffect(() => { if (!token) return undefined; let alive = true; const refresh = () => load(token).catch((e) => { if (alive && e.status === 401) { setToken(null); setDriver(null); } }); void refresh(); const timer = setInterval(refresh, 10000); return () => { alive = false; clearInterval(timer); }; }, [load, token]);
   const signIn = async () => {
-    const cleanUsername = username.trim().toLowerCase();
-    if (!cleanUsername || !password) {
-      setError('Enter the driver username and password supplied by the shop.');
-      return;
-    }
-    setBusy(true);
-    setError('');
-    setMessage('');
-    try {
-      const session = await driverRequest('driver_login.php', {
-        method: 'POST',
-        body: { username: cleanUsername, password },
-      });
-      await storageSet(DRIVER_TOKEN_KEY, session.token);
-      await storageSet(DRIVER_API_KEY, API_BASE);
-      setToken(session.token);
-      setDriver(session.driver);
-      setPassword('');
-      await loadDeliveries(session.token);
-    } catch (signInError) {
-      setError(signInError.message || 'Could not sign in to driver mode.');
-    } finally {
-      setBusy(false);
-    }
+    if (!identifier.trim() || !password) return setError('Enter your username or email and password.');
+    setBusy(true); setError('');
+    try { const data = await request('driver_login.php', { method: 'POST', body: { identifier: identifier.trim(), password } }); await set(DRIVER_TOKEN_KEY, data.token); await set(DRIVER_API_KEY, API_BASE); setToken(data.token); setDriver(data.driver); setNameDraft(data.driver.full_name || ''); setPassword(''); await load(data.token); }
+    catch (e) { setError(e.message); } finally { setBusy(false); }
   };
-
-
-  const updateOrder = async (delivery, action) => {
-    if (!token || busy) return;
-    setBusy(true);
-    setError('');
-    setMessage('');
-    try {
-      const result = await driverRequest('driver_order_action.php', {
-        method: 'POST', token, body: { order_id: delivery.id, action },
-      });
-      setMessage(result.message);
-      await loadDeliveries(token);
-    } catch (actionError) {
-      setError(actionError.message || 'Could not update the order.');
-    } finally {
-      setBusy(false);
-    }
+  const recover = async () => {
+    setBusy(true); setError(''); setMessage('');
+    try { if (!otpSent) { const data = await request('driver_request_password_reset.php', { method: 'POST', body: { email: resetEmail.trim() } }); setOtpSent(true); setMessage(data.message || 'If the email is registered, a one-time code has been sent.'); } else { await request('driver_reset_password.php', { method: 'POST', body: { email: resetEmail.trim(), code, new_password: newPassword } }); setForgot(false); setOtpSent(false); setCode(''); setNewPassword(''); setMessage('Password reset. You can sign in now.'); } }
+    catch (e) { setError(e.message); } finally { setBusy(false); }
   };
-  const sendLocation = async (activeToken, location) => {
-    await driverRequest('driver_tracking.php', {
-      method: 'POST',
-      token: activeToken,
-      body: {
-        action: 'update',
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude,
-        accuracy: location.coords.accuracy,
-        heading: location.coords.heading,
-        speed: location.coords.speed,
-      },
-    });
-    setLastSent(new Date().toLocaleTimeString());
-  };
-
+  const updateOrder = async (item, action) => { setBusy(true); setError(''); try { const data = await request('driver_order_action.php', { method: 'POST', token, body: { order_id: item.id, action } }); setMessage(data.message); await load(token); } catch (e) { setError(e.message); } finally { setBusy(false); } };
+  const sendLocation = async (activeToken, location) => request('driver_tracking.php', { method: 'POST', token: activeToken, body: { action: 'update', latitude: location.coords.latitude, longitude: location.coords.longitude, accuracy: location.coords.accuracy, heading: location.coords.heading, speed: location.coords.speed } });
   const startSharing = async () => {
-    if (Platform.OS === 'web') {
-      setError('Location sharing requires the Android or iPhone app. You can still review assigned deliveries here.');
-      return;
-    }
-    if (!token) return;
-    if (!assignedDeliveries.length) {
-      setError('There are no active deliveries assigned to your account yet.');
-      return;
-    }
-    setBusy(true);
-    setError('');
-    setMessage('');
+    if (Platform.OS === 'web') return setError('Open the standalone Android or iPhone app to share live location.');
+    if (!assigned.some((item) => item.status === 'out_for_delivery')) return setError('No active En Route delivery is assigned to you.');
+    setBusy(true); setError('');
     try {
-      const foreground = await Location.requestForegroundPermissionsAsync();
-      if (foreground.status !== 'granted') throw new Error('Allow location access while using the app to start delivery tracking.');
-      let allowBackground = await TaskManager.isAvailableAsync().catch(() => false);
-      if (allowBackground) {
-        allowBackground = await new Promise((resolve) => {
-          Alert.alert(
-            'Allow background location',
-            'The customer can see your location only during your assigned active deliveries. Background access keeps it updated while this app is minimized.',
-            [
-              { text: 'Keep app open', onPress: () => resolve(false) },
-              { text: 'Allow background', onPress: () => resolve(true) },
-            ],
-            { cancelable: false },
-          );
-        });
-      }
-      let backgroundGranted = false;
-      if (allowBackground) {
-        const background = await Location.requestBackgroundPermissionsAsync();
-        backgroundGranted = background.status === 'granted';
-      }
-      const currentLocation = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-      await sendLocation(token, currentLocation);
-      await storageSet(DRIVER_TOKEN_KEY, token);
-      await storageSet(DRIVER_API_KEY, API_BASE);
-      if (backgroundGranted) {
-        await Location.startLocationUpdatesAsync(DRIVER_LOCATION_TASK, {
-          accuracy: Location.Accuracy.Balanced,
-          timeInterval: 10000,
-          distanceInterval: 15,
-          pausesUpdatesAutomatically: false,
-          foregroundService: {
-            notificationTitle: 'Pia delivery tracking is active',
-            notificationBody: 'Sharing location for your assigned deliveries',
-            notificationColor: '#58265f',
-            killServiceOnDestroy: false,
-          },
-        });
-        setSharing(true);
-        setBackgroundSharing(true);
-        setMessage('Background location sharing is active. A location notification will remain visible until you stop.');
-      } else {
-        foregroundSubscription.current = await Location.watchPositionAsync(
-          { accuracy: Location.Accuracy.Balanced, timeInterval: 10000, distanceInterval: 15 },
-          (location) => sendLocation(token, location).catch((sendError) => setError(sendError.message || 'Could not send driver location.')),
-        );
-        setSharing(true);
-        setBackgroundSharing(false);
-        setMessage('Location sharing is active while this screen stays open.');
-      }
-    } catch (startError) {
-      setError(startError.message || 'Could not start delivery tracking.');
-    } finally {
-      setBusy(false);
-    }
+      const fg = await Location.requestForegroundPermissionsAsync(); if (fg.status !== 'granted') throw new Error('Allow location access while using the app.');
+      const allowBg = (await Location.requestBackgroundPermissionsAsync()).status === 'granted';
+      await sendLocation(token, await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }));
+      if (allowBg && await TaskManager.isAvailableAsync().catch(() => false)) {
+        await Location.startLocationUpdatesAsync(DRIVER_LOCATION_TASK, { accuracy: Location.Accuracy.Balanced, timeInterval: 10000, distanceInterval: 15, pausesUpdatesAutomatically: false, foregroundService: { notificationTitle: 'Pia delivery tracking is active', notificationBody: 'Sharing your location during an active delivery', notificationColor: '#58265f', killServiceOnDestroy: false } }); setBackgroundSharing(true);
+      } else { foregroundSubscription.current = await Location.watchPositionAsync({ accuracy: Location.Accuracy.Balanced, timeInterval: 10000, distanceInterval: 15 }, (loc) => sendLocation(token, loc).catch((e) => setError(e.message))); setBackgroundSharing(false); }
+      setSharing(true); setMessage('En Route: your location is visible to the customer for this active delivery.');
+    } catch (e) { setError(e.message || 'Could not start location sharing.'); } finally { setBusy(false); }
   };
-
-  const stopSharing = async () => {
-    setBusy(true);
-    setError('');
-    try {
-      if (token) await driverRequest('driver_tracking.php', { method: 'POST', token, body: { action: 'stop' } });
-    } catch (stopError) {
-      if (stopError.status !== 409) setError(stopError.message || 'Could not stop location sharing.');
-    }
-    if (Platform.OS !== 'web') await Location.stopLocationUpdatesAsync(DRIVER_LOCATION_TASK).catch(() => {});
-    foregroundSubscription.current?.remove();
-    foregroundSubscription.current = null;
-    setSharing(false);
-    setBackgroundSharing(false);
-    setMessage('Your location sharing has stopped. Your driver account is still signed in.');
-    setBusy(false);
-    await loadDeliveries(token).catch(() => {});
-  };
-
-  const signOut = async () => {
-    setBusy(true);
-    try {
-      if (sharing) await driverRequest('driver_tracking.php', { method: 'POST', token, body: { action: 'stop' } }).catch(() => {});
-      await driverRequest('driver_logout.php', { method: 'POST', token, body: {} }).catch(() => {});
-    } finally {
-      if (Platform.OS !== 'web') await Location.stopLocationUpdatesAsync(DRIVER_LOCATION_TASK).catch(() => {});
-      foregroundSubscription.current?.remove();
-      foregroundSubscription.current = null;
-      await storageDelete(DRIVER_TOKEN_KEY);
-      await storageDelete(DRIVER_API_KEY);
-      setToken(null);
-      setDriver(null);
-      setDeliveries([]);
-      setSharing(false);
-      setBackgroundSharing(false);
-      setBusy(false);
-      router.replace('/');
-    }
-  };
-
-  if (booting) return <View style={styles.screen}><ActivityIndicator color="#bd7841" size="large" /></View>;
-
-  return (
-    <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <View style={styles.header}>
-          <Pressable onPress={() => router.replace('/')} style={styles.backButton}><Text style={styles.backText}>Back</Text></Pressable>
-          <View style={styles.flex}>
-            <Text style={styles.title}>Delivery driver</Text>
-            <Text style={styles.subtitle}>{driver ? 'Signed in as ' + driver.name : 'Sign in with the driver account created by shop staff.'}</Text>
-          </View>
-          {driver ? <Pressable onPress={signOut} disabled={busy} style={styles.headerAction}><Text style={styles.headerActionText}>Sign out</Text></Pressable> : null}
-        </View>
-        {error ? <Text style={styles.error}>{error}</Text> : null}
-        {message ? <Text style={styles.notice}>{message}</Text> : null}
-        {!driver ? (
-          <>
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Driver sign in</Text>
-            <Text style={styles.info}>Customers cannot use driver accounts. Ask a staff member or admin to create your login.</Text>
-            <Text style={styles.label}>Username</Text>
-            <TextInput value={username} onChangeText={setUsername} placeholder="Driver username" autoCapitalize="none" autoCorrect={false} style={styles.input} />
-            <Text style={styles.label}>Password</Text>
-            <View style={styles.passwordRow}>
-              <TextInput value={password} onChangeText={setPassword} placeholder="Driver password" secureTextEntry={!showPassword} autoCapitalize="none" style={[styles.input, styles.passwordInput]} />
-              <Pressable onPress={() => setShowPassword((value) => !value)} style={styles.showButton}><Text style={styles.showButtonText}>{showPassword ? 'Hide' : 'Show'}</Text></Pressable>
-            </View>
-            <Pressable disabled={busy} onPress={signIn} style={[styles.button, busy && styles.disabled]}>
-              {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Sign in to driver mode</Text>}
-            </Pressable>
-          </View>
-          </>
-        ) : (
-          <>
-            <View style={styles.card}>
-              <Text style={styles.cardTitle}>Delivery queue</Text>
-              <Text style={styles.info}>All active pickup and delivery jobs are listed here. Customer details and actions are available only for jobs assigned to you.</Text>
-              {deliveries.length ? deliveries.map((delivery) => (
-                <View key={delivery.id} style={styles.deliveryCard}>
-                  <View style={styles.deliveryHeader}>
-                    <Text style={styles.ticket}>{delivery.ticket_number}</Text>
-                    <Text style={styles.schedule}>{formatDate(delivery.expected_delivery)}</Text>
-                  </View>
-                  {delivery.assigned_to_me ? <Text style={styles.customerName}>{delivery.customer_name}</Text> : <Text style={styles.info}>Awaiting assignment. Customer details are hidden.</Text>}
-                  {delivery.assigned_to_me && delivery.customer_phone ? <Pressable onPress={() => Linking.openURL('tel:' + delivery.customer_phone)}><Text style={styles.phone}>Call {delivery.customer_phone}</Text></Pressable> : null}
-                  <View style={styles.stagePill}><Text style={styles.stagePillText}>{delivery.status === 'confirmed' ? 'PICK UP FROM CUSTOMER' : 'DELIVER CLEAN LAUNDRY'}</Text></View>
-                  {delivery.assigned_to_me ? <Text style={styles.address}>{delivery.assigned_to_me && delivery.status === 'confirmed' ? (delivery.pickup_address || delivery.delivery_address) : (delivery.delivery_address || 'No delivery address was saved.')}</Text> : null}
-                  {delivery.assigned_to_me && (delivery.status === 'confirmed' ? (delivery.pickup_address || delivery.delivery_address) : delivery.delivery_address) ? <Pressable onPress={() => Linking.openURL(delivery.delivery_latitude != null && delivery.delivery_longitude != null ? 'https://www.google.com/maps/search/?api=1&query=' + delivery.delivery_latitude + ',' + delivery.delivery_longitude : 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(delivery.status === 'confirmed' ? (delivery.pickup_address || delivery.delivery_address) : delivery.delivery_address))} style={styles.mapLink}><Text style={styles.mapLinkText}>Open address in Maps</Text></Pressable> : null}
-                  {delivery.assigned_to_me && delivery.status === 'confirmed' ? (
-                    <View style={styles.actionPanel}>
-                      <Text style={styles.info}>{delivery.payment_method === 'cash_on_handoff' ? 'Collect ₱' + Number(delivery.total || 0).toFixed(2) + ' when receiving the laundry.' : 'GCash payment is handled by the shop.'}</Text>
-                      <Pressable disabled={busy} onPress={() => updateOrder(delivery, 'collect')} style={[styles.button, busy && styles.disabled]}><Text style={styles.buttonText}>Confirm laundry collected</Text></Pressable>
-                    </View>
-                  ) : delivery.assigned_to_me ? (
-                    <Pressable disabled={busy} onPress={() => updateOrder(delivery, 'deliver')} style={[styles.button, styles.deliveredButton, busy && styles.disabled]}><Text style={styles.buttonText}>Confirm delivered to customer</Text></Pressable>
-                  ) : null}
-                  {delivery.assigned_to_me ? <View style={styles.customerPin}>
-                    <Text style={styles.pinTitle}>Customer location</Text>
-                    {delivery.customer_location ? (
-                      <>
-                        <Text style={styles.info}>{delivery.customer_location.stale ? 'Location may be out of date. Ask the customer to update it.' : 'Customer shared this location for the active delivery.'}</Text>
-                        <DeliveryMap location={delivery.customer_location} label="Customer" />
-                        <Text style={styles.schedule}>Shared at {formatDate(delivery.customer_location.updated_at)}</Text>
-                      </>
-                    ) : <Text style={styles.info}>The customer has not shared a GPS location. Use the saved delivery address above.</Text>}
-                  </View> : null}
-                </View>
-              )) : <Text style={styles.info}>There are no active pickup or delivery jobs right now.</Text>}
-              {sharing ? (
-                <View style={styles.sharingPanel}>
-                  <Text style={styles.sharingTitle}>{backgroundSharing ? 'Background location sharing is active' : 'Location sharing is active'}</Text>
-                  <Text style={styles.info}>{lastSent ? 'Last sent at ' + lastSent : 'Your current location is being sent to the shop.'}</Text>
-                  <Pressable disabled={busy} onPress={stopSharing} style={[styles.button, styles.stopButton, busy && styles.disabled]}>
-                    {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Stop my location sharing</Text>}
-                  </Pressable>
-                </View>
-              ) : (
-                <Pressable disabled={busy || !assignedDeliveries.length} onPress={startSharing} style={[styles.button, (busy || !assignedDeliveries.length) && styles.disabled]}>
-                  {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Start sharing my location</Text>}
-                </Pressable>
-              )}
-<Text style={styles.cardTitle}>Transaction history</Text>
-              {history.length ? history.map((item) => (
-                <View key={'history-' + item.id} style={styles.deliveryCard}>
-                  <View style={styles.deliveryHeader}>
-                    <Text style={styles.ticket}>{item.ticket_number}</Text>
-                    <Text style={styles.schedule}>{formatDate(item.updated_at)}</Text>
-                  </View>
-                  <Text style={styles.stagePillText}>{String(item.status || '').replace(/_/g, ' ').toUpperCase()}</Text>
-                  {item.assigned_to_me ? (
-                    <>
-                      <Text style={styles.customerName}>{item.customer_name}</Text>
-                      {item.customer_phone ? <Text style={styles.info}>Phone: {item.customer_phone}</Text> : null}
-                      {item.delivery_address ? <Text style={styles.address}>{item.delivery_address}</Text> : null}
-                      {item.total != null ? <Text style={styles.info}>Total: ₱{Number(item.total).toFixed(2)} · {item.payment_method || 'Payment not recorded'}</Text> : null}
-                    </>
-                  ) : <Text style={styles.info}>Closed delivery. Customer and payment details are hidden.</Text>}
-                </View>
-              )) : <Text style={styles.info}>No delivery transactions in the history yet.</Text>}
-              <Text style={styles.footnote}>Your GPS location is visible only to customers with one of your active assigned deliveries. Tracking stops when the delivery ends or you stop sharing.</Text>
-            </View>
-          </>
-        )}
-      </ScrollView>
-    </KeyboardAvoidingView>
-  );
+  const stopSharing = async () => { setBusy(true); await request('driver_tracking.php', { method: 'POST', token, body: { action: 'stop' } }).catch(() => {}); if (Platform.OS !== 'web') await Location.stopLocationUpdatesAsync(DRIVER_LOCATION_TASK).catch(() => {}); foregroundSubscription.current?.remove(); foregroundSubscription.current = null; setSharing(false); setBackgroundSharing(false); setBusy(false); };
+  const signOut = async () => { setBusy(true); if (sharing) await stopSharing(); await request('driver_logout.php', { method: 'POST', token, body: {} }).catch(() => {}); await del(DRIVER_TOKEN_KEY); await del(DRIVER_API_KEY); setToken(null); setDriver(null); setDeliveries([]); setHistory([]); setWallet([]); setBusy(false); };
+  const pickPhoto = async () => { const permission = await ImagePicker.requestMediaLibraryPermissionsAsync(); if (permission.status !== 'granted') return setError('Allow photo access to choose a profile picture.'); const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.8 }); if (!result.canceled) { const image = await ImageManipulator.manipulateAsync(result.assets[0].uri, [{ resize: { width: 640, height: 640 } }], { compress: 0.75, format: ImageManipulator.SaveFormat.JPEG, base64: true }); setPhotoDraft('data:image/jpeg;base64,' + image.base64); } };
+  const saveProfile = async () => { setBusy(true); setError(''); try { const data = await request('driver_profile.php', { method: 'POST', token, body: { full_name: nameDraft.trim(), ...(passwordDraft ? { new_password: passwordDraft } : {}), ...(photoDraft ? { profile_photo: photoDraft } : {}) } }); setDriver(data.driver); setNameDraft(data.driver.full_name || ''); setPasswordDraft(''); setPhotoDraft(null); setMessage('Profile updated.'); } catch (e) { setError(e.message); } finally { setBusy(false); } };
+  if (booting) return <View style={styles.screen}><ActivityIndicator color="#c589d6" size="large" /></View>;
+  if (!driver) return <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}><ScrollView contentContainerStyle={styles.authWrap} keyboardShouldPersistTaps="handled"><View style={styles.brand}><Text style={styles.brandIcon}>🧺</Text><Text style={styles.title}>Pia&apos;s Laundry Driver</Text><Text style={styles.muted}>Standalone driver account</Text></View><View style={styles.card}><Text style={styles.cardTitle}>{forgot ? 'Reset password' : 'Driver sign in'}</Text>{error ? <Text style={styles.error}>{error}</Text> : null}{message ? <Text style={styles.notice}>{message}</Text> : null}{forgot ? <><Text style={styles.label}>Account email</Text><TextInput value={resetEmail} onChangeText={(value) => setResetEmail(value.replace(/\s/g, ""))} autoCapitalize="none" keyboardType="email-address" style={styles.input} placeholder="driver@example.com" />{otpSent ? <><Text style={styles.label}>Email code</Text><TextInput value={code} onChangeText={setCode} keyboardType="number-pad" style={styles.input} placeholder="6-digit code"/><Text style={styles.label}>New password</Text><TextInput value={newPassword} onChangeText={(value) => setNewPassword(value.replace(/\s/g, ""))} secureTextEntry style={styles.input} placeholder="At least 10 characters" /></> : null}<Pressable disabled={busy} onPress={recover} style={styles.primary}><Text style={styles.primaryText}>{busy ? 'Please wait…' : otpSent ? 'Reset password' : 'Send email code'}</Text></Pressable><Pressable onPress={() => { setForgot(false); setError(''); setMessage(''); }}><Text style={styles.link}>Back to sign in</Text></Pressable></> : <><Text style={styles.label}>Username or email</Text><TextInput value={identifier} onChangeText={(v) => setIdentifier(v.replace(/\s/g, ''))} autoCapitalize="none" autoCorrect={false} style={styles.input} placeholder="Username or email"/><Text style={styles.label}>Password</Text><TextInput value={password} onChangeText={(v) => setPassword(v.replace(/\s/g, ''))} secureTextEntry style={styles.input} placeholder="Password"/><Pressable disabled={busy} onPress={signIn} style={styles.primary}><Text style={styles.primaryText}>{busy ? 'Signing in…' : 'Sign in'}</Text></Pressable><Pressable onPress={() => { setForgot(true); setError(''); setMessage(''); }}><Text style={styles.link}>Forgot password?</Text></Pressable></>}</View></ScrollView></KeyboardAvoidingView>;
+  const totals = { cash: wallet.filter((p) => p.payment_method === 'cash').reduce((a, p) => a + Number(p.amount), 0), gcash: wallet.filter((p) => p.payment_method === 'gcash').reduce((a, p) => a + Number(p.amount), 0) };
+  const card = (item, old = false) => <View key={item.id} style={styles.item}><Text style={styles.ticket}>{item.ticket_number}</Text><Text style={styles.itemTitle}>{item.customer_name || 'Customer'}</Text><Text style={styles.muted}>{date(item.expected_delivery || item.updated_at)}</Text><Text style={styles.body}>{item.delivery_address || item.pickup_address || 'Address not available'}</Text>{item.delivery_latitude != null && item.delivery_longitude != null ? <DeliveryMap location={item.customer_location || { latitude: item.delivery_latitude, longitude: item.delivery_longitude }} label='Customer pin' /> : null}{item.customer_phone ? <Pressable onPress={() => Linking.openURL('tel:' + item.customer_phone)}><Text style={styles.link}>Call {item.customer_phone}</Text></Pressable> : null}<Text style={styles.pill}>{old ? 'DELIVERED' : item.status === 'confirmed' ? 'PICK UP FROM CUSTOMER' : item.status === 'ready_for_pickup' ? 'READY TO DELIVER' : 'EN ROUTE'}</Text>{!old && item.status === 'confirmed' ? <Pressable disabled={busy} onPress={() => updateOrder(item, 'collect')} style={styles.primary}><Text style={styles.primaryText}>Confirm pickup</Text></Pressable> : null}{!old && item.status === 'out_for_delivery' ? <><Pressable onPress={startSharing} style={styles.primary}><Text style={styles.primaryText}>{sharing ? 'Location sharing active' : 'Start En Route tracking'}</Text></Pressable><Pressable disabled={busy} onPress={() => updateOrder(item, 'deliver')} style={styles.green}><Text style={styles.primaryText}>Confirm delivered</Text></Pressable></> : null}</View>;
+  return <View style={styles.screen}><View style={styles.top}><View><Text style={styles.title}>Delivery driver</Text><Text style={styles.muted}>Hi, {driver.full_name || driver.name}</Text></View><Pressable onPress={signOut}><Text style={styles.link}>Sign out</Text></Pressable></View>{error ? <Text style={styles.error}>{error}</Text> : null}{message ? <Text style={styles.notice}>{message}</Text> : null}<ScrollView contentContainerStyle={styles.content}>
+    {tab === 'Home' ? <View style={styles.card}><Text style={styles.cardTitle}>Good day, {driver.full_name || driver.name}</Text><Text style={styles.body}>Your delivery overview</Text><View style={styles.stats}><View style={styles.stat}><Text style={styles.metric}>{assigned.length}</Text><Text style={styles.muted}>Active deliveries</Text></View><View style={styles.stat}><Text style={styles.metric}>{history.length}</Text><Text style={styles.muted}>Delivered</Text></View><View style={styles.stat}><Text style={styles.metric}>{money(totals.cash + totals.gcash)}</Text><Text style={styles.muted}>Payments handled</Text></View></View>{assigned.slice(0, 3).map((x) => card(x))}</View> : null}
+    {tab === 'Deliveries' ? <View style={styles.card}><Text style={styles.cardTitle}>Deliveries</Text><Text style={styles.body}>Jobs assigned to your driver account.</Text>{assigned.length ? assigned.map((x) => card(x)) : <Text style={styles.muted}>No pending deliveries.</Text>}{sharing ? <View style={styles.item}><Text style={styles.itemTitle}>{backgroundSharing ? 'Background location is active' : 'Live location is active'}</Text><Text style={styles.body}>Customers can see your location during this delivery.</Text><Pressable onPress={stopSharing} style={styles.danger}><Text style={styles.primaryText}>Stop sharing</Text></Pressable></View> : null}</View> : null}
+    {tab === 'History' ? <View style={styles.card}><Text style={styles.cardTitle}>Delivery history</Text>{history.length ? history.map((x) => card(x, true)) : <Text style={styles.muted}>No completed deliveries yet.</Text>}</View> : null}
+    {tab === 'Wallet' ? <View style={styles.card}><Text style={styles.cardTitle}>Wallet</Text><Text style={styles.body}>Customer payments recorded for your assigned deliveries.</Text><View style={styles.stats}><View style={styles.stat}><Text style={styles.metric}>{money(totals.gcash)}</Text><Text style={styles.muted}>GCash</Text></View><View style={styles.stat}><Text style={styles.metric}>{money(totals.cash)}</Text><Text style={styles.muted}>Cash on hand</Text></View></View>{wallet.length ? wallet.map((p) => <View key={p.id} style={styles.item}><Text style={styles.ticket}>{p.order_number}</Text><Text style={styles.itemTitle}>{p.payment_method === 'gcash' ? 'GCash' : 'Cash on hand'} · {money(p.amount)}</Text><Text style={styles.muted}>{date(p.paid_at)}</Text></View>) : <Text style={styles.muted}>No recorded customer payments.</Text>}</View> : null}
+    {tab === 'Profile' ? <View style={styles.card}><Text style={styles.cardTitle}>Profile</Text><Pressable onPress={pickPhoto} style={styles.avatarWrap}>{photoDraft || driver.profile_photo ? <Image source={{ uri: photoDraft || driver.profile_photo }} style={styles.avatar} /> : <Text style={styles.avatarFallback}>＋</Text>}</Pressable><Pressable onPress={pickPhoto}><Text style={styles.link}>Change profile photo</Text></Pressable><Text style={styles.label}>Name</Text><TextInput value={nameDraft} onChangeText={setNameDraft} style={styles.input}/><Text style={styles.label}>Username (fixed)</Text><Text style={styles.locked}>{driver.username}</Text><Text style={styles.label}>Email (fixed; managed by shop staff)</Text><Text style={styles.locked}>{driver.email || 'Ask shop staff to add a recovery email.'}</Text><Text style={styles.label}>New password (optional)</Text><TextInput value={passwordDraft} onChangeText={(value) => setPasswordDraft(value.replace(/\s/g, ""))} secureTextEntry style={styles.input} placeholder="Leave empty to keep current"/><Pressable disabled={busy} onPress={saveProfile} style={styles.primary}><Text style={styles.primaryText}>Save profile</Text></Pressable></View> : null}
+    </ScrollView><View style={styles.nav}>{TABS.map((label) => <Pressable key={label} onPress={() => setTab(label)} style={[styles.navItem, tab === label && styles.navActive]}><Text style={[styles.navText, tab === label && styles.navTextActive]}>{label}</Text></Pressable>)}</View></View>;
 }
-
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#18131a' },
-  content: { flexGrow: 1, padding: 18, justifyContent: 'center', alignItems: 'center' },
-  header: { width: '100%', maxWidth: 760, flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 18 },
-  backButton: { minHeight: 42, borderRadius: 14, backgroundColor: '#302734', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
-  backText: { color: '#fff', fontSize: 12, fontWeight: '700' },
-  flex: { flex: 1 },
-  title: { color: '#fffaf2', fontSize: 24, fontWeight: '800' },
-  subtitle: { color: '#c7bac8', fontSize: 14, marginTop: 4 },
-  headerAction: { padding: 10 },
-  headerActionText: { color: '#fffaf2', fontWeight: '700' },
-  card: { width: '100%', maxWidth: 760, borderRadius: 20, padding: 20, gap: 12, borderColor: '#ded3df', borderWidth: 1, backgroundColor: '#fffaf2', marginBottom: 15 },
-  cardTitle: { color: '#58265f', fontSize: 20, fontWeight: '800' },
-  info: { color: '#514653', fontSize: 14, lineHeight: 21 },
-  label: { color: '#514653', fontSize: 13, fontWeight: '700', marginTop: 4 },
-  input: { minHeight: 48, borderColor: '#cfc2d1', borderWidth: 1, borderRadius: 12, paddingHorizontal: 13, color: '#201820', backgroundColor: '#fffdf9', fontSize: 15 },
-  passwordRow: { flexDirection: 'row', alignItems: 'center' },
-  passwordInput: { flex: 1 },
-  showButton: { marginLeft: -55, width: 48, alignItems: 'center', justifyContent: 'center', minHeight: 48 },
-  showButtonText: { color: '#58265f', fontWeight: '700' },
-  button: { minHeight: 48, borderRadius: 14, backgroundColor: '#58265f', alignItems: 'center', justifyContent: 'center', padding: 12, marginTop: 4 },
-  stopButton: { backgroundColor: '#a43e4a' },
-  buttonText: { color: '#fff', fontSize: 14, fontWeight: '800', textAlign: 'center' },
-  disabled: { opacity: 0.55 },
-  error: { width: '100%', maxWidth: 760, color: '#7d1d2b', backgroundColor: '#fbe6e8', borderRadius: 10, padding: 12, marginBottom: 10 },
-  notice: { width: '100%', maxWidth: 760, color: '#314e39', backgroundColor: '#e3f0e5', borderRadius: 10, padding: 12, marginBottom: 10 },
-  deliveryCard: { borderRadius: 14, padding: 14, gap: 8, backgroundColor: '#f5edf6', borderColor: '#e4d8e8', borderWidth: 1, marginTop: 4 },
-  deliveryHeader: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 8 },
-  ticket: { color: '#58265f', fontWeight: '800', fontSize: 16 },
-  schedule: { color: '#786f78', fontSize: 12 },
-  customerName: { color: '#201820', fontSize: 17, fontWeight: '800' },
-  phone: { color: '#58265f', fontSize: 14, fontWeight: '700' },
-  address: { color: '#514653', fontSize: 14, lineHeight: 20 },
-  mapLink: { alignSelf: 'flex-start', paddingVertical: 4 },
-  mapLinkText: { color: '#58265f', fontWeight: '700', fontSize: 13 },
-  stagePill: { alignSelf: 'flex-start', borderRadius: 20, backgroundColor: '#efe3f1', paddingHorizontal: 10, paddingVertical: 6, marginTop: 10 },
-  stagePillText: { color: '#58265f', fontSize: 11, fontWeight: '900' },
-  actionPanel: { gap: 9, marginTop: 10 },
-  deliveredButton: { backgroundColor: '#40513b', marginTop: 12 },
-  customerPin: { gap: 8, borderRadius: 12, backgroundColor: '#fffaf2', padding: 12, marginTop: 5 },
-  pinTitle: { color: '#58265f', fontSize: 15, fontWeight: '800' },
-  sharingPanel: { gap: 8, borderRadius: 12, backgroundColor: '#f2eaf4', padding: 13, marginTop: 8 },
-  sharingTitle: { color: '#58265f', fontSize: 15, fontWeight: '800' },
-  footnote: { color: '#786f78', fontSize: 12, lineHeight: 18, marginTop: 4 },
-});
+const styles = StyleSheet.create({ screen:{flex:1,backgroundColor:'#18131a'},authWrap:{flexGrow:1,justifyContent:'center',padding:22},brand:{alignItems:'center',marginBottom:22},brandIcon:{fontSize:38},content:{padding:16,paddingBottom:30,gap:14},top:{padding:18,paddingTop:28,backgroundColor:'#251e28',flexDirection:'row',justifyContent:'space-between',alignItems:'center'},title:{fontSize:23,fontWeight:'900',color:'#fffaf2'},muted:{color:'#807482',fontSize:13,marginTop:4},body:{color:'#514653',fontSize:14,lineHeight:21,marginTop:8},card:{backgroundColor:'#fffaf2',borderRadius:20,padding:18,gap:12,borderWidth:1,borderColor:'#e4d8e8'},cardTitle:{fontSize:20,fontWeight:'900',color:'#58265f'},label:{color:'#514653',fontWeight:'700',fontSize:13,marginTop:4},input:{minHeight:48,borderWidth:1,borderColor:'#d5c8d8',borderRadius:12,paddingHorizontal:13,backgroundColor:'#fffdf9',color:'#201820',fontSize:15},primary:{minHeight:48,borderRadius:13,backgroundColor:'#58265f',alignItems:'center',justifyContent:'center',padding:12,marginTop:5},green:{minHeight:46,borderRadius:13,backgroundColor:'#40513b',alignItems:'center',justifyContent:'center',padding:12,marginTop:8},danger:{minHeight:44,borderRadius:12,backgroundColor:'#a43e4a',alignItems:'center',justifyContent:'center',padding:10,marginTop:8},primaryText:{color:'#fff',fontWeight:'800',textAlign:'center'},link:{color:'#58265f',fontWeight:'800',paddingVertical:8},error:{backgroundColor:'#fbe6e8',color:'#7d1d2b',padding:12,marginHorizontal:16,borderRadius:10},notice:{backgroundColor:'#e3f0e5',color:'#314e39',padding:12,marginHorizontal:16,borderRadius:10},item:{backgroundColor:'#f4edf5',borderRadius:14,padding:14,marginTop:8},ticket:{color:'#58265f',fontWeight:'900',fontSize:15},itemTitle:{fontWeight:'800',fontSize:16,color:'#201820',marginTop:6},pill:{alignSelf:'flex-start',borderRadius:20,backgroundColor:'#eadcef',color:'#58265f',fontWeight:'900',fontSize:10,paddingHorizontal:10,paddingVertical:7,marginTop:6},stats:{flexDirection:'row',gap:8,flexWrap:'wrap'},stat:{flexGrow:1,minWidth:95,backgroundColor:'#f4edf5',padding:12,borderRadius:12},metric:{fontSize:18,fontWeight:'900',color:'#58265f'},nav:{flexDirection:'row',backgroundColor:'#fffaf2',paddingHorizontal:5,paddingVertical:8,borderTopWidth:1,borderColor:'#e4d8e8'},navItem:{flex:1,alignItems:'center',paddingVertical:12,borderRadius:11},navActive:{backgroundColor:'#58265f'},navText:{fontSize:11,fontWeight:'700',color:'#746979'},navTextActive:{color:'#fff'},avatarWrap:{alignSelf:'center',width:88,height:88,borderRadius:44,backgroundColor:'#f0e4f2',alignItems:'center',justifyContent:'center'},avatar:{width:88,height:88,borderRadius:44},avatarFallback:{fontSize:36,color:'#58265f'},locked:{backgroundColor:'#f4edf5',borderRadius:10,padding:13,color:'#746979'} });

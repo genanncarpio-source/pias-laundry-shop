@@ -3,7 +3,7 @@ require_once __DIR__ . '/bootstrap.php';
 api_require_method('GET');
 $driver = api_current_driver();
 $pdo = db();
-$stmt = $pdo->query(
+$stmt = $pdo->prepare(
     "SELECT o.id, o.order_number, o.customer_name, o.pickup_address, o.delivery_address, o.delivery_latitude, o.delivery_longitude, o.expected_pickup, o.status, o.handoff_type, o.payment_method, o.total,
             o.assigned_driver_id, c.name AS account_name, c.phone AS customer_phone,
             dt.latitude AS driver_latitude, dt.longitude AS driver_longitude, dt.updated_at AS driver_updated_at, dt.stopped_at,
@@ -11,10 +11,11 @@ $stmt = $pdo->query(
        FROM orders o
        LEFT JOIN customers c ON c.id = o.customer_id
        LEFT JOIN delivery_tracking dt ON dt.order_id = o.id
-      WHERE o.order_type = 'delivery_request'
-        AND ((o.handoff_type = 'pickup_delivery' AND o.status = 'confirmed') OR o.status = 'out_for_delivery')
+      WHERE o.order_type = 'delivery_request' AND o.assigned_driver_id = ?
+        AND ((o.handoff_type = 'pickup_delivery' AND o.status = 'confirmed') OR o.status IN ('ready_for_pickup','out_for_delivery'))
       ORDER BY o.expected_pickup IS NULL, o.expected_pickup, o.id"
 );
+$stmt->execute([(int)$driver['id']]);
 $deliveries = [];
 foreach ($stmt->fetchAll() as $row) {
     $assignedToMe = (int)$row['assigned_driver_id'] === (int)$driver['id'];
@@ -52,16 +53,17 @@ foreach ($stmt->fetchAll() as $row) {
         'driver_location' => $driverLocation,
     ];
 }
-$historyStmt = $pdo->query(
+$historyStmt = $pdo->prepare(
     "SELECT o.id, o.order_number, o.status, o.handoff_type, o.expected_pickup, o.updated_at,
             o.assigned_driver_id, o.total, o.payment_method, o.customer_name,
             c.name AS account_name, c.phone AS customer_phone, o.delivery_address
        FROM orders o
        LEFT JOIN customers c ON c.id = o.customer_id
       WHERE o.order_type = 'delivery_request'
-        AND o.status NOT IN ('confirmed', 'out_for_delivery')
+        AND o.assigned_driver_id = ? AND o.status = 'completed'
       ORDER BY o.updated_at DESC, o.id DESC LIMIT 200"
 );
+$historyStmt->execute([(int)$driver['id']]);
 $history = [];
 foreach ($historyStmt->fetchAll() as $row) {
     $assignedToMe = (int)$row['assigned_driver_id'] === (int)$driver['id'];
@@ -80,4 +82,12 @@ foreach ($historyStmt->fetchAll() as $row) {
         'total' => $assignedToMe ? (float)$row['total'] : null,
     ];
 }
-api_json(200, ['success' => true, 'deliveries' => $deliveries, 'history' => $history]);
+$paymentStmt = $pdo->prepare("SELECT p.id, p.order_id, o.order_number, p.amount, p.payment_method, p.paid_at
+ FROM payments p JOIN orders o ON o.id = p.order_id
+ WHERE o.assigned_driver_id = ? AND o.order_type = 'delivery_request' AND p.status = 'paid'
+ AND p.payment_method IN ('cash','gcash') ORDER BY p.paid_at DESC, p.id DESC LIMIT 300");
+$paymentStmt->execute([(int)$driver['id']]);
+$wallet = $paymentStmt->fetchAll();
+foreach ($wallet as &$payment) { $payment['id'] = (int)$payment['id']; $payment['amount'] = (float)$payment['amount']; }
+unset($payment);
+api_json(200, ['success' => true, 'deliveries' => $deliveries, 'history' => $history, 'wallet' => $wallet]);

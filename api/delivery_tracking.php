@@ -6,7 +6,7 @@ $orderId = filter_input(INPUT_GET, 'order_id', FILTER_VALIDATE_INT);
 if (!$orderId || $orderId < 1) api_json(422, ['success' => false, 'error' => 'Enter a valid ticket.']);
 
 $stmt = db()->prepare(
-    'SELECT o.order_type, o.status, o.order_number, t.is_active, t.latitude, t.longitude,
+    'SELECT o.order_type, o.status, o.order_number, o.delivery_address, o.delivery_latitude, o.delivery_longitude, t.is_active, t.latitude, t.longitude,
             t.accuracy, t.heading, t.speed, t.updated_at, t.stopped_at,
             t.customer_location_shared, t.customer_location_updated_at
        FROM orders o
@@ -42,6 +42,8 @@ api_json(200, [
         'stopped' => !empty($row['stopped_at']),
         'ticket_number' => $row['order_number'],
         'location' => $location,
+        'delivery_address' => $row['delivery_address'],
+        'destination' => $row['delivery_latitude'] !== null && $row['delivery_longitude'] !== null ? ['latitude' => (float)$row['delivery_latitude'], 'longitude' => (float)$row['delivery_longitude']] : null,
         'customer_location_shared' => $customerLocationShared,
         'customer_location_updated_at' => $customerLocationShared ? $row['customer_location_updated_at'] : null,
     ],

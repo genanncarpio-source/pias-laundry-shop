@@ -198,7 +198,7 @@ function api_current_driver(): array
 {
     $token = api_driver_token_value();
     $stmt = db()->prepare(
-        'SELECT d.id, d.full_name, d.username, d.phone
+        'SELECT d.id, d.full_name, d.username, d.email, d.phone, d.profile_photo
            FROM delivery_driver_sessions s
            JOIN delivery_drivers d ON d.id = s.driver_id
           WHERE s.token_hash = ? AND s.expires_at > NOW() AND d.is_active = 1

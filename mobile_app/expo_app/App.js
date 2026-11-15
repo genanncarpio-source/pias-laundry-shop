@@ -10,6 +10,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import DeliveryMap from './src/components/DeliveryMap';
+import LiveTrackingMap from './src/components/LiveTrackingMap';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -85,10 +86,6 @@ function isDeliveryArea(latitude, longitude) {
   return Number.isFinite(lat) && Number.isFinite(lon)
     && lat >= DELIVERY_BOUNDS.south && lat <= DELIVERY_BOUNDS.north
     && lon >= DELIVERY_BOUNDS.west && lon <= DELIVERY_BOUNDS.east;
-}
-
-function normalizeApiUrl(url) {
-  return url.trim().replace(/\/+$/, '');
 }
 
 function money(value) {
@@ -376,7 +373,7 @@ function PlaceAddressSearch({ apiBase, value, onChangeText, onPlaceSelected, dis
 }
 
 function AuthScreen({ apiBase, onSignedIn, sessionNotice }) {
-  const router = useRouter();
+
   const [registering, setRegistering] = useState(false);
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
@@ -654,11 +651,6 @@ function AuthScreen({ apiBase, onSignedIn, sessionNotice }) {
             </Pressable>
             {!registering ? <Pressable onPress={() => { setForgotPassword(true); setResetCodeSent(false); setResetCode(''); setNewPassword(''); setConfirmNewPassword(''); setError(''); }} disabled={busy} style={styles.driverSignInLink}><Text style={styles.driverSignInText}>Forgot password?</Text></Pressable> : null}
             <Text style={styles.authFootnote}>The shop confirms your service, price, and pickup or delivery schedule.</Text>
-            {!registering ? (
-              <Pressable accessibilityRole="link" onPress={() => router.push('/driver')} style={styles.driverSignInLink}>
-                <Text style={styles.driverSignInText}>Delivery driver? Sign in here</Text>
-              </Pressable>
-            ) : null}
             </>}
             </>
             </ScrollView>
@@ -1746,7 +1738,7 @@ function TicketCard({ ticket, onShareLocation, onRevokeLocation, locationBusy, l
               ticket.tracking.location ? (
                 <>
                   <Text style={styles.trackingStatus}>{ticket.tracking.location.stale ? 'Last location update is delayed.' : 'Your driver is on the way.'}</Text>
-                  <DeliveryMap location={ticket.tracking.location} />
+                  <LiveTrackingMap driver={ticket.tracking.location} destination={ticket.tracking.destination} />
                   <Text style={styles.trackingUpdated}>Last updated: {formatDate(ticket.tracking.location.updated_at)}</Text>
                 </>
               ) : <Text style={styles.ticketDetail}>Your driver has started the delivery. Waiting for the first location update.</Text>
