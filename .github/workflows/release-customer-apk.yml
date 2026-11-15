@@ -1,0 +1,56 @@
+name: Build and release customer APK
+
+on:
+  push:
+    tags:
+      - 'customer-v*'
+
+permissions:
+  contents: write
+
+jobs:
+  customer-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile_app/expo_app/package-lock.json
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install customer app dependencies
+        working-directory: mobile_app/expo_app
+        run: npm ci
+
+      - name: Generate customer Android project
+        working-directory: mobile_app/expo_app
+        env:
+          EXPO_PUBLIC_APP_VARIANT: customer
+          EXPO_PUBLIC_API_BASE_URL: https://pias-laundry-shop.up.railway.app/api
+        run: npx expo prebuild --platform android --no-install --clean
+
+      - name: Build customer APK
+        working-directory: mobile_app/expo_app/android
+        env:
+          EXPO_PUBLIC_APP_VARIANT: customer
+          EXPO_PUBLIC_API_BASE_URL: https://pias-laundry-shop.up.railway.app/api
+        run: ./gradlew assembleDebug
+
+      - name: Name customer APK
+        working-directory: mobile_app/expo_app
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk pias-laundry-customer-1.1.0.apk
+
+      - name: Publish APK to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${GITHUB_REF_NAME}" mobile_app/expo_app/pias-laundry-customer-1.1.0.apk --repo "${GITHUB_REPOSITORY}" --title "Pia's Laundry Shop Customer v1.1.0" --generate-notes
