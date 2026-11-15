@@ -72,7 +72,6 @@ $loginScript = basename($_SERVER['SCRIPT_NAME'] ?? 'login.php');
 .login-page .login-card .btn-primary:hover{background:#49204f}
 .login-page .login-wrap>p a{color:#704478}
 .login-page .field-error{display:block;min-height:18px;margin:4px 0 8px;color:#a43e4a;font-size:12px;font-weight:700}
-.login-page .login-toast{position:fixed;z-index:100;top:22px;right:22px;width:min(360px,calc(100vw - 32px));padding:14px 16px;border:1px solid #efb9c0;border-radius:12px;background:#fbe6e8;color:#7d1d2b;box-shadow:0 12px 32px #24131d33;font-weight:700;line-height:1.45}
 @media(max-width:560px){.login-page .login-wrap{padding:20px 16px;background-position:center}}
 </style>
 </head>
@@ -85,7 +84,7 @@ $loginScript = basename($_SERVER['SCRIPT_NAME'] ?? 'login.php');
       <p>Laundry Management System</p>
     </div>
 
-    <?php if ($error): ?><div class="login-toast" role="alert"><?= e($error) ?></div><?php endif; ?>
+    <?php if ($error && !$errorField): ?><div class="login-err" role="alert"><?= e($error) ?></div><?php endif; ?>
 
     <form method="post" action="<?= e($loginScript) ?>" autocomplete="off">
       <?= csrf_field() ?>

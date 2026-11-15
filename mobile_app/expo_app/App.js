@@ -449,11 +449,6 @@ function AuthScreen({ apiBase, onSignedIn, sessionNotice }) {
     return () => clearTimeout(timer);
   }, [notice]);
 
-  useEffect(() => {
-    if (!error) return undefined;
-    const timer = setTimeout(() => setError(''), 3000);
-    return () => clearTimeout(timer);
-  }, [error]);
 
   const selectRegistrationPlace = (place) => {
     setAddress(place.address);
@@ -469,13 +464,13 @@ function AuthScreen({ apiBase, onSignedIn, sessionNotice }) {
     setNotice('');
     const normalizedEmail = email.trim();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(normalizedEmail)) return showAuthError('Enter a valid email address, such as name@example.com.', 'email');
-    if (registering && verificationPending && !/^\d{6}$/.test(verificationCode)) return setError('Enter the 6-digit code sent to your email.');
-    if (registering && !verificationPending && !name.trim()) return setError('Enter your full name.');
-    if (registering && !verificationPending && !phone.trim()) return setError('Enter your phone number.');
+    if (registering && verificationPending && !/^\d{6}$/.test(verificationCode)) return showAuthError('Enter the 6-digit code sent to your email.');
+    if (registering && !verificationPending && !name.trim()) return showAuthError('Enter your full name.');
+    if (registering && !verificationPending && !phone.trim()) return showAuthError('Enter your phone number.');
     const completeRegistrationAddress = [addressDetails.trim(), address.trim()].filter(Boolean).join(', ');
-    if (registering && !verificationPending && !address.trim()) return setError('Choose an address from the map search results. House, unit, or landmark details are optional.');
-    if (registering && !verificationPending && !locationPin) return setError('Choose your address from the address search results.');
-    if (registering && !verificationPending && !/^09\d{9}$/.test(phone)) return setError('Enter an 11-digit mobile number starting with 09.');
+    if (registering && !verificationPending && !address.trim()) return showAuthError('Choose an address from the map search results. House, unit, or landmark details are optional.');
+    if (registering && !verificationPending && !locationPin) return showAuthError('Choose your address from the address search results.');
+    if (registering && !verificationPending && !/^09\d{9}$/.test(phone)) return showAuthError('Enter an 11-digit mobile number starting with 09.');
     if ((!registering || !verificationPending) && (!password || (registering && password.length < 10))) return showAuthError(registering ? 'Use a password with at least 10 characters.' : 'Enter your password.', 'password');
 
     submitting.current = true;
@@ -668,7 +663,6 @@ function AuthScreen({ apiBase, onSignedIn, sessionNotice }) {
             </>
             </ScrollView>
           </View>
-          {error ? <View pointerEvents="none" style={styles.authToastWrap}><Text style={styles.authToast}>{error}</Text></View> : null}
         </View>
       </SafeAreaView>
       <Modal
@@ -805,13 +799,13 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
 
   useEffect(() => {
     if (!toast) return undefined;
-    const timer = setTimeout(() => router.replace(pathname), 3000);
+    const timer = setTimeout(() => router.replace(pathname), 5000);
     return () => clearTimeout(timer);
   }, [toast, router, pathname]);
 
   useEffect(() => {
     if (!error) return undefined;
-    const timer = setTimeout(() => setError(''), 3000);
+    const timer = setTimeout(() => setError(''), 5000);
     return () => clearTimeout(timer);
   }, [error, setError]);
 
@@ -1815,8 +1809,6 @@ const styles = StyleSheet.create({
   authRoot: { flex: 1, backgroundColor: COLORS.dark },
   authSafeArea: { flex: 1 },
   authContainer: { flex: 1, width: '100%', maxWidth: 520, alignSelf: 'center', gap: 12, paddingHorizontal: 16, paddingTop: 8, paddingBottom: 8, minHeight: 0 },
-  authToastWrap: { position: 'absolute', zIndex: 20, top: 8, left: 24, right: 24, alignItems: 'center' },
-  authToast: { maxWidth: 420, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 12, backgroundColor: '#fbe6e8', color: '#7d1d2b', borderWidth: 1, borderColor: '#efb9c0', fontSize: 13, lineHeight: 18, fontWeight: '700', overflow: 'hidden' },
   authContainerCompact: { gap: 12, paddingBottom: 8 },
   hero: { minHeight: 184, borderRadius: 20, overflow: 'hidden', justifyContent: 'center', paddingHorizontal: 24, marginTop: 16, marginBottom: 20 },
   heroCompact: { minHeight: 145, marginTop: 4, marginBottom: 4, paddingHorizontal: 20 },

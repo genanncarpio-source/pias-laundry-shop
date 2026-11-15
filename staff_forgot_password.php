@@ -38,11 +38,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pending = $pendingQuery->fetch();
                 if ($pending && (int)$pending['seconds_since_sent'] < 60) {
                     $error = 'Please wait 60 seconds before requesting another code.';
+                    $errorField = 'email';
                 } else {
                     $sameHour = $pending && (int)$pending['seconds_since_created'] < 3600;
                     $resendCount = $sameHour ? (int)$pending['resend_count'] + 1 : 0;
                     if ($resendCount > 5) {
                         $error = 'Too many codes requested. Try again in one hour.';
+                        $errorField = 'email';
                     } else {
                         $code = str_pad((string)random_int(0, 999999), 6, '0', STR_PAD_LEFT);
                         $codeHash = password_hash($code, PASSWORD_DEFAULT);
@@ -62,6 +64,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             if (db()->inTransaction()) db()->rollBack();
                             error_log('Staff password reset email failed: ' . $exception->getMessage());
                             $error = 'Could not send the reset code. Please check the shop email configuration or try again later.';
+                            $errorField = 'email';
                         }
                     }
                 }
@@ -75,19 +78,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $code = trim((string)($_POST['code'] ?? ''));
         if (!preg_match('/^\d{6}$/', $code) || $email === '') {
             $error = 'Enter the 6-digit code sent to your email.';
+            $errorField = 'code';
         } else {
             $query = db()->prepare('SELECT r.*, u.id AS account_id, (r.expires_at < NOW()) AS is_expired FROM staff_password_reset_otps r JOIN users u ON u.id = r.user_id WHERE LOWER(r.email) = ? AND u.is_active = 1 LIMIT 1');
             $query->execute([$email]);
             $reset = $query->fetch();
             if (!$reset) {
                 $error = 'The code is invalid or expired. Request a new code.';
+                $errorField = 'code';
             } elseif ((int)$reset['attempts'] >= 5) {
                 $error = 'Too many incorrect attempts. Request a new code.';
+                $errorField = 'code';
             } elseif ((int)$reset['is_expired'] === 1) {
                 $error = 'The code expired. Request a new code.';
+                $errorField = 'code';
             } elseif (!password_verify($code, (string)$reset['code_hash'])) {
                 db()->prepare('UPDATE staff_password_reset_otps SET attempts = attempts + 1 WHERE id = ?')->execute([$reset['id']]);
                 $error = 'The code is incorrect.';
+                $errorField = 'code';
             } else {
                 // Consume the OTP as soon as it is verified so it cannot be replayed.
                 db()->prepare('DELETE FROM staff_password_reset_otps WHERE id = ?')->execute([$reset['id']]);
@@ -107,6 +115,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             unset($_SESSION['staff_reset_verified_user_id'], $_SESSION['staff_reset_verified_until']);
             $verifiedUserId = 0;
             $error = 'Verify a fresh email code before changing the password.';
+            $errorField = 'password';
         } elseif (preg_match('/\\s/u', $newPassword) || preg_match('/\\s/u', $confirmPassword)) {
             $error = 'Spaces are not allowed in passwords.';
             $errorField = 'password';
@@ -130,6 +139,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if (db()->inTransaction()) db()->rollBack();
                 error_log('Staff password reset failed: ' . $exception->getMessage());
                 $error = 'Could not update the password. Please try again.';
+                $errorField = 'password';
             }
         }
     }
@@ -150,13 +160,13 @@ $shopName = get_setting('shop_name', "Pia's Laundry Shop");
 .reset-page .login-card{width:min(100%,430px);background:rgba(255,250,255,.95);border:1px solid #dfc5ef;border-top:4px solid #7b31a8;border-radius:18px;padding:30px;box-shadow:0 22px 65px rgba(61,24,82,.2)}
 .reset-page h1{margin:0;text-align:center;color:#321a3d}.reset-page .intro{text-align:center;color:#78617f;margin:8px 0 24px}.reset-page label{display:block;margin:14px 0 5px;color:#4b3154;font-weight:600}.reset-page input{width:100%;padding:12px;border:1px solid #d9c5e2;border-radius:9px;background:#fffaff}.reset-page button{width:100%;margin-top:18px;padding:13px;border:0;border-radius:10px;background:#58265f;color:white;font-weight:700;cursor:pointer}.reset-page .msg{padding:11px 13px;border-radius:9px;margin:12px 0;background:#fce8e8;color:#8b2424}.reset-page .notice{background:#eaf6ed;color:#205b2e}.reset-page a{color:#704478}
 .reset-page .password-field{position:relative}.reset-page .password-field input{padding-right:48px}.reset-page .toggle-password{position:absolute;right:5px;top:5px;width:38px;height:38px;margin:0;padding:8px;background:transparent;color:#704478;display:grid;place-items:center}.reset-page .toggle-password svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
-.reset-page .field-error{display:block;min-height:16px;margin-top:4px;color:#a43e4a;font-size:12px;font-weight:700}.reset-page .reset-toast{position:fixed;z-index:100;top:22px;right:22px;width:min(360px,calc(100vw - 32px));padding:14px 16px;border:1px solid #efb9c0;border-radius:12px;background:#fbe6e8;color:#7d1d2b;box-shadow:0 12px 32px #24131d33;font-weight:700;line-height:1.45}
+.reset-page .field-error{display:block;min-height:16px;margin-top:4px;color:#a43e4a;font-size:12px;font-weight:700}
 </style>
 </head>
 <body class="reset-page login-page">
 <div class="login-wrap"><main class="login-card">
 <h1><?= e($shopName) ?></h1><p class="intro">Staff &amp; admin password recovery</p>
-<?php if ($error): ?><div class="reset-toast" role="alert"><?= e($error) ?></div><?php endif; ?>
+<?php if ($error && !$errorField): ?><div class="msg" role="alert"><?= e($error) ?></div><?php endif; ?>
 <?php if ($notice): ?><div class="msg notice" role="status"><?= e($notice) ?></div><?php endif; ?>
 <?php if ($verifiedUserId > 0 && $verifiedUntil >= time()): ?>
 <form method="post" autocomplete="off">
@@ -166,7 +176,7 @@ $shopName = get_setting('shop_name', "Pia's Laundry Shop");
 </form>
 <?php elseif (!empty($_SESSION['staff_reset_email'])): ?>
 <form method="post" autocomplete="off">
-<?= csrf_field() ?><label for="code">6-digit email code</label><input id="code" name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required>
+<?= csrf_field() ?><label for="code">6-digit email code</label><input id="code" name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required><span class="field-error"><?= $errorField === 'code' ? e($error) : '' ?></span>
 <button type="submit" name="verify_code" value="1">Verify code</button>
 </form>
 <form method="post" autocomplete="off" style="margin-top:20px">
