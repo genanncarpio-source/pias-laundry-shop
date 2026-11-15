@@ -22,5 +22,18 @@ $pageSubtitle = 'Order and payment updates';
 include __DIR__ . '/includes/header.php';
 ?>
 <div class="row-between mb-16"><div><p class="muted">Notifications assigned to your account.</p></div><form method="post"><?= csrf_field() ?><button class="btn btn-outline" name="mark_all" value="1">Mark all read</button></form></div>
-<div class="card"><?php if (!$notifications): ?><p class="muted">No notifications yet.</p><?php else: ?><div class="table-wrap"><table><thead><tr><th>Notification</th><th>Order</th><th>Date</th><th>Status</th><th></th></tr></thead><tbody><?php foreach ($notifications as $notice): ?><tr><td><strong><?= e($notice['title']) ?></strong><br><?= e($notice['message']) ?></td><td><?php if ($notice['order_id']): ?><a href="order_view.php?id=<?= (int)$notice['order_id'] ?>"><?= e($notice['order_number'] ?: 'View order') ?></a><?php else: ?>—<?php endif; ?></td><td><?= e(date('M j, Y g:i A', strtotime($notice['created_at']))) ?></td><td><?= $notice['is_read'] ? 'Read' : 'Unread' ?></td><td><?php if (!$notice['is_read']): ?><form method="post"><?= csrf_field() ?><input type="hidden" name="notification_id" value="<?= (int)$notice['id'] ?>"><button class="btn btn-outline btn-sm" name="mark_read" value="1">Mark read</button></form><?php endif; ?></td></tr><?php endforeach; ?></tbody></table></div><?php endif; ?></div>
+<div class="card" data-notification-list data-csrf-token="<?= e(csrf_token()) ?>">
+  <p class="muted" data-notification-empty <?= $notifications ? 'hidden' : '' ?>>No notifications yet.</p>
+  <div class="table-wrap"><table><thead><tr><th>Notification</th><th>Order</th><th>Date</th><th>Status</th><th></th></tr></thead><tbody>
+  <?php foreach ($notifications as $notice): ?>
+    <tr id="notification-<?= (int)$notice['id'] ?>" data-notification-id="<?= (int)$notice['id'] ?>">
+      <td><strong><?= e($notice['title']) ?></strong><br><?= e($notice['message']) ?></td>
+      <td><?php if ($notice['order_id']): ?><a href="order_view.php?id=<?= (int)$notice['order_id'] ?>"><?= e($notice['order_number'] ?: 'View order') ?></a><?php else: ?>—<?php endif; ?></td>
+      <td><?= e(date('M j, Y g:i A', strtotime($notice['created_at']))) ?></td>
+      <td><?= $notice['is_read'] ? 'Read' : 'Unread' ?></td>
+      <td><?php if (!$notice['is_read']): ?><form method="post"><?= csrf_field() ?><input type="hidden" name="notification_id" value="<?= (int)$notice['id'] ?>"><button class="btn btn-outline btn-sm" name="mark_read" value="1">Mark read</button></form><?php endif; ?></td>
+    </tr>
+  <?php endforeach; ?>
+  </tbody></table></div>
+</div>
 <?php include __DIR__ . '/includes/footer.php'; ?>

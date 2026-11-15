@@ -82,6 +82,103 @@ document.addEventListener('DOMContentLoaded', function () {
       if (ev.target === overlay) overlay.classList.remove('open');
     });
   });
+
+  // Poll staff notifications and surface new items without reloading the page.
+  const appRoot = document.querySelector('.app[data-notification-poll-url]');
+  if (appRoot) {
+    let latestNotificationId = Number(appRoot.dataset.notificationLatestId || 0);
+    let polling = false;
+    const updateUnreadCount = (count) => {
+      const badge = document.querySelector('[data-notification-count]');
+      if (!badge) return;
+      badge.textContent = String(count);
+      badge.hidden = Number(count) < 1;
+    };
+    const appendNotification = (notice) => {
+      const list = document.querySelector('[data-notification-list]');
+      if (!list) return;
+      const tbody = list.querySelector('tbody');
+      if (!tbody || document.getElementById('notification-' + notice.id)) return;
+      list.querySelector('[data-notification-empty]')?.setAttribute('hidden', '');
+
+      const row = document.createElement('tr');
+      row.id = 'notification-' + notice.id;
+      row.dataset.notificationId = String(notice.id);
+      const detail = document.createElement('td');
+      const title = document.createElement('strong');
+      title.textContent = notice.title;
+      detail.append(title, document.createElement('br'), document.createTextNode(notice.message));
+      const order = document.createElement('td');
+      if (notice.order_id) {
+        const orderLink = document.createElement('a');
+        orderLink.href = 'order_view.php?id=' + encodeURIComponent(notice.order_id);
+        orderLink.textContent = notice.order_number || 'View order';
+        order.appendChild(orderLink);
+      } else {
+        order.textContent = '—';
+      }
+      const date = document.createElement('td');
+      const parsedDate = new Date(String(notice.created_at).replace(' ', 'T'));
+      date.textContent = Number.isNaN(parsedDate.getTime()) ? notice.created_at : parsedDate.toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' });
+      const status = document.createElement('td');
+      status.textContent = notice.is_read ? 'Read' : 'Unread';
+      const action = document.createElement('td');
+      if (!notice.is_read) {
+        const form = document.createElement('form');
+        form.method = 'post';
+        const csrf = document.createElement('input');
+        csrf.type = 'hidden'; csrf.name = 'csrf'; csrf.value = list.dataset.csrfToken || '';
+        const noticeId = document.createElement('input');
+        noticeId.type = 'hidden'; noticeId.name = 'notification_id'; noticeId.value = String(notice.id);
+        const markRead = document.createElement('button');
+        markRead.className = 'btn btn-outline btn-sm'; markRead.name = 'mark_read'; markRead.value = '1'; markRead.textContent = 'Mark read';
+        form.append(csrf, noticeId, markRead);
+        action.appendChild(form);
+      }
+      row.append(detail, order, date, status, action);
+      tbody.prepend(row);
+    };
+    const showNotificationToast = (notice) => {
+      document.querySelector('.notification-toast')?.remove();
+      const toast = document.createElement('a');
+      toast.className = 'notification-toast';
+      toast.href = 'notifications.php#notification-' + encodeURIComponent(notice.id);
+      toast.setAttribute('role', 'status');
+      const title = document.createElement('strong');
+      title.textContent = notice.title || 'New notification';
+      const message = document.createElement('span');
+      message.textContent = notice.message || 'Open notifications to see the update.';
+      toast.append(title, message);
+      document.body.appendChild(toast);
+      window.setTimeout(() => toast.classList.add('visible'), 10);
+      window.setTimeout(() => {
+        toast.classList.remove('visible');
+        window.setTimeout(() => toast.remove(), 250);
+      }, 7000);
+    };
+    const pollNotifications = async () => {
+      if (polling || document.hidden) return;
+      polling = true;
+      try {
+        const url = new URL(appRoot.dataset.notificationPollUrl, window.location.href);
+        url.searchParams.set('after_id', String(latestNotificationId));
+        const response = await fetch(url, { headers: { Accept: 'application/json' }, cache: 'no-store', credentials: 'same-origin' });
+        if (!response.ok) return;
+        const payload = await response.json();
+        if (!payload.success) return;
+        updateUnreadCount(payload.unread_count);
+        const incoming = Array.isArray(payload.notifications) ? payload.notifications : [];
+        incoming.forEach(appendNotification);
+        if (incoming.length) showNotificationToast(incoming[incoming.length - 1]);
+        latestNotificationId = Math.max(latestNotificationId, Number(payload.latest_id || 0));
+      } catch (_) {
+        // Retry on the next interval if the network is temporarily unavailable.
+      } finally {
+        polling = false;
+      }
+    };
+    window.setInterval(pollNotifications, 10000);
+  }
 });
 
 /** Escape HTML for safe client-side rendering. */

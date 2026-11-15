@@ -150,6 +150,8 @@ function ensure_workflow_schema(): void
     }
     $estimatedWeightColumn = $pdo->query("SHOW COLUMNS FROM order_items LIKE 'estimated_weight_kg'")->fetch(PDO::FETCH_ASSOC);
     if (!$estimatedWeightColumn) $pdo->exec('ALTER TABLE order_items ADD COLUMN estimated_weight_kg DECIMAL(10,2) DEFAULT NULL AFTER quantity');
+    $actualWeightColumn = $pdo->query("SHOW COLUMNS FROM order_items LIKE 'actual_weight_kg'")->fetch(PDO::FETCH_ASSOC);
+    if (!$actualWeightColumn) $pdo->exec('ALTER TABLE order_items ADD COLUMN actual_weight_kg DECIMAL(10,2) DEFAULT NULL AFTER estimated_weight_kg');
     $statusColumn = $pdo->query("SHOW COLUMNS FROM orders LIKE 'status'")->fetch(PDO::FETCH_ASSOC);
     if ($statusColumn && stripos($statusColumn['Type'], 'enum(') === 0) {
         $pdo->exec("ALTER TABLE orders MODIFY status VARCHAR(30) NOT NULL DEFAULT 'pending'");

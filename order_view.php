@@ -100,21 +100,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['update_status']) || 
                 flash_set('success', 'Processing notes saved.');
             } elseif (isset($_POST['record_payment'])) {
                 if (in_array($currentOrder['status'], ['cancelled', 'rejected'], true)) throw new InvalidArgumentException('Payments cannot be recorded for a cancelled or rejected order.');
-                $amount = round((float)($_POST['payment_amount'] ?? 0), 2);
+                $amountInput = trim((string)($_POST['payment_amount'] ?? ''));
+                if (!preg_match('/^\d+(?:\.\d{1,2})?$/', $amountInput)) throw new InvalidArgumentException('Enter a valid positive payment amount.');
+                $amount = round((float)$amountInput, 2);
+                if (!is_finite($amount) || $amount > 99999999.99) throw new InvalidArgumentException('Enter a valid payment amount.');
                 $method = $_POST['payment_method'] ?? '';
-                $reference = trim((string)($_POST['reference_number'] ?? ''));
+                $reference = $method === 'gcash' ? trim((string)($_POST['reference_number'] ?? '')) : '';
                 $validMethods = ['cash', 'gcash'];
                 $alreadyPaid = max(0, (float)$currentOrder['amount_paid'] - (float)$currentOrder['change_due']);
                 $balance = max(0, (float)$currentOrder['total'] - $alreadyPaid);
-                if (!in_array($method, $validMethods, true) || $amount <= 0 || $amount > $balance || strlen($reference) > 120) throw new InvalidArgumentException('Enter a valid payment up to the remaining balance.');
+                if (!in_array($method, $validMethods, true) || $amount <= 0 || ($method === 'gcash' && $amount > $balance) || strlen($reference) > 120) throw new InvalidArgumentException('Enter a valid payment amount. GCash payments cannot exceed the remaining balance.');
+                $appliedAmount = min($amount, $balance);
+                $change = $method === 'cash' ? max(0, round($amount - $balance, 2)) : 0.0;
                 $pdo->beginTransaction();
-                $pdo->prepare("INSERT INTO payments (order_id, amount, payment_method, reference_number, received_by) VALUES (?, ?, ?, ?, ?)")->execute([$id, $amount, $method, $reference !== '' ? $reference : null, $_SESSION['user_id']]);
+                $pdo->prepare("INSERT INTO payments (order_id, amount, payment_method, reference_number, received_by) VALUES (?, ?, ?, ?, ?)")->execute([$id, $appliedAmount, $method, $reference !== '' ? $reference : null, $_SESSION['user_id']]);
                 $newPaid = round($alreadyPaid + $amount, 2);
-                $pdo->prepare('UPDATE orders SET amount_paid = ?, change_due = 0, payment_method = ? WHERE id = ?')->execute([$newPaid, $method, $id]);
+                $pdo->prepare('UPDATE orders SET amount_paid = ?, change_due = ?, payment_method = ? WHERE id = ?')->execute([$newPaid, $change, $method, $id]);
                 $pdo->commit();
-                if ($currentOrder['customer_id']) add_notification('customer', (int)$currentOrder['customer_id'], $id, 'Payment recorded', money($amount) . ' payment received for ' . $currentOrder['order_number'] . '.');
-                add_audit_log('Payment recorded', 'payments', $id, $alreadyPaid, $newPaid);
-                flash_set('success', 'Payment recorded. Remaining balance: ' . money(max(0, (float)$currentOrder['total'] - $newPaid)));
+                if ($currentOrder['customer_id']) add_notification('customer', (int)$currentOrder['customer_id'], $id, 'Payment recorded', money($appliedAmount) . ' payment received for ' . $currentOrder['order_number'] . '.');
+                add_audit_log('Payment recorded', 'payments', $id, $alreadyPaid, $newPaid - $change);
+                flash_set('success', 'Payment recorded.' . ($change > 0 ? ' Change: ' . money($change) . '.' : '') . ' Remaining balance: ' . money(max(0, (float)$currentOrder['total'] - ($newPaid - $change))));
             } elseif (isset($_POST['record_weight'])) {
                 if (in_array($currentOrder['status'], ['cancelled', 'rejected', 'completed', 'picked_up'], true)) throw new InvalidArgumentException('Actual weight cannot be changed for this order.');
                 $weight = round((float)($_POST['actual_weight'] ?? 0), 2);
@@ -143,14 +148,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['update_status']) || 
                         $category = (string)($line['category'] ?? 'Wash');
                         $lineTotal = service_weight_load_price($actualQty, $unitPrice, $category);
                         $loadCount = service_weight_load_count($actualQty, $category);
-                        $updates[] = [$loadCount, $unitPrice, $lineTotal, $line['id']];
+                        $updates[] = [$loadCount, $unitPrice, $lineTotal, $line['id'], $estimatedQty, $actualQty];
                         $newSubtotal += $lineTotal;
                     } elseif ($line['unit'] === 'kg') {
                         $estimatedQty = (float)$line['quantity'];
                         $actualQty = $estimatedKgTotal > 0 ? $weight * $estimatedQty / $estimatedKgTotal : $weight;
                         $perKg = (float)$line['subtotal'] / max(7.0, $estimatedQty);
                         $lineTotal = round($perKg * max(7.0, $actualQty), 2);
-                        $updates[] = [$actualQty, $perKg, $lineTotal, $line['id']];
+                        $updates[] = [$actualQty, $perKg, $lineTotal, $line['id'], $estimatedQty, $actualQty];
                         $newSubtotal += $lineTotal;
                     } else {
                         $newSubtotal += (float)$line['subtotal'];
@@ -162,7 +167,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['update_status']) || 
                 if (!$hasKg) throw new InvalidArgumentException('This order has no weight-based service.');
                 if ($alreadyPaid > $newTotal) throw new InvalidArgumentException('The new total is below the amount already paid. The recorded weight was not changed.');
                 $pdo->beginTransaction();
-                foreach ($updates as [$qty, $unitPrice, $lineTotal, $lineId]) $pdo->prepare('UPDATE order_items SET quantity = ?, unit_price = ?, subtotal = ? WHERE id = ?')->execute([$qty, $unitPrice, $lineTotal, $lineId]);
+                foreach ($updates as [$qty, $unitPrice, $lineTotal, $lineId, $estimatedQty, $actualQty]) {
+                    $pdo->prepare('UPDATE order_items SET quantity = ?, unit_price = ?, subtotal = ?, estimated_weight_kg = COALESCE(estimated_weight_kg, ?), actual_weight_kg = ? WHERE id = ?')->execute([$qty, $unitPrice, $lineTotal, $estimatedQty, $actualQty, $lineId]);
+                }
                 $pdo->prepare('UPDATE orders SET actual_weight = ?, subtotal = ?, total = ? WHERE id = ?')->execute([$weight, $newSubtotal, $newTotal, $id]);
                 add_order_history($id, (string)$currentOrder['status'], 'Actual weight recorded: ' . number_format($weight, 2) . ' kg. Total recalculated to ' . money($newTotal), (int)$_SESSION['user_id']);
                 $pdo->commit();
@@ -291,7 +298,13 @@ $items->execute([$id]);
 $lines = $items->fetchAll();
 $isFullService = order_has_full_service($lines);
 $hasWeightService = false;
-foreach ($lines as $line) if ($line['unit'] === 'kg' || $line['estimated_weight_kg'] !== null) $hasWeightService = true;
+$estimatedWeightTotal = 0.0;
+foreach ($lines as $line) {
+    if ($line['unit'] === 'kg' || $line['estimated_weight_kg'] !== null) {
+        $hasWeightService = true;
+        $estimatedWeightTotal += $line['estimated_weight_kg'] !== null ? (float)$line['estimated_weight_kg'] : ($line['unit'] === 'kg' ? (float)$line['quantity'] : 0.0);
+    }
+}
 
 $statusFlow   = order_next_statuses($order['status'], $lines);
 if ($order['order_type'] === 'delivery_request') {
@@ -447,15 +460,42 @@ include __DIR__ . '/includes/header.php';
 </div>
 <?php endif; ?>
 
-<?php if (!is_admin() && !$gcashUnverified && $hasWeightService && !in_array($order['status'], ['cancelled', 'rejected', 'completed', 'picked_up'], true)): ?>
+<?php if (!is_admin() && !$gcashUnverified && $hasWeightService): ?>
 <div class="card mt-16">
   <h2>Actual weight and billing</h2>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Service</th><th>Quantity / loads</th><th class="num">Estimated kg</th><th class="num">Actual kg</th><th class="num">Updated billing</th></tr></thead>
+      <tbody>
+        <?php foreach ($lines as $line): ?>
+          <?php
+            $estimatedKg = $line['estimated_weight_kg'] !== null ? (float)$line['estimated_weight_kg'] : ($line['unit'] === 'kg' ? (float)$line['quantity'] : null);
+            $actualKg = $estimatedKg !== null
+                ? ($line['actual_weight_kg'] !== null
+                    ? (float)$line['actual_weight_kg']
+                    : ($order['actual_weight'] !== null && $estimatedWeightTotal > 0 ? (float)$order['actual_weight'] * $estimatedKg / $estimatedWeightTotal : null))
+                : null;
+          ?>
+          <tr>
+            <td><?= e($line['service_name']) ?></td>
+            <td><?= e(rtrim(rtrim(number_format((float)$line['quantity'], 2), '0'), '.')) ?> <?= e($line['unit'] === 'load' && (float)$line['quantity'] !== 1.0 ? 'loads' : $line['unit']) ?></td>
+            <td class="num"><?= $estimatedKg !== null ? e(rtrim(rtrim(number_format($estimatedKg, 2), '0'), '.')) . ' kg' : '—' ?></td>
+            <td class="num"><?= $actualKg !== null ? e(rtrim(rtrim(number_format($actualKg, 2), '0'), '.')) . ' kg' : '—' ?></td>
+            <td class="num"><?= money($line['subtotal']) ?></td>
+          </tr>
+        <?php endforeach; ?>
+      </tbody>
+      <tfoot><tr><td colspan="4" class="right"><strong>Updated total</strong></td><td class="num"><strong><?= money($order['total']) ?></strong></td></tr></tfoot>
+    </table>
+  </div>
   <p>Current total: <strong><?= money($order['total']) ?></strong> · Paid: <strong><?= money($paidTotal) ?></strong> · Balance: <strong><?= money($remainingBalance) ?></strong></p>
+  <?php if (!in_array($order['status'], ['cancelled', 'rejected', 'completed', 'picked_up'], true)): ?>
   <form method="post" action="order_view.php?id=<?= (int)$id ?>" class="form-row">
     <?= csrf_field() ?><input type="hidden" name="record_weight" value="1">
     <div><label for="actualWeight">Actual laundry weight (kg)</label><input id="actualWeight" name="actual_weight" type="number" min="0.01" max="1000" step="0.01" value="<?= e($order['actual_weight'] ?? '') ?>" required></div>
     <div class="form-actions"><button class="btn btn-primary" type="submit">Save weight and recalculate</button></div>
   </form>
+  <?php endif; ?>
 </div>
 <?php endif; ?>
 
@@ -505,11 +545,34 @@ include __DIR__ . '/includes/header.php';
   <?php if (!is_admin() && !$gcashUnverified && $order['payment_method'] !== 'gcash_pending' && $remainingBalance > 0 && !in_array($order['status'], ['cancelled', 'rejected'], true)): ?>
   <form method="post" action="order_view.php?id=<?= (int)$id ?>" class="form-row mt-16">
     <?= csrf_field() ?><input type="hidden" name="record_payment" value="1">
-    <div><label for="paymentAmount">Amount (balance <?= money($remainingBalance) ?>)</label><input id="paymentAmount" name="payment_amount" type="number" min="0.01" max="<?= e($remainingBalance) ?>" step="0.01" required></div>
+    <div><label for="paymentAmount">Amount tendered (balance <?= money($remainingBalance) ?>)</label><input id="paymentAmount" name="payment_amount" type="number" min="0.01" step="0.01" data-balance="<?= e($remainingBalance) ?>" required><p id="changePreview" class="muted" aria-live="polite" hidden>Change: <strong><?= money(0) ?></strong></p></div>
     <div><label for="paymentMethod">Payment Method</label><select id="paymentMethod" name="payment_method" required><?php foreach (['cash' => 'Cash', 'gcash' => 'GCash'] as $value => $label): ?><option value="<?= e($value) ?>" <?= $value === $order['payment_method'] ? 'selected' : '' ?>><?= e($label) ?></option><?php endforeach; ?></select></div>
-    <div><label for="referenceNumber">Reference number (optional)</label><input id="referenceNumber" name="reference_number" maxlength="120"></div>
+    <div id="referenceNumberField" <?= $order['payment_method'] === 'gcash' ? '' : 'hidden' ?>><label for="referenceNumber">Reference number (optional)</label><input id="referenceNumber" name="reference_number" maxlength="120"></div>
     <div class="form-actions"><button class="btn btn-primary" type="submit">Record Payment</button></div>
   </form>
+  <script>
+  (function () {
+    var amount = document.getElementById('paymentAmount');
+    var method = document.getElementById('paymentMethod');
+    var referenceField = document.getElementById('referenceNumberField');
+    var reference = document.getElementById('referenceNumber');
+    var changePreview = document.getElementById('changePreview');
+    if (!amount || !method) return;
+    function updatePaymentFields() {
+      var isCash = method.value === 'cash';
+      var balance = Number(amount.dataset.balance || 0);
+      var tendered = Number(amount.value || 0);
+      referenceField.hidden = isCash;
+      reference.disabled = isCash;
+      amount.max = isCash ? '' : String(balance);
+      changePreview.hidden = !isCash || tendered <= balance;
+      if (!changePreview.hidden) changePreview.querySelector('strong').textContent = peso(Math.max(0, tendered - balance));
+    }
+    method.addEventListener('change', updatePaymentFields);
+    amount.addEventListener('input', updatePaymentFields);
+    updatePaymentFields();
+  })();
+  </script>
   <?php endif; ?>
 </div>
 

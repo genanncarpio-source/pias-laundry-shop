@@ -7,6 +7,9 @@ $user     = current_user();
 $shopName = get_setting('shop_name', "Pia's Laundry Shop");
 $active   = basename($_SERVER['PHP_SELF'] ?? '');
 $prefix   = asset_prefix();   // '' at root, '../' inside sub-folders
+$notificationSummary = db()->prepare("SELECT COALESCE(MAX(id), 0) AS latest_id, COALESCE(SUM(CASE WHEN is_read = 0 THEN 1 ELSE 0 END), 0) AS unread_count FROM notifications WHERE audience = 'staff' AND audience_id = ?");
+$notificationSummary->execute([(int)$user['id']]);
+$notificationState = $notificationSummary->fetch() ?: ['latest_id' => 0, 'unread_count' => 0];
 
 $nav = [
     ['Backup & Restore', 'backup.php', '&#128190;', true],
@@ -28,10 +31,10 @@ $nav = [
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title><?= isset($pageTitle) ? e($pageTitle) . ' Â· ' . e($shopName) : e($shopName) ?></title>
-<link rel="stylesheet" href="<?= e(asset('assets/css/style.css')) ?>?v=status-timeline-20261019">
+<link rel="stylesheet" href="<?= e(asset('assets/css/style.css')) ?>?v=live-notifications-20261115">
 </head>
 <body>
-<div class="app">
+<div class="app" data-notification-poll-url="<?= e($prefix) ?>notification_poll.php" data-notification-latest-id="<?= (int)$notificationState['latest_id'] ?>">
   <div class="sidebar-backdrop" id="sidebarBackdrop" aria-hidden="true"></div>
   <aside class="sidebar" id="sidebar" aria-label="Main navigation">
     <div class="brand">
@@ -50,7 +53,7 @@ $nav = [
       ?>
       <a class="nav-link<?= $isActive ?>" href="<?= e($prefix . $href) ?>">
         <span class="nav-icon <?= e($iconClass) ?>"><?= $icon ?></span>
-        <span><?= e($label) ?></span>
+        <span><?= e($label) ?></span><?php if ($href === 'notifications.php'): ?><span class="notification-count" data-notification-count <?= (int)$notificationState['unread_count'] > 0 ? '' : 'hidden' ?>><?= (int)$notificationState['unread_count'] ?></span><?php endif; ?>
       </a>
       <?php endforeach; ?>
     </nav>
