@@ -141,6 +141,17 @@ function formatDate(value) {
   return Number.isNaN(parsed.getTime()) ? String(value) : parsed.toLocaleString();
 }
 
+function formatSchedule(value) {
+  if (!value) return '';
+  const parsed = new Date(String(value).replace(' ', 'T'));
+  if (Number.isNaN(parsed.getTime())) return String(value);
+  const end = new Date(parsed.getTime() + 2 * 60 * 60 * 1000);
+  const date = parsed.toLocaleDateString();
+  const startTime = parsed.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const endTime = end.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  return `${date}, ${startTime}–${endTime}`;
+}
+
 function statusLabel(value) {
   return String(value || 'pending').replaceAll('_', ' ');
 }
@@ -308,11 +319,11 @@ function HeroBanner({ compact = false, keyboardCompact = false }) {
   );
 }
 
-function Field({ label, value, onChangeText, secureTextEntry, right, ...inputProps }) {
+function Field({ label, value, onChangeText, secureTextEntry, right, error, ...inputProps }) {
   return (
     <View style={styles.fieldWrap}>
       {label ? <Text style={styles.fieldLabel}>{label}</Text> : null}
-      <View style={styles.inputShell}>
+      <View style={[styles.inputShell, error && styles.inputShellError]}>
         <TextInput
           value={value}
           onChangeText={onChangeText}
@@ -323,6 +334,7 @@ function Field({ label, value, onChangeText, secureTextEntry, right, ...inputPro
         />
         {right ? <View style={styles.inputRight}>{right}</View> : null}
       </View>
+      {error ? <Text style={styles.fieldError}>{error}</Text> : null}
     </View>
   );
 }
@@ -384,9 +396,15 @@ function AuthScreen({ apiBase, onSignedIn, sessionNotice }) {
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [errorField, setErrorField] = useState('');
   const [notice, setNotice] = useState('');
 
   const submitting = useRef(false);
+  const showAuthError = (message, field = '') => { setErrorField(field); setError(message); };
+  const changeAuthField = (setter, field) => (value) => {
+    setter(String(value).replace(/\s/g, ''));
+    if (errorField === field) { setError(''); setErrorField(''); }
+  };
   const { width, height } = useWindowDimensions();
   const compactAuth = width < 420;
   const registeringRef = useRef(registering);
@@ -450,7 +468,7 @@ function AuthScreen({ apiBase, onSignedIn, sessionNotice }) {
     setError('');
     setNotice('');
     const normalizedEmail = email.trim();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(normalizedEmail)) return setError('Enter a valid email address, such as name@example.com.');
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(normalizedEmail)) return showAuthError('Enter a valid email address, such as name@example.com.', 'email');
     if (registering && verificationPending && !/^\d{6}$/.test(verificationCode)) return setError('Enter the 6-digit code sent to your email.');
     if (registering && !verificationPending && !name.trim()) return setError('Enter your full name.');
     if (registering && !verificationPending && !phone.trim()) return setError('Enter your phone number.');
@@ -458,7 +476,7 @@ function AuthScreen({ apiBase, onSignedIn, sessionNotice }) {
     if (registering && !verificationPending && !address.trim()) return setError('Choose an address from the map search results. House, unit, or landmark details are optional.');
     if (registering && !verificationPending && !locationPin) return setError('Choose your address from the address search results.');
     if (registering && !verificationPending && !/^09\d{9}$/.test(phone)) return setError('Enter an 11-digit mobile number starting with 09.');
-    if ((!registering || !verificationPending) && (!password || (registering && password.length < 10))) return setError(registering ? 'Use a password with at least 10 characters.' : 'Enter your password.');
+    if ((!registering || !verificationPending) && (!password || (registering && password.length < 10))) return showAuthError(registering ? 'Use a password with at least 10 characters.' : 'Enter your password.', 'password');
 
     submitting.current = true;
     setBusy(true);
@@ -499,7 +517,8 @@ function AuthScreen({ apiBase, onSignedIn, sessionNotice }) {
       setShowPassword(false);
       onSignedIn(saved);
     } catch (submitError) {
-      setError(submitError.message || 'The request could not be completed.');
+      const message = submitError.message || 'The request could not be completed.';
+      showAuthError(message, /email/i.test(message) ? 'email' : /password|sign in|incorrect/i.test(message) ? 'password' : '');
     } finally {
       submitting.current = false;
       setBusy(false);
@@ -519,7 +538,7 @@ function AuthScreen({ apiBase, onSignedIn, sessionNotice }) {
       setVerificationCode('');
       setNotice(data.message || 'A new verification code was sent.');
     } catch (resendError) {
-      setError(resendError.message || 'Could not resend the verification code.');
+      showAuthError(resendError.message || 'Could not resend the verification code.', 'email');
     } finally {
       submitting.current = false;
       setBusy(false);
@@ -529,7 +548,7 @@ function AuthScreen({ apiBase, onSignedIn, sessionNotice }) {
   const requestPasswordReset = async () => {
     if (submitting.current) return;
     const normalizedEmail = email.trim();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(normalizedEmail)) return setError('Enter the email address used by your account.');
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(normalizedEmail)) return showAuthError('Enter the email address used by your account.', 'email');
     submitting.current = true;
     setBusy(true);
     setError('');
@@ -539,7 +558,7 @@ function AuthScreen({ apiBase, onSignedIn, sessionNotice }) {
       setResetCode('');
       setNotice(data.message || 'A password reset code was sent if this email has a verified account.');
     } catch (resetError) {
-      setError(resetError.message || 'Could not request a password reset code.');
+      showAuthError(resetError.message || 'Could not request a password reset code.', 'email');
     } finally {
       submitting.current = false;
       setBusy(false);
@@ -548,9 +567,9 @@ function AuthScreen({ apiBase, onSignedIn, sessionNotice }) {
 
   const completePasswordReset = async () => {
     if (submitting.current) return;
-    if (!/^\d{6}$/.test(resetCode)) return setError('Enter the 6-digit reset code sent to your email.');
-    if (newPassword.length < 10) return setError('Use a new password with at least 10 characters.');
-    if (newPassword !== confirmNewPassword) return setError('The new passwords do not match.');
+    if (!/^\d{6}$/.test(resetCode)) return showAuthError('Enter the 6-digit reset code sent to your email.', 'resetCode');
+    if (newPassword.length < 10) return showAuthError('Use a new password with at least 10 characters.', 'newPassword');
+    if (newPassword !== confirmNewPassword) return showAuthError('The new passwords do not match.', 'confirmPassword');
     submitting.current = true;
     setBusy(true);
     setError('');
@@ -565,7 +584,7 @@ function AuthScreen({ apiBase, onSignedIn, sessionNotice }) {
       setPassword('');
       setNotice(data.message || 'Password changed. Sign in with your new password.');
     } catch (resetError) {
-      setError(resetError.message || 'Could not reset the password.');
+      showAuthError(resetError.message || 'Could not reset the password.', /email/i.test(resetError.message || '') ? 'email' : 'newPassword');
     } finally {
       submitting.current = false;
       setBusy(false);
@@ -599,17 +618,17 @@ function AuthScreen({ apiBase, onSignedIn, sessionNotice }) {
             <ScrollView ref={authScrollRef} style={styles.authCardScroll} contentContainerStyle={[styles.authCardScrollContent, registering && keyboardVisible && keyboardScrollInset > 0 && { paddingBottom: keyboardScrollInset + 24 }]} nestedScrollEnabled keyboardShouldPersistTaps="handled" keyboardDismissMode={registering ? (Platform.OS === 'ios' ? 'interactive' : 'none') : (Platform.OS === 'ios' ? 'interactive' : 'on-drag')}>
             {sessionNotice ? <Text style={styles.successBox}>{sessionNotice}</Text> : null}
             {notice ? <Text style={styles.successBox}>{notice}</Text> : null}
-            {error ? <Text style={styles.errorBox}>{error}</Text> : null}
+            {error && !errorField ? <Text style={styles.errorBox}>{error}</Text> : null}
 
             <>
             {forgotPassword ? (
               <>
                 <Text style={styles.authFootnote}>{resetCodeSent ? 'Enter the 6-digit code from your email and choose a new password.' : 'Enter the verified email address used by your customer account.'}</Text>
-                <Field label={'Email address'} value={email} onFocus={scrollAuthFieldIntoView} onChangeText={setEmail} editable={!resetCodeSent} placeholder={'you@example.com'} keyboardType={'email-address'} autoCapitalize={'none'} autoCorrect={false} maxLength={120} />
+                <Field label={'Email address'} value={email} onFocus={scrollAuthFieldIntoView} onChangeText={changeAuthField(setEmail, 'email')} error={errorField === 'email' ? error : ''} editable={!resetCodeSent} placeholder={'you@example.com'} keyboardType={'email-address'} autoCapitalize={'none'} autoCorrect={false} maxLength={120} />
                 {resetCodeSent ? <>
-                  <Field label={'Reset code'} value={resetCode} onChangeText={(value) => setResetCode(value.replace(/\D/g, '').slice(0, 6))} placeholder={'6-digit code'} keyboardType={'number-pad'} maxLength={6} returnKeyType={'next'} />
-                  <Field label={'New password'} value={newPassword} onFocus={scrollAuthFieldIntoView} onChangeText={setNewPassword} placeholder={'At least 10 characters'} secureTextEntry={!showNewPassword} autoCapitalize={'none'} right={<Pressable accessibilityRole={'button'} accessibilityLabel={showNewPassword ? 'Hide password' : 'Show password'} hitSlop={8} onPress={() => setShowNewPassword((visible) => !visible)} style={styles.passwordVisibilityButton}><Text style={styles.showPassword}>{showNewPassword ? 'Hide' : 'Show'}</Text></Pressable>} returnKeyType={'go'} onSubmitEditing={completePasswordReset} />
-                  <Field label={'Confirm new password'} value={confirmNewPassword} onFocus={scrollAuthFieldIntoView} onChangeText={setConfirmNewPassword} placeholder={'Enter the new password again'} secureTextEntry={!showNewPassword} autoCapitalize={'none'} returnKeyType={'go'} onSubmitEditing={completePasswordReset} />
+                  <Field label={'Reset code'} value={resetCode} onChangeText={(value) => setResetCode(value.replace(/\D/g, '').slice(0, 6))} error={errorField === 'resetCode' ? error : ''} placeholder={'6-digit code'} keyboardType={'number-pad'} maxLength={6} returnKeyType={'next'} />
+                  <Field label={'New password'} value={newPassword} onFocus={scrollAuthFieldIntoView} onChangeText={changeAuthField(setNewPassword, 'newPassword')} error={errorField === 'newPassword' ? error : ''} placeholder={'At least 10 characters'} secureTextEntry={!showNewPassword} autoCapitalize={'none'} right={<Pressable accessibilityRole={'button'} accessibilityLabel={showNewPassword ? 'Hide password' : 'Show password'} hitSlop={8} onPress={() => setShowNewPassword((visible) => !visible)} style={styles.passwordVisibilityButton}><Text style={styles.showPassword}>{showNewPassword ? 'Hide' : 'Show'}</Text></Pressable>} returnKeyType={'go'} onSubmitEditing={completePasswordReset} />
+                  <Field label={'Confirm new password'} value={confirmNewPassword} onFocus={scrollAuthFieldIntoView} onChangeText={changeAuthField(setConfirmNewPassword, 'confirmPassword')} error={errorField === 'confirmPassword' ? error : ''} placeholder={'Enter the new password again'} secureTextEntry={!showNewPassword} autoCapitalize={'none'} returnKeyType={'go'} onSubmitEditing={completePasswordReset} />
                   <Pressable onPress={completePasswordReset} disabled={busy} style={({ pressed }) => [styles.primaryButton, pressed && !busy && styles.pressed, busy && styles.disabledButton]}>{busy ? <ActivityIndicator color={COLORS.white} /> : <Text style={styles.primaryButtonText}>Reset password</Text>}</Pressable>
                   <Pressable onPress={requestPasswordReset} disabled={busy} style={styles.driverSignInLink}><Text style={styles.driverSignInText}>Resend reset code</Text></Pressable>
                 </> : <Pressable onPress={requestPasswordReset} disabled={busy} style={({ pressed }) => [styles.primaryButton, pressed && !busy && styles.pressed, busy && styles.disabledButton]}>{busy ? <ActivityIndicator color={COLORS.white} /> : <Text style={styles.primaryButtonText}>Send reset code</Text>}</Pressable>}
@@ -621,12 +640,13 @@ function AuthScreen({ apiBase, onSignedIn, sessionNotice }) {
             {registering ? <><PlaceAddressSearch apiBase={apiBase} value={address} onChangeText={(value) => { setAddress(value); setLocationPin(null); }} onPlaceSelected={selectRegistrationPlace} />
               <Field label="Address Detail (optional)" value={addressDetails} onChangeText={setAddressDetails} placeholder="House number, unit, gate, or nearby landmark" autoCapitalize="words" maxLength={180} returnKeyType="next" />
               <View style={styles.locationPinPanel}><Text style={styles.locationPinTitle}>Pin Address</Text><Text style={styles.locationPinCopy}>Choose one address, then pin the exact spot where the driver should go. Tap “Full-screen map” for a larger map preview. The pin is saved with your address. Pickup and delivery are available only in San Jose, San Manuel, and Balingcanaway, Tarlac.</Text>{locationPin ? <><Text style={[styles.locationPinSuccess, !locationPin.deliveryAvailable && styles.locationPinWarning]}>{locationPin.deliveryAvailable ? 'This pin is in the pickup and delivery area.' : 'Pickup and delivery are unavailable at this pin. Choose Drop-off & Pick-up at the shop.'}</Text><Text style={styles.locationPinCopy}>Adjust the marker to your exact home or gate. The coordinates below are what the driver will use.</Text><View style={styles.registrationMap}><DeliveryMap location={locationPin} label="Delivery pin" editable onLocationChange={adjustRegistrationPin} /></View></> : <Text style={styles.locationPinCopy}>Select one address from the search suggestions to place its pin on the map.</Text>}</View></> : null}
-            <Field label="Email address" value={email} onFocus={scrollAuthFieldIntoView} onChangeText={setEmail} placeholder="you@example.com" keyboardType="email-address" autoCapitalize="none" autoCorrect={false} maxLength={120} returnKeyType="next" />
+            <Field label="Email address" value={email} onFocus={scrollAuthFieldIntoView} onChangeText={changeAuthField(setEmail, 'email')} error={errorField === 'email' ? error : ''} placeholder="you@example.com" keyboardType="email-address" autoCapitalize="none" autoCorrect={false} maxLength={120} returnKeyType="next" />
             <Field
               label="Password"
               value={password}
               onFocus={scrollAuthFieldIntoView}
-              onChangeText={setPassword}
+              onChangeText={changeAuthField(setPassword, 'password')}
+              error={errorField === 'password' ? error : ''}
               placeholder={registering ? 'At least 10 characters' : 'Enter your password'}
               secureTextEntry={!showPassword}
               autoCapitalize="none"
@@ -648,6 +668,7 @@ function AuthScreen({ apiBase, onSignedIn, sessionNotice }) {
             </>
             </ScrollView>
           </View>
+          {error ? <View pointerEvents="none" style={styles.authToastWrap}><Text style={styles.authToast}>{error}</Text></View> : null}
         </View>
       </SafeAreaView>
       <Modal
@@ -1017,6 +1038,7 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
     const clean = String(value).replace(/[^0-9.]/g, '');
     const id = String(service.id);
     const isCoreService = ['Wash', 'Dry', 'Full service'].includes(serviceCategory(service));
+    if (isCoreService && Number(clean || 0) > 99) { setBookingError('Each laundry service is limited to 99 kg.'); return; }
     setQuantities((current) => {
       if (!isCoreService || Number(clean || 0) <= 0) return { ...current, [id]: clean };
       const next = { ...current };
@@ -1039,6 +1061,14 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
     }
     if (selected <= new Date()) {
       setPickupError('That schedule has already passed. Choose a future time slot.');
+      return;
+    }
+    if (selected.getFullYear() !== new Date().getFullYear() || selected.getMonth() !== new Date().getMonth()) {
+      setPickupError('Choose a schedule before the end of this month.');
+      return;
+    }
+    if ([0, 6].includes(selected.getDay())) {
+      setPickupError('Schedules are available on weekdays only.');
       return;
     }
     const hour = selected.getHours();
@@ -1066,9 +1096,9 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
     }).filter((line) => line.quantity > 0);
     if (!chosen.length) return setBookingError('Choose a laundry service before booking.');
     if (chosen.some((line) => line.service_id < 0) && mainLoadCount < 1) return setBookingError('Choose Wash, Dry, or Full Service first so Fabcon and Detergent can be priced per load.');
-    if (chosen.some((line) => !Number.isFinite(line.quantity) || line.quantity > 500 || line.weight_kg > 500 ||
+    if (chosen.some((line) => !Number.isFinite(line.quantity) || line.quantity > 500 || line.weight_kg > 99 ||
       (['piece', 'load'].includes(services.find((service) => Number(service.id) === line.service_id)?.unit) && !Number.isInteger(line.quantity)))) {
-      return setBookingError('Enter laundry weight up to 500 kg. Load and piece quantities must be whole numbers.');
+      return setBookingError('Each laundry service is limited to 99 kg. Load and piece quantities must be whole numbers.');
     }
     if (pickupAt && new Date(pickupAt) <= new Date()) return setBookingError('Choose a future schedule or remove the suggested time.');
     if (['pickup_delivery', 'dropoff_delivery'].includes(fulfillment) && !deliveryAvailable) return setBookingError('Delivery is available only in San Jose, San Manuel, and Balingcanaway, Tarlac. Choose Drop-off & Pick-up at the shop for other locations.');
@@ -1155,11 +1185,12 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
         value: [year, String(month + 1).padStart(2, '0'), String(day).padStart(2, '0')].join('-'),
         day,
         isPast: date < todayForSchedule,
+        isWeekend: date.getDay() === 0 || date.getDay() === 6,
       };
     });
   })();
-  const canShowPreviousScheduleMonth = calendarMonth.getFullYear() > todayForSchedule.getFullYear()
-    || (calendarMonth.getFullYear() === todayForSchedule.getFullYear() && calendarMonth.getMonth() > todayForSchedule.getMonth());
+  const canShowPreviousScheduleMonth = false;
+  const canShowNextScheduleMonth = false;
   const scheduleSlots = [
     { value: '08:00', label: '8:00 AM – 10:00 AM' },
     { value: '10:00', label: '10:00 AM – 12:00 PM' },
@@ -1230,7 +1261,7 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
             </ScrollView>
             <View style={styles.serviceRuleNote}>
               <Text style={styles.serviceRuleTitle}>Choose one main laundry service</Text>
-              <Text style={styles.serviceRuleCopy}>Wash and Dry are ₱85 per load, up to 7 kg each. Full Service is ₱199 up to 7 kg and ₱238 at 8 kg. Above 8 kg is counted as separate ₱199 loads (9 kg = ₱398). Fabcon (Downy) and Detergent (Surf) are ₱10 each per load.</Text>
+              <Text style={styles.serviceRuleCopy}>Wash and Dry are ₱85 per load, up to 7 kg each. Full Service is ₱199 up to 7 kg and ₱238 at 8 kg. Above 8 kg is counted as separate ₱199 loads (9 kg = ₱398). Each service is limited to 99 kg. Fabcon (Downy) and Detergent (Surf) are ₱10 each per load.</Text>
             </View>
 
             {loading && !services.length ? (
@@ -1286,7 +1317,7 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
                 setPickupError('');
                 setPickupModal(true);
               }} style={styles.pickupButton}>
-                <Text style={styles.pickupButtonText}>{pickupAt ? (fulfillment === 'pickup_delivery' ? 'Pickup: ' : 'Drop-off: ') + new Date(pickupAt).toLocaleString() : '＋  Select a ' + (fulfillment === 'pickup_delivery' ? 'pickup' : 'drop-off') + ' date and time'}</Text>
+                <Text style={styles.pickupButtonText}>{pickupAt ? (fulfillment === 'pickup_delivery' ? 'Pickup: ' : 'Drop-off: ') + formatSchedule(pickupAt) : '＋  Select a ' + (fulfillment === 'pickup_delivery' ? 'pickup' : 'drop-off') + ' date and time'}</Text>
               </Pressable>
               {pickupAt ? <Pressable onPress={() => setPickupAt(null)}><Text style={styles.clearSchedule}>Remove suggested time</Text></Pressable> : null}
             </View>
@@ -1424,7 +1455,7 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
                 <Text style={styles.transactionDetailLabel}>Status</Text><Text style={styles.transactionDetailValue}>{statusLabel(transactionDetail.status)}</Text>
                 <Text style={styles.transactionDetailLabel}>Booked</Text><Text style={styles.transactionDetailValue}>{formatDate(transactionDetail.created_at)}</Text>
                 <Text style={styles.transactionDetailLabel}>Handoff</Text><Text style={styles.transactionDetailValue}>{transactionDetail.handoff_type === 'pickup_delivery' ? 'Pickup & Delivery' : transactionDetail.handoff_type === 'dropoff_delivery' ? 'Drop-off & Delivery' : 'Drop-off & Pick-up'}</Text>
-                {transactionDetail.expected_pickup ? <><Text style={styles.transactionDetailLabel}>Preferred schedule</Text><Text style={styles.transactionDetailValue}>{formatDate(transactionDetail.expected_pickup)}</Text></> : null}
+                {transactionDetail.expected_pickup ? <><Text style={styles.transactionDetailLabel}>Preferred schedule</Text><Text style={styles.transactionDetailValue}>{formatSchedule(transactionDetail.expected_pickup)}</Text></> : null}
                 {transactionDetail.delivery_address ? <><Text style={styles.transactionDetailLabel}>Delivery address</Text><Text style={styles.transactionDetailValue}>{transactionDetail.delivery_address}</Text></> : null}
               </View>
               <View style={styles.transactionDetailSection}>
@@ -1485,8 +1516,9 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
                 <Text style={styles.calendarMonthLabel}>{calendarMonth.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</Text>
                 <Pressable
                   accessibilityLabel="Next month"
+                  disabled={!canShowNextScheduleMonth}
                   onPress={() => setCalendarMonth((current) => new Date(current.getFullYear(), current.getMonth() + 1, 1))}
-                  style={styles.calendarArrow}
+                  style={[styles.calendarArrow, !canShowNextScheduleMonth && styles.calendarArrowDisabled]}
                 ><Text style={styles.calendarArrowText}>{'>'}</Text></Pressable>
               </View>
               <View style={styles.calendarWeekdayRow}>{['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => <Text key={day} style={styles.calendarWeekday}>{day}</Text>)}</View>
@@ -1494,10 +1526,10 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
                 {scheduleCalendarDays.map((date, index) => date ? (
                   <Pressable
                     key={date.value}
-                    disabled={date.isPast}
+                    disabled={date.isPast || date.isWeekend}
                     onPress={() => { setPickupDate(date.value); setPickupError(''); }}
-                    style={[styles.calendarDay, pickupDate === date.value && styles.calendarDaySelected, date.isPast && styles.calendarDayDisabled]}
-                  ><Text style={[styles.calendarDayText, pickupDate === date.value && styles.calendarDaySelectedText, date.isPast && styles.calendarDayDisabledText]}>{date.day}</Text></Pressable>
+                    style={[styles.calendarDay, pickupDate === date.value && styles.calendarDaySelected, (date.isPast || date.isWeekend) && styles.calendarDayDisabled]}
+                  ><Text style={[styles.calendarDayText, pickupDate === date.value && styles.calendarDaySelectedText, (date.isPast || date.isWeekend) && styles.calendarDayDisabledText]}>{date.day}</Text></Pressable>
                 ) : <View key={'blank-' + index} style={styles.calendarDay} />)}
               </View>
             </View>
@@ -1580,7 +1612,7 @@ function ServiceCard({ service, quantity, onQuantityChange, wide, index }) {
           <View style={styles.quantityControl}>
             <Pressable accessibilityLabel={weightBased ? 'Remove 1 kg of ' + service.name : 'Remove one ' + service.name} onPress={() => onQuantityChange(String(Math.max(0, (Number(quantity) || 0) - 1)))} style={styles.quantityButton}><Text style={styles.quantityButtonText}>−</Text></Pressable>
             <View style={styles.quantityBox}>
-              <TextInput value={String(quantity)} onChangeText={onQuantityChange} keyboardType="decimal-pad" maxLength={weightBased ? 6 : undefined} placeholder="0" placeholderTextColor="#9d929c" style={styles.quantityInput} accessibilityLabel={weightBased ? 'Estimated laundry weight in kg for ' + service.name : 'Quantity for ' + service.name} />
+              <TextInput value={String(quantity)} onChangeText={onQuantityChange} keyboardType="decimal-pad" maxLength={weightBased ? 5 : undefined} placeholder="0" placeholderTextColor="#9d929c" style={styles.quantityInput} accessibilityLabel={weightBased ? 'Estimated laundry weight in kg for ' + service.name : 'Quantity for ' + service.name} />
               <Text style={styles.quantityUnit}>{weightBased ? 'kg total' : (service.unit || 'unit')}</Text>
             </View>
             <Pressable accessibilityLabel={weightBased ? 'Add 1 kg of ' + service.name : 'Add one ' + service.name} onPress={() => onQuantityChange(String((Number(quantity) || 0) + 1))} style={styles.quantityButton}><Text style={styles.quantityButtonText}>+</Text></Pressable>
@@ -1783,6 +1815,8 @@ const styles = StyleSheet.create({
   authRoot: { flex: 1, backgroundColor: COLORS.dark },
   authSafeArea: { flex: 1 },
   authContainer: { flex: 1, width: '100%', maxWidth: 520, alignSelf: 'center', gap: 12, paddingHorizontal: 16, paddingTop: 8, paddingBottom: 8, minHeight: 0 },
+  authToastWrap: { position: 'absolute', zIndex: 20, top: 8, left: 24, right: 24, alignItems: 'center' },
+  authToast: { maxWidth: 420, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 12, backgroundColor: '#fbe6e8', color: '#7d1d2b', borderWidth: 1, borderColor: '#efb9c0', fontSize: 13, lineHeight: 18, fontWeight: '700', overflow: 'hidden' },
   authContainerCompact: { gap: 12, paddingBottom: 8 },
   hero: { minHeight: 184, borderRadius: 20, overflow: 'hidden', justifyContent: 'center', paddingHorizontal: 24, marginTop: 16, marginBottom: 20 },
   heroCompact: { minHeight: 145, marginTop: 4, marginBottom: 4, paddingHorizontal: 20 },
@@ -1818,6 +1852,8 @@ const styles = StyleSheet.create({
   fieldWrap: { width: '100%', gap: 6, marginBottom: 2 },
   fieldLabel: { color: '#514653', fontSize: 13, fontWeight: '700' },
   inputShell: { width: '100%', flexDirection: 'row', overflow: 'hidden', alignItems: 'center', borderRadius: 12, borderColor: '#cfc2d1', borderWidth: 1, backgroundColor: '#fffdf9', minHeight: 47 },
+  inputShellError: { borderColor: COLORS.red },
+  fieldError: { color: COLORS.red, fontSize: 11, lineHeight: 15, marginTop: 2 },
   input: { flexGrow: 1, flexShrink: 1, flexBasis: 0, minWidth: 0, paddingHorizontal: 13, paddingVertical: 11, color: COLORS.ink, fontSize: 15, outlineStyle: 'none' },
   inputRight: { flexShrink: 0, minWidth: 62, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 },
   passwordVisibilityButton: { minWidth: 52, minHeight: 42, alignItems: 'center', justifyContent: 'center' },

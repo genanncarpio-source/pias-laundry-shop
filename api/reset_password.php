@@ -3,9 +3,11 @@ require_once __DIR__ . '/bootstrap.php';
 api_require_method('POST');
 
 $data = api_input();
+$rawEmail = is_string($data['email'] ?? null) ? $data['email'] : '';
 $email = strtolower(api_text($data, 'email'));
 $code = api_text($data, 'code');
 $newPassword = is_string($data['new_password'] ?? null) ? $data['new_password'] : '';
+if (preg_match('/\s/u', $rawEmail) || preg_match('/\s/u', $newPassword)) api_json(422, ['success' => false, 'error' => 'Spaces are not allowed in email addresses or passwords.']);
 if (!filter_var($email, FILTER_VALIDATE_EMAIL) || !preg_match('/^\d{6}$/', $code)) {
     api_json(422, ['success' => false, 'error' => 'Enter your email and the 6-digit reset code.']);
 }

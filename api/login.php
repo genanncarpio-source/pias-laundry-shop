@@ -3,8 +3,10 @@ require_once __DIR__ . '/bootstrap.php';
 api_require_method('POST');
 
 $data = api_input();
+$rawEmail = is_string($data['email'] ?? null) ? $data['email'] : '';
 $email = strtolower(api_text($data, 'email'));
 $password = is_string($data['password'] ?? null) ? $data['password'] : '';
+if (preg_match('/\s/u', $rawEmail) || preg_match('/\s/u', $password)) api_json(422, ['success' => false, 'error' => 'Spaces are not allowed in email addresses or passwords.']);
 if ($email === '' || $password === '') api_json(422, ['success' => false, 'error' => 'Enter your email and password.']);
 
 $stmt = db()->prepare(

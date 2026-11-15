@@ -3,7 +3,9 @@ require_once __DIR__ . '/bootstrap.php';
 api_require_method('POST');
 
 $data = api_input();
+$rawEmail = is_string($data['email'] ?? null) ? $data['email'] : '';
 $email = strtolower(api_text($data, 'email'));
+if (preg_match('/\s/u', $rawEmail)) api_json(422, ['success' => false, 'error' => 'Spaces are not allowed in email addresses.']);
 if (!filter_var($email, FILTER_VALIDATE_EMAIL) || strlen($email) > 120) {
     api_json(422, ['success' => false, 'error' => 'Enter a valid email address.']);
 }

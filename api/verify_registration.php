@@ -3,8 +3,10 @@ require_once __DIR__ . '/bootstrap.php';
 api_require_method('POST');
 
 $data = api_input();
+$rawEmail = is_string($data['email'] ?? null) ? $data['email'] : '';
 $email = strtolower(api_text($data, 'email'));
 $code = api_text($data, 'code');
+if (preg_match('/\s/u', $rawEmail)) api_json(422, ['success' => false, 'error' => 'Spaces are not allowed in email addresses.']);
 if (!filter_var($email, FILTER_VALIDATE_EMAIL) || !preg_match('/^\d{6}$/', $code)) {
     api_json(422, ['success' => false, 'error' => 'Enter the 6-digit code sent to your email.']);
 }

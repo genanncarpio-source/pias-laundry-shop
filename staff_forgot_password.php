@@ -5,6 +5,7 @@ require_once __DIR__ . '/includes/email.php';
 if (current_user()) redirect('dashboard.php');
 
 $error = '';
+$errorField = '';
 $notice = '';
 $email = (string)($_SESSION['staff_reset_email'] ?? '');
 $verifiedUserId = (int)($_SESSION['staff_reset_verified_user_id'] ?? 0);
@@ -18,9 +19,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!csrf_verify($_POST['csrf'] ?? null)) {
         $error = 'This form has expired. Refresh the page and try again.';
     } elseif (isset($_POST['request_code'])) {
-        $email = strtolower(trim((string)($_POST['email'] ?? '')));
-        if (!filter_var($email, FILTER_VALIDATE_EMAIL) || strlen($email) > 120) {
+        $rawEmail = (string)($_POST['email'] ?? '');
+        $email = strtolower(trim($rawEmail));
+        if (preg_match('/\\s/u', $rawEmail)) {
+            $error = 'Spaces are not allowed in the email address.';
+            $errorField = 'email';
+        } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL) || strlen($email) > 120) {
             $error = 'Enter a valid email address.';
+            $errorField = 'email';
         } else {
             $query = db()->prepare("SELECT id, full_name, email FROM users WHERE LOWER(email) = ? AND email IS NOT NULL AND email <> '' AND is_active = 1 LIMIT 1");
             $query->execute([$email]);
@@ -101,10 +107,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             unset($_SESSION['staff_reset_verified_user_id'], $_SESSION['staff_reset_verified_until']);
             $verifiedUserId = 0;
             $error = 'Verify a fresh email code before changing the password.';
+        } elseif (preg_match('/\\s/u', $newPassword) || preg_match('/\\s/u', $confirmPassword)) {
+            $error = 'Spaces are not allowed in passwords.';
+            $errorField = 'password';
         } elseif (strlen($newPassword) < 8) {
             $error = 'Use a password with at least 8 characters.';
+            $errorField = 'password';
         } elseif ($newPassword !== $confirmPassword) {
             $error = 'The passwords do not match.';
+            $errorField = 'password';
         } else {
             db()->beginTransaction();
             try {
@@ -139,17 +150,18 @@ $shopName = get_setting('shop_name', "Pia's Laundry Shop");
 .reset-page .login-card{width:min(100%,430px);background:rgba(255,250,255,.95);border:1px solid #dfc5ef;border-top:4px solid #7b31a8;border-radius:18px;padding:30px;box-shadow:0 22px 65px rgba(61,24,82,.2)}
 .reset-page h1{margin:0;text-align:center;color:#321a3d}.reset-page .intro{text-align:center;color:#78617f;margin:8px 0 24px}.reset-page label{display:block;margin:14px 0 5px;color:#4b3154;font-weight:600}.reset-page input{width:100%;padding:12px;border:1px solid #d9c5e2;border-radius:9px;background:#fffaff}.reset-page button{width:100%;margin-top:18px;padding:13px;border:0;border-radius:10px;background:#58265f;color:white;font-weight:700;cursor:pointer}.reset-page .msg{padding:11px 13px;border-radius:9px;margin:12px 0;background:#fce8e8;color:#8b2424}.reset-page .notice{background:#eaf6ed;color:#205b2e}.reset-page a{color:#704478}
 .reset-page .password-field{position:relative}.reset-page .password-field input{padding-right:48px}.reset-page .toggle-password{position:absolute;right:5px;top:5px;width:38px;height:38px;margin:0;padding:8px;background:transparent;color:#704478;display:grid;place-items:center}.reset-page .toggle-password svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.reset-page .field-error{display:block;min-height:16px;margin-top:4px;color:#a43e4a;font-size:12px;font-weight:700}.reset-page .reset-toast{position:fixed;z-index:100;top:22px;right:22px;width:min(360px,calc(100vw - 32px));padding:14px 16px;border:1px solid #efb9c0;border-radius:12px;background:#fbe6e8;color:#7d1d2b;box-shadow:0 12px 32px #24131d33;font-weight:700;line-height:1.45}
 </style>
 </head>
 <body class="reset-page login-page">
 <div class="login-wrap"><main class="login-card">
 <h1><?= e($shopName) ?></h1><p class="intro">Staff &amp; admin password recovery</p>
-<?php if ($error): ?><div class="msg" role="alert"><?= e($error) ?></div><?php endif; ?>
+<?php if ($error): ?><div class="reset-toast" role="alert"><?= e($error) ?></div><?php endif; ?>
 <?php if ($notice): ?><div class="msg notice" role="status"><?= e($notice) ?></div><?php endif; ?>
 <?php if ($verifiedUserId > 0 && $verifiedUntil >= time()): ?>
 <form method="post" autocomplete="off">
-<?= csrf_field() ?><label for="new_password">New password</label><div class="password-field"><input id="new_password" name="new_password" type="password" minlength="8" autocomplete="new-password" required><button class="toggle-password" type="button" aria-label="Show password" title="Show password"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></button></div>
-<label for="confirm_password">Confirm new password</label><div class="password-field"><input id="confirm_password" name="confirm_password" type="password" minlength="8" autocomplete="new-password" required><button class="toggle-password" type="button" aria-label="Show password" title="Show password"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></button></div>
+<?= csrf_field() ?><label for="new_password">New password</label><div class="password-field"><input id="new_password" name="new_password" type="password" minlength="8" autocomplete="new-password" required><button class="toggle-password" type="button" aria-label="Show password" title="Show password"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></button></div><span class="field-error"><?= $errorField === 'password' ? e($error) : '' ?></span>
+<label for="confirm_password">Confirm new password</label><div class="password-field"><input id="confirm_password" name="confirm_password" type="password" minlength="8" autocomplete="new-password" required><button class="toggle-password" type="button" aria-label="Show password" title="Show password"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></button></div><span class="field-error"></span>
 <button type="submit" name="set_password" value="1">Reset password</button>
 </form>
 <?php elseif (!empty($_SESSION['staff_reset_email'])): ?>
@@ -163,7 +175,7 @@ $shopName = get_setting('shop_name', "Pia's Laundry Shop");
 </form>
 <?php else: ?>
 <form method="post" autocomplete="off">
-<?= csrf_field() ?><label for="email">Registered staff/admin email</label><input id="email" name="email" type="email" maxlength="120" autocomplete="email" required>
+<?= csrf_field() ?><label for="email">Registered staff/admin email</label><input id="email" name="email" type="email" maxlength="120" autocomplete="email" required><span class="field-error"><?= $errorField === 'email' ? e($error) : '' ?></span>
 <button type="submit" name="request_code" value="1">Send reset code</button>
 </form>
 <?php endif; ?>
@@ -178,6 +190,15 @@ document.querySelectorAll('.toggle-password').forEach(function (toggle) {
     toggle.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
     toggle.setAttribute('title', show ? 'Hide password' : 'Show password');
     input.focus();
+  });
+});
+document.querySelectorAll('#email, #new_password, #confirm_password').forEach(function (input) {
+  input.addEventListener('beforeinput', function (event) {
+    if (event.data && event.data.split('').some(function (character) { return character.trim() === ''; })) event.preventDefault();
+  });
+  input.addEventListener('paste', function (event) {
+    var pasted = (event.clipboardData || window.clipboardData).getData('text');
+    if (pasted.split('').some(function (character) { return character.trim() === ''; })) event.preventDefault();
   });
 });
 </script>

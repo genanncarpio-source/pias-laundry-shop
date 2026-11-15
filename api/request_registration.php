@@ -4,6 +4,7 @@ api_require_method('POST');
 
 $data = api_input();
 $name = api_text($data, 'name');
+$rawEmail = is_string($data['email'] ?? null) ? $data['email'] : '';
 $email = strtolower(api_text($data, 'email'));
 $phone = api_text($data, 'phone');
 $address = api_text($data, 'address');
@@ -12,6 +13,7 @@ $longitude = filter_var($data['longitude'] ?? null, FILTER_VALIDATE_FLOAT);
 $password = is_string($data['password'] ?? null) ? $data['password'] : '';
 
 if ($name === '' || strlen($name) > 100) api_json(422, ['success' => false, 'error' => 'Enter your name (up to 100 characters).']);
+if (preg_match('/\s/u', $rawEmail) || preg_match('/\s/u', $password)) api_json(422, ['success' => false, 'error' => 'Spaces are not allowed in email addresses or passwords.']);
 if (!filter_var($email, FILTER_VALIDATE_EMAIL) || strlen($email) > 120) api_json(422, ['success' => false, 'error' => 'Enter a valid email address.']);
 if ($phone === '' || strlen($phone) > 30) api_json(422, ['success' => false, 'error' => 'Enter a phone number for service updates.']);
 if (trim($address) === '' || strlen($address) > 255) api_json(422, ['success' => false, 'error' => 'Enter an address up to 255 characters.']);

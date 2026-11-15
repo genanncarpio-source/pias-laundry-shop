@@ -30,10 +30,11 @@ foreach ($items as $item) {
     $quantities[$serviceId] = ($quantities[$serviceId] ?? 0) + (float)$quantity;
     if (array_key_exists('weight_kg', $item)) {
         $weight = is_scalar($item['weight_kg']) ? filter_var($item['weight_kg'], FILTER_VALIDATE_FLOAT) : false;
-        if ($weight === false || !is_finite((float)$weight) || round((float)$weight, 2) <= 0 || $weight > 500) {
-            mobile_booking_json(422, ['success' => false, 'error' => 'Enter a laundry weight between 0.01 and 500 kg.']);
+        if ($weight === false || !is_finite((float)$weight) || round((float)$weight, 2) <= 0 || $weight > 99) {
+            mobile_booking_json(422, ['success' => false, 'error' => 'Enter a laundry weight between 0.01 and 99 kg.']);
         }
         $weights[$serviceId] = ($weights[$serviceId] ?? 0) + (float)$weight;
+        if ($weights[$serviceId] > 99) mobile_booking_json(422, ['success' => false, 'error' => 'Each laundry service is limited to 99 kg.']);
     }
 }
 
@@ -184,11 +185,14 @@ if (!empty($data['expected_pickup'])) {
     }
     try {
         $pickup = new DateTime((string)$data['expected_pickup']);
-        if ($pickup < new DateTime('now')) mobile_booking_json(422, ['success' => false, 'error' => 'The selected schedule is already past.']);
+        $manilaNow = new DateTimeImmutable('now', new DateTimeZone('Asia/Manila'));
         $manilaPickup = (clone $pickup)->setTimezone(new DateTimeZone('Asia/Manila'));
-        $hour = (int)$manilaPickup->format('G');
-        if ($hour < 8 || $hour >= 18) mobile_booking_json(422, ['success' => false, 'error' => 'Choose a schedule between 8:00 AM and 6:00 PM.']);
-        $expectedPickup = $pickup->setTimezone(new DateTimeZone('Asia/Manila'))->format('Y-m-d H:i:s');
+        if ($manilaPickup <= $manilaNow) mobile_booking_json(422, ['success' => false, 'error' => 'The selected schedule is already past.']);
+        if ($manilaPickup->format('Y-m') !== $manilaNow->format('Y-m')) mobile_booking_json(422, ['success' => false, 'error' => 'Choose a schedule before the end of this month.']);
+        if ((int)$manilaPickup->format('N') >= 6) mobile_booking_json(422, ['success' => false, 'error' => 'Schedules are available on weekdays only.']);
+        $allowedStarts = ['08:00', '10:00', '12:00', '14:00', '16:00'];
+        if (!in_array($manilaPickup->format('H:i'), $allowedStarts, true) || $manilaPickup->format('s') !== '00') mobile_booking_json(422, ['success' => false, 'error' => 'Choose one of the available two-hour time slots.']);
+        $expectedPickup = $manilaPickup->format('Y-m-d H:i:s');
     } catch (Throwable $e) {
         mobile_booking_json(422, ['success' => false, 'error' => 'Expected pickup must be a valid date and time.']);
     }
