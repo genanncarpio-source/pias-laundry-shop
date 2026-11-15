@@ -121,7 +121,6 @@ $isNew = isset($_GET['new']);
   <?php if (!$isNew): ?>
     <a class="btn btn-outline" href="order_view.php?id=<?= (int)$id ?>">← Back to order</a>
   <?php endif; ?>
-  <a class="btn btn-outline" href="orders.php">Back to Orders</a>
 </div>
 
 <?php if ($isNew): ?>

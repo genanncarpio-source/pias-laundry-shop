@@ -388,7 +388,6 @@ include __DIR__ . '/includes/header.php';
         <?php if ($order['actual_weight'] !== null): ?><tr><td class="muted">Actual Weight</td><td><?= e($order['actual_weight']) ?> kg</td></tr><?php endif; ?>
         <?php if ($order['assigned_staff_name']): ?><tr><td class="muted">Assigned Staff</td><td><?= e($order['assigned_staff_name']) ?></td></tr><?php endif; ?>
         <?php if ($order['assigned_driver_name']): ?><tr><td class="muted">Delivery Driver</td><td><?= e($order['assigned_driver_name']) ?></td></tr><?php endif; ?>
-        <tr><td class="muted">Created by</td><td><?= e($order['created_by_name'] ?: '—') ?></td></tr>
         <?php if ($order['notes']): ?>
           <tr><td class="muted">Notes</td><td><?= e($order['notes']) ?></td></tr>
         <?php endif; ?>
