@@ -7,7 +7,9 @@ module.exports = ({ config }) => {
     ...config,
     name: driver ? 'Pia Laundry Driver' : config.name,
     orientation: driver ? 'default' : config.orientation,
-    slug: driver ? 'pias-laundry-driver' : config.slug,
+    // Keep both variants linked to the existing EAS project; the driver APK
+    // remains a separate installable app through its own Android package ID.
+    slug: config.slug,
     scheme: driver ? 'piaslaundrydriver' : config.scheme,
     ios: { ...config.ios, bundleIdentifier: driver ? 'com.piaslaundry.driver' : config.ios?.bundleIdentifier },
     android: { ...config.android, package: driver ? 'com.piaslaundry.driver' : config.android?.package, versionCode: driver ? 1 : config.android?.versionCode },
