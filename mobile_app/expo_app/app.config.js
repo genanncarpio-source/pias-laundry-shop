@@ -6,6 +6,7 @@ module.exports = ({ config }) => {
   return {
     ...config,
     name: driver ? 'Pia Laundry Driver' : config.name,
+    orientation: driver ? 'default' : config.orientation,
     slug: driver ? 'pias-laundry-driver' : config.slug,
     scheme: driver ? 'piaslaundrydriver' : config.scheme,
     ios: { ...config.ios, bundleIdentifier: driver ? 'com.piaslaundry.driver' : config.ios?.bundleIdentifier },
