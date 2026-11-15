@@ -1,22 +1,17 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Linking, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { pinMapHtml } from './pinMapHtml';
+import { trackingMapHtml } from './trackingMapHtml';
 
 function MapFrame({ mapFrame, label, html, expanded = false }) {
-  return React.createElement('iframe', {
-    ref: mapFrame,
-    title: label,
-    srcDoc: html,
-    style: expanded ? styles.fullMap : styles.map,
-  });
+  return React.createElement('iframe', { ref: mapFrame, title: label, srcDoc: html, style: expanded ? styles.fullMap : styles.map });
 }
-export default function DeliveryMap({ location, label = 'Driver', offline = false, editable = false, onLocationChange }) {
+export default function DeliveryMap({ location, label = 'Customer pin', offline = false, editable = false, onLocationChange, routeFrom = null, apiBase, token }) {
   const mapFrame = useRef(null);
   const [fullScreen, setFullScreen] = useState(false);
   const [baseLayer, setBaseLayer] = useState('Street map');
   const latitude = Number(location.latitude);
   const longitude = Number(location.longitude);
-  const url = 'https://www.openstreetmap.org/?mlat=' + latitude + '&mlon=' + longitude + '#map=16/' + latitude + '/' + longitude;
 
   useEffect(() => {
     if (!editable || typeof window === 'undefined') return undefined;
@@ -27,15 +22,13 @@ export default function DeliveryMap({ location, label = 'Driver', offline = fals
         setBaseLayer(message.layer === 'Satellite' ? 'Satellite' : 'Street map');
         return;
       }
-      if (message?.type !== 'delivery-pin') return;
-      if (Number.isFinite(message.latitude) && Number.isFinite(message.longitude)) onLocationChange?.({ latitude: message.latitude, longitude: message.longitude });
+      if (message?.type === 'delivery-pin' && Number.isFinite(message.latitude) && Number.isFinite(message.longitude)) onLocationChange?.({ latitude: message.latitude, longitude: message.longitude });
     };
     window.addEventListener('message', receivePin);
     return () => window.removeEventListener('message', receivePin);
   }, [editable, onLocationChange]);
 
   if (editable) {
-
     return <View style={styles.editableWrap}>
       <Text style={styles.coordinates}>{label}: {latitude.toFixed(7)}, {longitude.toFixed(7)}</Text>
       {offline ? <Text style={styles.coordinates}>Reconnect to adjust your pin.</Text> : !fullScreen ? <MapFrame mapFrame={mapFrame} label={label} html={pinMapHtml({ latitude, longitude, baseLayer })} /> : null}
@@ -51,20 +44,18 @@ export default function DeliveryMap({ location, label = 'Driver', offline = fals
     </View>;
   }
 
-  return <View style={styles.mapFallback}>
-    <Text style={styles.coordinates}>{label} coordinates: {latitude.toFixed(5)}, {longitude.toFixed(5)}</Text>
-    {offline ? <Text style={styles.coordinates}>Saved coordinates only. Reconnect to open the map.</Text> : <Pressable onPress={() => Linking.openURL(url)} style={styles.mapButton}>
-      <Text style={styles.mapButtonText}>Open location on map</Text>
-    </Pressable>}
+  const html = trackingMapHtml({ driver: routeFrom, destination: { latitude, longitude }, driverLabel: 'Your location', destinationLabel: label, routeApiUrl: apiBase ? apiBase.replace(/\/+$/, '') + '/delivery_route.php' : '', token });
+  return <View style={styles.editableWrap}>
+    <Text style={styles.coordinates}>{label}: {latitude.toFixed(5)}, {longitude.toFixed(5)}</Text>
+    {offline ? <Text style={styles.coordinates}>Saved coordinates only. Reconnect to open the map.</Text> : <MapFrame mapFrame={mapFrame} label={label} html={html} />}
+    {routeFrom ? <Text style={styles.coordinates}>Solid line shows the road route; a dashed line is shown if routing is unavailable.</Text> : null}
+    <Text style={styles.coordinates}>Road route is provided by the shop routing service.</Text>
   </View>;
 }
 
 const styles = StyleSheet.create({
   editableWrap: { width: '100%', gap: 8 },
-  mapFallback: { minHeight: 100, borderRadius: 12, backgroundColor: '#f2eaf4', justifyContent: 'center', alignItems: 'center', gap: 10, padding: 16 },
   coordinates: { color: '#514653', fontSize: 13 },
-  mapButton: { backgroundColor: '#58265f', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 11 },
-  mapButtonText: { color: '#fff', fontWeight: '700' },
   map: { width: '100%', height: 230, border: 0, borderRadius: 12, backgroundColor: '#eee' },
   previewButton: { alignSelf: 'flex-start', backgroundColor: '#58265f', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10 },
   previewButtonText: { color: '#fff', fontSize: 14, fontWeight: '700' },

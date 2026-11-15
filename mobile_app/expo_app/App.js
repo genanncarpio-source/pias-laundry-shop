@@ -1344,7 +1344,7 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
             {error ? <Text style={styles.errorBox}>{error}</Text> : null}
             {loading ? <View style={styles.inlineLoading}><ActivityIndicator color={COLORS.purple} /><Text style={styles.mutedText}>Loading your tickets…</Text></View> : null}
             {!loading && trackTickets.length === 0 ? <View style={styles.emptyCard}><Text style={styles.emptyEmoji}>📋</Text><Text style={styles.emptyTitle}>{tickets.length ? 'Track list cleared' : 'No service tickets yet'}</Text><Text style={styles.mutedText}>{tickets.length ? 'Your recent transactions are still available in Profile.' : 'Your bookings will appear here after you book a service.'}</Text>{!tickets.length ? <Pressable onPress={() => navigateTo('offers')} style={styles.smallPrimary}><Text style={styles.smallPrimaryText}>Browse services</Text></Pressable> : <Pressable onPress={() => navigateTo('profile')} style={styles.smallPrimary}><Text style={styles.smallPrimaryText}>Open transaction history</Text></Pressable>}</View> : null}
-            {trackTickets.map((ticket) => <TicketCard key={ticket.id || ticket.order_number} ticket={ticket} onShareLocation={() => updateCustomerLocation(ticket, 'share')} onRevokeLocation={() => updateCustomerLocation(ticket, 'revoke')} locationBusy={Boolean(locationBusy[String(ticket.id)])} locationError={locationError[String(ticket.id)]} retryReference={retryReferences[String(ticket.id)] || ''} onRetryReferenceChange={(value) => setRetryReferences((current) => ({ ...current, [String(ticket.id)]: value }))} onResubmitGcash={() => resubmitGcashReference(ticket)} retryBusy={Boolean(retryBusy[String(ticket.id)])} />)}
+            {trackTickets.map((ticket) => <TicketCard key={ticket.id || ticket.order_number} ticket={ticket} apiBase={apiBase} token={token} onShareLocation={() => updateCustomerLocation(ticket, 'share')} onRevokeLocation={() => updateCustomerLocation(ticket, 'revoke')} locationBusy={Boolean(locationBusy[String(ticket.id)])} locationError={locationError[String(ticket.id)]} retryReference={retryReferences[String(ticket.id)] || ''} onRetryReferenceChange={(value) => setRetryReferences((current) => ({ ...current, [String(ticket.id)]: value }))} onResubmitGcash={() => resubmitGcashReference(ticket)} retryBusy={Boolean(retryBusy[String(ticket.id)])} />)}
           </View>
         </ScrollView>
       ) : tab === 'about' ? (
@@ -1684,7 +1684,7 @@ function TransactionHistoryRow({ ticket, onView }) {
     </View>
   );
 }
-function TicketCard({ ticket, onShareLocation, onRevokeLocation, locationBusy, locationError, retryReference, onRetryReferenceChange, onResubmitGcash, retryBusy }) {
+function TicketCard({ ticket, apiBase, token, onShareLocation, onRevokeLocation, locationBusy, locationError, retryReference, onRetryReferenceChange, onResubmitGcash, retryBusy }) {
   const lines = (ticket.services || []).map((line) => line.estimated_weight_kg
     ? `${line.service_name} (${line.estimated_weight_kg} kg estimated · ${line.quantity} ${line.unit})`
     : `${line.service_name} (${line.quantity} ${line.unit})`).join(' · ');
@@ -1738,7 +1738,7 @@ function TicketCard({ ticket, onShareLocation, onRevokeLocation, locationBusy, l
               ticket.tracking.location ? (
                 <>
                   <Text style={styles.trackingStatus}>{ticket.tracking.location.stale ? 'Last location update is delayed.' : 'Your driver is on the way.'}</Text>
-                  <LiveTrackingMap driver={ticket.tracking.location} destination={ticket.tracking.destination} />
+                  <LiveTrackingMap driver={ticket.tracking.location} destination={ticket.tracking.destination} apiBase={apiBase} token={token} />
                   <Text style={styles.trackingUpdated}>Last updated: {formatDate(ticket.tracking.location.updated_at)}</Text>
                 </>
               ) : <Text style={styles.ticketDetail}>Your driver has started the delivery. Waiting for the first location update.</Text>

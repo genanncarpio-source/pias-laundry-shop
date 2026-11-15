@@ -2,8 +2,9 @@ import React, { useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { pinMapHtml } from './pinMapHtml';
+import { trackingMapHtml } from './trackingMapHtml';
 
-export default function DeliveryMap({ location, label = 'Driver', offline = false, editable = false, onLocationChange }) {
+export default function DeliveryMap({ location, label = 'Customer pin', offline = false, editable = false, onLocationChange, routeFrom = null, apiBase, token }) {
   const [failed, setFailed] = useState(false);
   const [fullScreen, setFullScreen] = useState(false);
   const [baseLayer, setBaseLayer] = useState('Street map');
@@ -17,14 +18,16 @@ export default function DeliveryMap({ location, label = 'Driver', offline = fals
         setBaseLayer(point.layer === 'Satellite' ? 'Satellite' : 'Street map');
         return;
       }
-      if (point.type === 'delivery-pin' && Number.isFinite(point.latitude) && Number.isFinite(point.longitude)) {
-        onLocationChange({ latitude: point.latitude, longitude: point.longitude });
-      }
+      if (point.type === 'delivery-pin' && Number.isFinite(point.latitude) && Number.isFinite(point.longitude)) onLocationChange({ latitude: point.latitude, longitude: point.longitude });
     } catch { /* Ignore unrelated map messages. */ }
   };
-  const map = (expanded = false) => failed
-    ? <Text style={styles.copy}>Map unavailable. Try again when you have an internet connection.</Text>
-    : <WebView source={{ html: pinMapHtml({ latitude, longitude, zoom: 17, baseLayer }) }} style={expanded ? styles.fullMap : styles.map} originWhitelist={['*']} javaScriptEnabled domStorageEnabled accessibilityLabel={label} onMessage={onMessage} onError={() => setFailed(true)} />;
+  const map = (expanded = false) => {
+    if (failed) return <Text style={styles.copy}>Map unavailable. Try again when you have an internet connection.</Text>;
+    const html = editable
+      ? pinMapHtml({ latitude, longitude, zoom: 17, baseLayer })
+      : trackingMapHtml({ driver: routeFrom, destination: { latitude, longitude }, driverLabel: 'Your location', destinationLabel: label, routeApiUrl: apiBase ? apiBase.replace(/\/+$/, '') + '/delivery_route.php' : '', token });
+    return <WebView source={{ html }} style={expanded ? styles.fullMap : styles.map} originWhitelist={['*']} javaScriptEnabled domStorageEnabled accessibilityLabel={label} onMessage={onMessage} onError={() => setFailed(true)} />;
+  };
 
   if (editable) {
     return <View style={styles.container}>
@@ -42,12 +45,10 @@ export default function DeliveryMap({ location, label = 'Driver', offline = fals
     </View>;
   }
 
-  const delta = 0.006;
-  const bounds = [longitude - delta, latitude - delta, longitude + delta, latitude + delta].join(',');
-  const url = 'https://www.openstreetmap.org/export/embed.html?bbox=' + encodeURIComponent(bounds) + '&layer=mapnik&marker=' + latitude + ',' + longitude;
   return <View style={styles.container}>
-    <Text style={styles.copy}>{label} coordinates: {latitude.toFixed(5)}, {longitude.toFixed(5)}</Text>
-    {offline || failed ? <Text style={styles.copy}>{offline ? 'Saved coordinates only. Map tiles need an internet connection.' : 'Map unavailable. The coordinates above are still available.'}</Text> : <WebView source={{ uri: url }} style={styles.map} originWhitelist={['https://*']} javaScriptEnabled domStorageEnabled accessibilityLabel={label} onError={() => setFailed(true)} onHttpError={() => setFailed(true)} />}
+    <Text style={styles.copy}>{label}: {latitude.toFixed(5)}, {longitude.toFixed(5)}</Text>
+    {offline ? <Text style={styles.copy}>Saved coordinates only. Reconnect to open the map.</Text> : map()}
+    {routeFrom ? <Text style={styles.copy}>Solid line shows the road route; a dashed line is shown if routing is unavailable.</Text> : null}
   </View>;
 }
 
