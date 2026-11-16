@@ -100,7 +100,7 @@ function serviceCategory(service) {
   if (/full service|wash.?dry.?fold|wash and fold/.test(name) || category.includes('full service') || category.includes('wash & fold')) return 'Full service';
   if (name === 'wash' || category === 'wash') return 'Wash';
   if (name === 'dry' || name.includes('dry clean') || category === 'dry') return 'Dry';
-  return 'Other';
+  return String(service.category || '').trim() || 'Other';
 }
 
 function isCoreLoadService(service) {
@@ -1155,7 +1155,9 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
     }
   };
 
-  const filters = ['All', 'Wash', 'Dry', 'Full service', 'Add-ons'];
+  const standardFilters = ['Wash', 'Dry', 'Full service', 'Add-ons'];
+  const customFilters = [...new Set(services.map(serviceCategory))].filter((category) => !standardFilters.some((standard) => standard.toLowerCase() === category.toLowerCase()));
+  const filters = ['All', ...standardFilters, ...customFilters];
   const todayForSchedule = new Date();
   todayForSchedule.setHours(0, 0, 0, 0);
   const scheduleCalendarDays = (() => {
@@ -1247,7 +1249,7 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
             </ScrollView>
             <View style={styles.serviceRuleNote}>
               <Text style={styles.serviceRuleTitle}>Choose one main laundry service</Text>
-              <Text style={styles.serviceRuleCopy}>Wash and Dry are ₱85 per load, up to 7 kg each. Full Service is ₱199 up to 7 kg and ₱238 at 8 kg. Above 8 kg is counted as separate ₱199 loads (9 kg = ₱398). Each service is limited to 99 kg. Fabcon (Downy) and Detergent (Surf) are ₱10 each per load.</Text>
+              <Text style={styles.serviceRuleCopy}>Prices and units reflect the current shop price list. Choose one main laundry service; add-ons are priced per load. Each service is limited to 99 kg.</Text>
             </View>
 
             {loading && !services.length ? (
@@ -1576,10 +1578,11 @@ function ServiceCard({ service, quantity, onQuantityChange, wide, index }) {
   ];
   const colors = gradients[index % gradients.length];
   const weightBased = isCoreLoadService(service);
+  const basePrice = Number(service.price) || 0;
   const description = weightBased
     ? (serviceCategory(service) === 'Full service'
-      ? '₱199 covers up to 7 kg; 8 kg is ₱238. Over 8 kg uses separate ₱199 loads (9 kg = ₱398).'
-      : '₱85 per load covers up to 7 kg. Every additional kilogram starts another load.')
+      ? `${money(basePrice)} covers up to 7 kg; 8 kg is ${money(basePrice + 39)}. Over 8 kg uses separate ${money(basePrice)} loads.`
+      : `${money(basePrice)} per load covers up to 7 kg. Every additional load starts another charge.`)
     : service.description || 'Laundry service · ' + (service.unit || 'unit');
   return (
     <View style={[styles.serviceCard, wide ? styles.serviceCardWide : styles.serviceCardNarrow]}>

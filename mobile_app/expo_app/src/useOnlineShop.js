@@ -64,6 +64,13 @@ export function useOnlineShop({ apiBase, customer, token, onSessionExpired }) {
     return operation;
   }, [apiBase, customer.id, onSessionExpired, token]);
 
+  const refreshServices = useCallback(async () => {
+    try {
+      const data = await apiRequest(apiBase, 'services.php', { timeoutMs: 10000 });
+      if (active.current) setSnapshot((current) => ({ ...current, services: data.services || [] }));
+    } catch { /* Keep the last available service list while temporarily offline. */ }
+  }, [apiBase]);
+
   useEffect(() => {
     active.current = true;
     void refresh();
@@ -75,6 +82,13 @@ export function useOnlineShop({ apiBase, customer, token, onSessionExpired }) {
     const timer = setInterval(() => { void refresh(true); }, 10000);
     return () => clearInterval(timer);
   }, [refresh, snapshot.tickets]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (AppState.currentState === 'active' || AppState.currentState == null) void refreshServices();
+    }, 30000);
+    return () => clearInterval(timer);
+  }, [refreshServices]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (state) => {

@@ -7,9 +7,14 @@ ensure_workflow_schema();
 
 $pdo = db();
 $processes = ['Wash', 'Dry', 'Full Service'];
-
-// Standardize kilogram service rates as a price per 7 kg load. Per-piece rates stay unchanged.
-$pdo->exec("UPDATE services SET price = CASE category WHEN 'Full Service' THEN 199.00 ELSE 85.00 END WHERE unit = 'kg' AND category IN ('Wash', 'Dry', 'Full Service')");
+$unitColumn = $pdo->query("SHOW COLUMNS FROM services LIKE 'unit'")->fetch(PDO::FETCH_ASSOC);
+if ($unitColumn && stripos((string)$unitColumn['Type'], 'enum(') === 0) {
+    $pdo->exec("ALTER TABLE services MODIFY unit VARCHAR(30) NOT NULL DEFAULT 'kg'");
+}
+$orderUnitColumn = $pdo->query("SHOW COLUMNS FROM order_items LIKE 'unit'")->fetch(PDO::FETCH_ASSOC);
+if ($orderUnitColumn && preg_match('/varchar\((\d+)\)/i', (string)$orderUnitColumn['Type'], $unitLength) && (int)$unitLength[1] < 30) {
+    $pdo->exec("ALTER TABLE order_items MODIFY unit VARCHAR(30) NOT NULL DEFAULT 'kg'");
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete'])) {
     if (!csrf_verify($_POST['csrf'] ?? null)) {
@@ -25,7 +30,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete'])) {
             $stmt = $pdo->prepare('UPDATE services SET is_active = 0 WHERE id = ?');
             $stmt->execute([$id]);
             add_audit_log('Service deactivated', 'services', $id);
-            flash_set('success', 'Service removed from the POS. It was kept because it is linked to past orders.');
+            flash_set('success', 'Service removed from Offers. It was kept because it is linked to past orders.');
         } else {
             add_audit_log('Service deleted', 'services', $id);
             $stmt = $pdo->prepare('DELETE FROM services WHERE id = ?');
@@ -44,14 +49,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save'])) {
     $id          = (int)($_POST['id'] ?? 0);
     $name        = trim($_POST['name'] ?? '');
     $category    = trim($_POST['category'] ?? '');
-    $unit        = ($_POST['unit'] ?? 'kg') === 'piece' ? 'piece' : 'kg';
-    $price       = max(0, (float)($_POST['price'] ?? 0));
-    if ($unit === 'kg') $price = service_load_price($category) ?? $price;
+    $unit        = trim((string)($_POST['unit'] ?? 'kg'));
+    $rawPrice    = trim((string)($_POST['price'] ?? ''));
+    $price       = filter_var($rawPrice, FILTER_VALIDATE_FLOAT);
     $description = trim($_POST['description'] ?? '');
     $is_active   = isset($_POST['is_active']) ? 1 : 0;
 
-    if ($name === '' || !in_array($category, $processes, true) || $price <= 0) {
-        flash_set('error', 'Enter a service name, choose one of the three processes, and enter a price greater than 0.');
+    if ($name === '' || $category === '' || mb_strlen($category) > 60 || $unit === '' || mb_strlen($unit) > 30 || !preg_match('/^[\p{L}\p{N}][\p{L}\p{N} ._\/-]{0,29}$/u', $unit) || $price === false || $price <= 0) {
+        flash_set('error', 'Enter a service name, category, unit, and a valid price greater than 0.');
         redirect('services.php' . ($id ? "?id=$id" : ''));
     }
 
@@ -80,15 +85,7 @@ if (isset($_GET['id'])) {
 }
 
 $services = $pdo->query("SELECT * FROM services WHERE is_active = 1 ORDER BY category, name")->fetchAll();
-foreach ($services as &$service) {
-    if ($service['unit'] === 'kg') $service['price'] = service_load_price($service['category']) ?? $service['price'];
-}
-unset($service);
-$legacyProcess = static function ($category) {
-    if (in_array($category, ['Wash', 'Dry', 'Full Service'], true)) return $category;
-    if ($category === 'Wash & Fold') return 'Full Service';
-    return 'Dry'; // Ironing & Press and Dry Cleaning are dry-only processes.
-};
+$categorySuggestions = $pdo->query("SELECT DISTINCT category FROM services WHERE category IS NOT NULL AND category <> '' ORDER BY category")->fetchAll(PDO::FETCH_COLUMN);
 
 $pageTitle = 'Edit Services';
 $pageSubtitle = 'Manage your service list and prices';
@@ -109,23 +106,20 @@ include __DIR__ . '/includes/header.php';
       <div class="form-row">
         <div>
           <label for="category">Category *</label>
-          <select id="category" name="category" required>
-            <?php $selectedProcess = $editing ? $legacyProcess($editing['category']) : 'Wash'; ?>
-            <?php foreach ($processes as $process): ?>
-              <option value="<?= e($process) ?>" <?= $selectedProcess === $process ? 'selected' : '' ?>><?= e($process) ?><?= $process === 'Full Service' ? ' (Wash, Dry & Fold)' : '' ?></option>
-            <?php endforeach; ?>
-          </select>
+          <input type="text" id="category" name="category" list="category-options" maxlength="60" required value="<?= e($editing['category'] ?? 'Wash') ?>" placeholder="Choose or type a category">
+          <datalist id="category-options">
+            <?php foreach ($processes as $process): ?><option value="<?= e($process) ?>"><?php endforeach; ?>
+            <?php foreach ($categorySuggestions as $suggestion): ?><option value="<?= e($suggestion) ?>"><?php endforeach; ?>
+          </datalist>
         </div>
         <div>
           <label for="unit">Unit</label>
-          <select id="unit" name="unit">
-            <option value="kg" <?= ($editing['unit'] ?? 'kg') === 'kg' ? 'selected' : '' ?>>Per kilogram (kg)</option>
-            <option value="piece" <?= ($editing['unit'] ?? '') === 'piece' ? 'selected' : '' ?>>Per piece</option>
-          </select>
+          <input type="text" id="unit" name="unit" list="unit-options" maxlength="30" required value="<?= e($editing['unit'] ?? 'kg') ?>" placeholder="Choose or type a unit">
+          <datalist id="unit-options"><option value="load"><option value="kg"><option value="piece"></datalist>
         </div>
       </div>
 
-      <label for="price">Price (₱<?= ($editing['unit'] ?? 'kg') === 'kg' ? ' per 7 kg' : ' per piece' ?>) *</label>
+      <label id="price-label" for="price">Price (&#8369; per <?= ($editing['unit'] ?? 'kg') === 'load' ? 'load, up to 7 kg' : e($editing['unit'] ?? 'kg') ?>) *</label>
       <input type="number" id="price" name="price" min="0" step="0.01" required
              value="<?= e($editing['price'] ?? '') ?>">
 
@@ -135,7 +129,7 @@ include __DIR__ . '/includes/header.php';
       <label style="display:flex;align-items:center;gap:8px;margin-top:12px;">
         <input type="checkbox" name="is_active" value="1" style="width:auto;"
                <?= !isset($editing['is_active']) || $editing['is_active'] ? 'checked' : '' ?>>
-        Active (available in POS)
+        Active (Available in Offers)
       </label>
 
       <div class="form-actions">
@@ -156,7 +150,7 @@ include __DIR__ . '/includes/header.php';
             <td><?= e($s['name']) ?></td>
             <td class="muted"><?= e($s['category']) ?></td>
             <td><?= e($s['unit']) ?></td>
-            <td class="num"><?= money($s['price']) ?> <span class="muted">/ <?= $s['unit'] === 'kg' ? '7 kg' : 'piece' ?></span></td>
+            <td class="num"><?= money($s['price']) ?> <span class="muted">/ <?= $s['unit'] === 'load' ? 'load (up to 7 kg)' : e($s['unit']) ?></span></td>
             <td><span class="badge badge-<?= $s['is_active'] ? 'active' : 'inactive' ?>"><?= $s['is_active'] ? 'Active' : 'Inactive' ?></span></td>
             <td class="right" style="white-space:nowrap;">
               <a class="btn btn-outline btn-sm" href="services.php?id=<?= (int)$s['id'] ?>">Edit</a>
@@ -174,5 +168,17 @@ include __DIR__ . '/includes/header.php';
     </div>
   </div>
 </div>
+<script>
+(function () {
+  var unit = document.getElementById("unit");
+  var label = document.getElementById("price-label");
+  if (!unit || !label) return;
+  unit.addEventListener("input", function () {
+    var value = unit.value.trim();
+    var basis = value.toLowerCase() === "load" ? "load, up to 7 kg" : (value || "unit");
+    label.textContent = "Price (" + String.fromCharCode(8369) + " per " + basis + ") *";
+  });
+})();
+</script>
 
 <?php include __DIR__ . '/includes/footer.php'; ?>

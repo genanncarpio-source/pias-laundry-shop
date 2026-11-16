@@ -1,13 +1,9 @@
 <?php
 
-/** Base price for one 7 kg load. */
+/** Category-based overrides are intentionally disabled; each service row owns its price. */
 function service_load_price(string $category): ?float
 {
-    return match ($category) {
-        'Wash', 'Dry' => 85.00,
-        'Full Service' => 199.00,
-        default => null,
-    };
+    return null;
 }
 
 /** Full Service allows up to 8 kg per load; Wash and Dry allow up to 7 kg. */
@@ -39,7 +35,7 @@ function service_weight_load_price(float $weightKg, float $basePrice, string $ca
 /** Price weight-based core services using their category-specific load limits. */
 function service_order_price(string $category, string $unit, float $quantity, float $storedPrice): float
 {
-    if ($unit !== 'kg') return round($storedPrice * $quantity, 2);
-    return service_weight_load_price($quantity, service_load_price($category) ?? $storedPrice, $category);
+    if ($unit === 'load') return service_weight_load_price($quantity, $storedPrice, $category);
+    return round($storedPrice * $quantity, 2);
 }
 
