@@ -65,7 +65,6 @@ To develop a Point-of-Sale and laundry shop management system for Pia's Laundry 
 | Refund controls | Cancellation reasons and administrator-recorded refunds |
 | Customer status lookup | Public order status lookup using receipt number and registered phone |
 | Customer web ordering | Signed-in customers request active services; requests enter the shared order queue unpaid |
-| Backup & restore | Administrator JSON backup download and guarded restore |
 | Employees | User account management (admin only) |
 | Settings | Shop information and receipt footer |
 
@@ -93,7 +92,7 @@ reports, and may delete records.
 
 Operational access. Creates transactions, updates order status, manages customers,
 and views orders. Can open and close their own cash session, but cannot access
-expenses, reports, inventory, employee management, backup/restore or settings.
+expenses, reports, inventory, employee management or settings.
 
 ### 4.3 Permission matrix
 

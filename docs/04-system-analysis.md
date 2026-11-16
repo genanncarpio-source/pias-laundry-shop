@@ -61,7 +61,7 @@ operations.
 | Service management | Create and update services, set unit and price, activate/deactivate services; administrator only |
 | Shop operations | Expenses, supplies inventory and daily cashier cash closing |
 | Reporting | Revenue, expenses, net sales, top services, payment methods and daily sales summaries |
-| Administration | Employee accounts, shop and receipt settings, backup and restore |
+| Administration | Employee accounts and shop and receipt settings |
 | Notifications | Prepared SMS text opened through the device's messaging app for staff to review and send |
 
 ### Outside the current system boundary
@@ -76,7 +76,7 @@ operations.
 
 | User | Main responsibilities | Access |
 |---|---|---|
-| Administrator | Configure the shop, manage accounts and prices, oversee operations, reports and backups | Staff functions plus admin-only expenses, reports, services editing, inventory, employees, settings and backup/restore |
+| Administrator | Configure the shop, manage accounts and prices, oversee operations and reports | Staff functions plus admin-only expenses, reports, services editing, inventory, employees and settings |
 | Staff / cashier | Record sales, manage customers and process laundry orders | POS, order management, customer management and daily cash closing; no access to admin-only pages |
 | Customer | Book service and follow personal orders | Registration and sign-in in the mobile app, service booking, private order history and delivery tracking |
 
@@ -142,7 +142,7 @@ are excluded from revenue calculations.
 | FR-06 | The system shall associate customer mobile-app bookings with the signed-in customer's record. |
 | FR-07 | The system shall allow authorized staff to search, view and update orders and retain a status history. |
 | FR-08 | The system shall provide receipt printing and mobile-app order and delivery tracking. |
-| FR-09 | The system shall allow administrators to maintain services, employees, shop settings and backups. |
+| FR-09 | The system shall allow administrators to maintain services, employees and shop settings. |
 | FR-10 | The system shall allow authorized users to maintain customer information; administrators may access restricted management operations. |
 | FR-11 | The system shall record expenses, inventory movements and cashier cash closings. |
 | FR-12 | The system shall provide dashboard and report summaries and exclude unpaid mobile-app bookings from recorded revenue. |

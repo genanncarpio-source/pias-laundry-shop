@@ -380,12 +380,6 @@ instructions and documentation.
 
 ## 11. Additional shop tools
 
-### Backup and restore (Admin)
-
-Open **Backup & Restore** and download a JSON backup regularly. Keep the file in a
-separate, private location. Restoring replaces the current database records, so make
-a fresh backup first. Select the file and type `RESTORE` to confirm.
-
 ### Inventory (Admin)
 
 Open **Inventory** and add supplies with a unit and low-stock alert level. Record stock

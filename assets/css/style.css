@@ -593,7 +593,6 @@ a:hover { color: var(--pink-dark); }
   font-size: 16px;
   flex: 0 0 30px;
 }
-.nav-icon-backup { background: #f4e2bc; color: #8b5c20; }
 .nav-icon-dashboard { background: #e7dcf2; color: #694779; }
 .nav-icon-orders { background: #dceaf5; color: #35658a; }
 .nav-icon-notifications { background: #f8e9c9; color: #956d21; }

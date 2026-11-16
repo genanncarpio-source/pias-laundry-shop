@@ -73,7 +73,7 @@ security setup beyond the current local-shop design.
 | `customers.php` | Staff and administrator; selected changes admin-only | Maintain customer records and display customer activity |
 | `services.php` | Administrator | Maintain the service catalogue and prices |
 | `expenses.php`, `reports.php` | Administrator | Record expenses and view financial/operational summaries |
-| `inventory.php`, `backup.php`, `employees.php`, `settings.php` | Administrator | Manage supplies, database backup, user accounts and shop configuration |
+| `inventory.php`, `employees.php`, `settings.php` | Administrator | Manage supplies, user accounts and shop configuration |
 | `cash_closing.php` | Staff and administrator | Open and close a cashier cash session |
 | `profile.php` | Authenticated staff and administrator | Change the current staff account details/password |
 
@@ -278,7 +278,7 @@ provided by the deployment environment if the system is exposed beyond the shop.
 | Application files | Project directory under the web root, such as `C:\xampp\htdocs\laundry-pias` |
 | Database setup | Import `database/laundry_pos.sql`; customer account and feature tables are added by the additive upgrade or on feature use |
 | Access | Staff use the shop browser; customers use the mobile app over a network that can reach the PHP API |
-| Backups | Administrator downloads the supported database JSON backup and stores it separately |
+| Backups | Use database or hosting-provider backup tools; application backup/restore page removed |
 
 ## 11. Traceability to analysis
 

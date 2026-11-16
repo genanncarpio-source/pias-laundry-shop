@@ -12,9 +12,8 @@ $notificationSummary->execute([(int)$user['id']]);
 $notificationState = $notificationSummary->fetch() ?: ['latest_id' => 0, 'unread_count' => 0];
 
 $nav = [
-    ['Backup & Restore', 'backup.php', '&#128190;', true],
     ['Dashboard',    'dashboard.php',  '&#128202;', false],
-    ['Avail Service','orders.php',     '&#129534;', false],
+    ['Manage Service','orders.php',    '&#129534;', false],
     ['Notifications','notifications.php','&#128276;', false],
     ['Customers',    'customers.php',  '&#128101;', false],
     ['Edit Services','services.php',   '&#128085;', true],

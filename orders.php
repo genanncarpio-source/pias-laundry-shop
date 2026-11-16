@@ -83,7 +83,7 @@ $tabs = [
 
 $statusLabels = order_status_labels();
 
-$pageTitle = 'Avail Service';
+$pageTitle = 'Manage Service';
 $pageSubtitle = 'Track and manage service requests';
 include __DIR__ . '/includes/header.php';
 ?>

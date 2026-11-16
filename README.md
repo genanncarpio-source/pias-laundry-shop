@@ -41,7 +41,6 @@ A complete Point-of-Sale and laundry shop management system built with **PHP, My
 - Services / price list
 - Expenses
 - Inventory stock and low-stock alerts
-- Admin JSON backup download and protected restore
 - Reports and dashboard (revenue, expenses, net, top services, 7-day chart)
 - Employees / user accounts
 - Settings (shop information and receipt footer)
@@ -51,7 +50,7 @@ A complete Point-of-Sale and laundry shop management system built with **PHP, My
 |---|---:|---:|
 | View dashboard, orders, customers and services | ✅ | ✅ |
 | Update laundry process status and record payments | ❌ | ✅ |
-| Reports, employees, settings and backup/restore | ✅ | ❌ |
+| Reports, employees and settings | ✅ | ❌ |
 
 
 ---
@@ -232,7 +231,6 @@ laundry-pias/
 ├── services.php              Price list
 ├── expenses.php              Expenses
 ├── inventory.php             Supply stock (admin)
-├── backup.php                Database backup / restore (admin)
 ├── reports.php               Sales / expense / net reports
 ├── employees.php             User accounts (admin)
 ├── settings.php              Shop info (admin)
