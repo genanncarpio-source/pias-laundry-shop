@@ -324,6 +324,19 @@ textarea { resize: vertical; min-height: 80px; }
 .receipt .rc-line { display: flex; justify-content: space-between; }
 .receipt .rc-bold { font-weight: 700; }
 .no-print { text-align: center; margin: 16px; }
+.receipt { position: relative; overflow: hidden; }
+.receipt > *:not(.rc-watermark) { position: relative; z-index: 1; }
+.receipt .rc-watermark {
+  position: absolute; z-index: 0; top: 42%; left: -18%; width: 136%; transform: rotate(-27deg);
+  color: rgba(88, 38, 95, .12); text-align: center; font: 700 14px/5 "Courier New", monospace;
+  letter-spacing: 2px; pointer-events: none; white-space: normal;
+}
+.receipt .rc-claim { font-weight: 700; letter-spacing: 1px; }
+.receipt .rc-ticket { border-bottom: 1px dashed #999; padding-bottom: 5px; font-weight: 700; }
+.receipt .rc-small { font-size: 11px; line-height: 1.35; overflow-wrap: anywhere; margin-top: 4px; }
+.receipt .rc-ready { margin: 12px 0; font-weight: 700; line-height: 1.5; }
+.receipt .rc-barcode { display: block; width: 100%; height: 48px; margin: 10px auto 3px; }
+.receipt .rc-barcode-label { font-size: 10px; letter-spacing: 1px; }
 
 /* ---------------- Login ---------------- */
 .login-wrap {
@@ -431,7 +444,11 @@ textarea { resize: vertical; min-height: 80px; }
 @media print {
   .sidebar, .topbar, .no-print, .menu-toggle { display: none !important; }
   .main, .content { padding: 0; margin: 0; }
-  .receipt { box-shadow: none; margin: 0 auto; }
+  @page { margin: 3mm; }
+  html, body.receipt-page { width: 74mm; min-width: 0; margin: 0 !important; padding: 0 !important; background: #fff !important; }
+  .receipt { box-sizing: border-box; width: 74mm; max-width: 74mm; margin: 0 auto; padding: 2mm 1mm; box-shadow: none; border-radius: 0; overflow: visible; }
+  .receipt table { table-layout: fixed; }
+  .receipt th, .receipt td { overflow-wrap: anywhere; }
 }
 
 /* ---------------- Alerts (inline notices) ---------------- */
