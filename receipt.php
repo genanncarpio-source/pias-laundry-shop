@@ -117,14 +117,19 @@ $isNew = isset($_GET['new']);
 </div>
 
 <div class="no-print">
-  <button class="btn btn-primary" data-print>🖨️ Print Receipt</button>
+  <button class="btn btn-primary" type="button" id="print-receipt">Print / Save Receipt</button>
   <?php if (!$isNew): ?>
     <a class="btn btn-outline" href="order_view.php?id=<?= (int)$id ?>">← Back to order</a>
   <?php endif; ?>
 </div>
 
-<?php if ($isNew): ?>
-<script>window.addEventListener('load', () => setTimeout(() => window.print(), 300));</script>
-<?php endif; ?>
+<script>
+  // This page is standalone and does not load the shared app.js print handler.
+  // The browser print dialog lets staff print the receipt or save it as a PDF.
+  document.getElementById('print-receipt')?.addEventListener('click', () => window.print());
+  <?php if ($isNew): ?>
+  window.addEventListener('load', () => setTimeout(() => window.print(), 300));
+  <?php endif; ?>
+</script>
 </body>
 </html>
