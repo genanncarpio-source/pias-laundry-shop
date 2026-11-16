@@ -12,6 +12,16 @@
         "buildType": "apk"
       }
     },
+    "driver": {
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_API_BASE_URL": "https://pias-laundry-shop.up.railway.app/api",
+        "EXPO_PUBLIC_APP_VARIANT": "driver"
+      },
+      "android": {
+        "buildType": "apk"
+      }
+    },
     "production": {
       "env": {
         "EXPO_PUBLIC_API_BASE_URL": "https://pias-laundry-shop.up.railway.app/api"

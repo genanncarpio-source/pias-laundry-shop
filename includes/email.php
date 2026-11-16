@@ -42,7 +42,7 @@ function send_staff_password_reset_otp(string $email, string $name, string $code
     send_transactional_email(
         $email,
         "Reset your Pia's Laundry Shop staff password",
-        "Hello {$name},\n\nYour staff/admin password reset code is: {$code}\n\nThis code expires in 10 minutes and can only be used once. If you did not request a reset, you can ignore this email."
+        "Hello {$name},\n\nYour staff/admin password reset code is: {$code}\n\nThis code expires in 5 minutes and can only be used once. If you did not request a reset, you can ignore this email."
     );
 }
 

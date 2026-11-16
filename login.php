@@ -72,6 +72,9 @@ $loginScript = basename($_SERVER['SCRIPT_NAME'] ?? 'login.php');
 .login-page .login-card .btn-primary:hover{background:#49204f}
 .login-page .login-wrap>p a{color:#704478}
 .login-page .field-error{display:block;min-height:18px;margin:4px 0 8px;color:#a43e4a;font-size:12px;font-weight:700}
+.login-page .password-field input{padding-right:52px}
+.login-page .toggle-password{top:1px;right:1px;width:42px;height:42px;padding:10px;transform:none;display:grid;place-items:center;font-size:0;color:#704478}
+.login-page .toggle-password svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 @media(max-width:560px){.login-page .login-wrap{padding:20px 16px;background-position:center}}
 </style>
 </head>
@@ -97,7 +100,7 @@ $loginScript = basename($_SERVER['SCRIPT_NAME'] ?? 'login.php');
       <div class="password-field">
         <input type="password" id="password" name="password" required aria-describedby="password-error">
         <button type="button" class="toggle-password" id="togglePassword"
-                aria-label="Show password" title="Show password">👁️</button>
+                aria-label="Show password" title="Show password"><svg viewBox="0 0 24 24" aria-hidden="true"><path class="eye-open" d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z"/><circle class="eye-open" cx="12" cy="12" r="3"/><path class="eye-closed" d="m3 3 18 18M10.6 5.1A10.8 10.8 0 0 1 12 5c6.4 0 10 7 10 7a17 17 0 0 1-3.1 3.9M6.2 6.2C3.5 8 2 12 2 12s3.6 7 10 7c1.1 0 2.2-.2 3.1-.6"/><path class="eye-closed" d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg></button>
       </div>
       <span class="field-error" id="password-error"><?= $errorField === 'password' ? e($error) : '' ?></span>
 
@@ -127,12 +130,14 @@ $loginScript = basename($_SERVER['SCRIPT_NAME'] ?? 'login.php');
     toggle.addEventListener('click', function () {
       var show = field.type === 'password';
       field.type = show ? 'text' : 'password';
-      toggle.textContent = show ? '🙈' : '👁️';
+      toggle.querySelectorAll('.eye-open').forEach(function (part) { part.style.display = show ? '' : 'none'; });
+      toggle.querySelectorAll('.eye-closed').forEach(function (part) { part.style.display = show ? 'none' : ''; });
       toggle.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
       toggle.setAttribute('title', show ? 'Hide password' : 'Show password');
       field.focus();
     });
   }
+  if (toggle) toggle.querySelectorAll('.eye-open').forEach(function (part) { part.style.display = 'none'; });
 })();
 </script>
 </body>
