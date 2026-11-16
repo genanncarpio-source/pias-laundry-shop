@@ -3,15 +3,33 @@ import { AppState } from 'react-native';
 import { apiRequest } from './api';
 import { getActiveSession, saveVerifiedSession } from './session';
 
-const empty = { services: [], tickets: [], payment: null };
+const empty = { services: [], tickets: [], payment: null, notifications: [], unreadNotifications: 0 };
 
 export function useOnlineShop({ apiBase, customer, token, onSessionExpired }) {
   const [snapshot, setSnapshot] = useState(empty);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
+  const [notificationsLoaded, setNotificationsLoaded] = useState(false);
   const active = useRef(false);
   const inFlight = useRef(null);
+  const notificationRequest = useRef(null);
+
+  const refreshNotifications = useCallback(() => {
+    if (notificationRequest.current) return notificationRequest.current;
+    const operation = apiRequest(apiBase, 'customer_notifications.php', { token, timeoutMs: 10000 }).then((data) => {
+      if (active.current) { setSnapshot((current) => ({ ...current, notifications: data.notifications || [], unreadNotifications: Number(data.unread_count) || 0 })); setNotificationsLoaded(true); }
+    }).catch(async (problem) => {
+      if (problem.status === 401 || problem.status === 403) await onSessionExpired();
+    }).finally(() => { if (notificationRequest.current === operation) notificationRequest.current = null; });
+    notificationRequest.current = operation;
+    return operation;
+  }, [apiBase, onSessionExpired, token]);
+
+  const markNotificationRead = useCallback(async (id = null) => {
+    await apiRequest(apiBase, 'customer_notifications.php', { method: 'POST', token, body: id == null ? { mark_all_read: true } : { id } });
+    await refreshNotifications();
+  }, [apiBase, refreshNotifications, token]);
 
   const refresh = useCallback((quiet = false) => {
     if (inFlight.current) return inFlight.current;
@@ -42,7 +60,7 @@ export function useOnlineShop({ apiBase, customer, token, onSessionExpired }) {
           }
         }));
         if (active.current) {
-          setSnapshot({ services: services.services || [], tickets: withTracking, payment: payment.payment || null });
+          setSnapshot((current) => ({ ...current, services: services.services || [], tickets: withTracking, payment: payment.payment || null }));
           setError('');
         }
       } catch (problem) {
@@ -74,8 +92,16 @@ export function useOnlineShop({ apiBase, customer, token, onSessionExpired }) {
   useEffect(() => {
     active.current = true;
     void refresh();
+    void refreshNotifications();
     return () => { active.current = false; };
-  }, [refresh]);
+  }, [refresh, refreshNotifications]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (AppState.currentState === 'active' || AppState.currentState == null) void refreshNotifications();
+    }, 15000);
+    return () => clearInterval(timer);
+  }, [refreshNotifications]);
 
   useEffect(() => {
     if (!(snapshot.tickets || []).some((ticket) => ticket.order_type === 'delivery_request' && ticket.status === 'out_for_delivery')) return undefined;
@@ -92,10 +118,10 @@ export function useOnlineShop({ apiBase, customer, token, onSessionExpired }) {
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (state) => {
-      if (state === 'active') void refresh(true);
+      if (state === 'active') { void refresh(true); void refreshNotifications(); }
     });
     return () => subscription.remove();
-  }, [refresh]);
+  }, [refresh, refreshNotifications]);
 
-  return { ...snapshot, loading, refreshing, error, setError, refresh };
+  return { ...snapshot, loading, refreshing, error, setError, refresh, refreshNotifications, markNotificationRead, notificationsLoaded };
 }

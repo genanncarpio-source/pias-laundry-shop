@@ -4,7 +4,7 @@ import Constants from 'expo-constants';
 import { apiRequest } from './src/api';
 import { readSession, readLegacyToken, saveVerifiedSession, clearSession, getActiveSession, hasDismissedReviewPrompt, dismissReviewPrompt, readHiddenTicketIds, saveHiddenTicketIds } from './src/session';
 import { useOnlineShop } from './src/useOnlineShop';
-import * as Location from 'expo-location';
+import * as Notifications from 'expo-notifications';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
@@ -77,6 +77,9 @@ function getLocalDevelopmentApi() {
 const LOCAL_DEV_API = getLocalDevelopmentApi();
 const DEFAULT_API = (CONFIGURED_API || (__DEV__ ? LOCAL_DEV_API : '')).replace(/\/+$/, '');
 let welcomeSeenThisLaunch = false;
+
+Notifications.setNotificationHandler({ handleNotification: async () => ({ shouldShowBanner: false, shouldShowList: false, shouldPlaySound: false, shouldSetBadge: false }) });
+
 
 // Delivery coverage follows the Tarlac City corridor from San Jose to Balingcanaway.
 const DELIVERY_BOUNDS = { south: 15.44, north: 15.535, west: 120.6, east: 120.73 };
@@ -712,12 +715,13 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
   const params = useLocalSearchParams();
   const insets = useSafeAreaInsets();
   const tab = pathname === '/track' ? 'track'
+    : pathname === '/notifications' ? 'notifications'
     : pathname === '/offers' ? 'offers'
     : pathname === '/about' ? 'about'
     : pathname === '/profile' ? 'profile'
     : 'home';
-  const { services, tickets, loading, refreshing,
-    error, setError, refresh: loadShopData } = useOnlineShop({ apiBase, customer, token, onSessionExpired });
+  const { services, tickets, notifications, notificationsLoaded, unreadNotifications, loading, refreshing,
+    error, setError, refresh: loadShopData, refreshNotifications, markNotificationRead } = useOnlineShop({ apiBase, customer, token, onSessionExpired });
   const bookingBusy = useRef(false);
   const [bookingError, setBookingError] = useState('');
   const [reviewPrompt, setReviewPrompt] = useState(null);
@@ -752,8 +756,11 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
     return new Date(today.getFullYear(), today.getMonth(), 1);
   });
   const [sending, setSending] = useState(false);
-  const [locationBusy, setLocationBusy] = useState({});
-  const [locationError, setLocationError] = useState({});
+  const [notificationToast, setNotificationToast] = useState(null);
+  const [pushBusy, setPushBusy] = useState(false);
+  const [pushStatus, setPushStatus] = useState('');
+  const [pushToken, setPushToken] = useState('');
+  const seenNotificationIds = useRef(null);
   const [retryReferences, setRetryReferences] = useState({});
   const [retryBusy, setRetryBusy] = useState({});
   const [editingLocation, setEditingLocation] = useState(false);
@@ -772,6 +779,27 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
   const [profileDetailsError, setProfileDetailsError] = useState('');
   const toast = typeof params.booking === 'string' && params.booking ? 'Booking submitted. Ticket ' + params.booking : '';
   const trackTickets = tickets.filter((ticket) => !hiddenTicketIds.includes(String(ticket.id || ticket.order_number)));
+
+  useEffect(() => {
+    if (!notificationsLoaded) return;
+    const ids = new Set((notifications || []).map((item) => String(item.id)));
+    if (seenNotificationIds.current === null) { seenNotificationIds.current = ids; return; }
+    const newest = (notifications || []).find((item) => !seenNotificationIds.current.has(String(item.id)));
+    seenNotificationIds.current = new Set([...seenNotificationIds.current, ...ids]);
+    if (newest) setNotificationToast(newest);
+  }, [notifications, notificationsLoaded]);
+
+  useEffect(() => {
+    const received = Notifications.addNotificationReceivedListener(() => { void refreshNotifications(); });
+    const response = Notifications.addNotificationResponseReceivedListener(() => router.replace('/notifications'));
+    return () => { received.remove(); response.remove(); };
+  }, [refreshNotifications, router]);
+
+  useEffect(() => {
+    if (!notificationToast) return undefined;
+    const timer = setTimeout(() => setNotificationToast(null), 6000);
+    return () => clearTimeout(timer);
+  }, [notificationToast]);
 
   useEffect(() => {
     let active = true;
@@ -912,14 +940,53 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
     setProfileAddressDetails('');
     setProfileLocationError(''); setEditingLocation(true);
   };
+  const enablePushNotifications = async () => {
+    if (Platform.OS === 'web') { setPushStatus('Phone push notifications are available in the Android app.'); return; }
+    setPushBusy(true); setPushStatus('');
+    try {
+      if (Platform.OS === 'android') await Notifications.setNotificationChannelAsync('laundry-updates', { name: 'Laundry updates', importance: Notifications.AndroidImportance.MAX, vibrationPattern: [0, 250, 250, 250], lightColor: '#8a5594' });
+      let permission = await Notifications.getPermissionsAsync();
+      if (!permission.granted) permission = await Notifications.requestPermissionsAsync();
+      if (!permission.granted) { setPushStatus('Notifications are off. You can enable them in your phone settings.'); return; }
+      const projectId = Constants.expoConfig?.extra?.eas?.projectId || Constants.easConfig?.projectId;
+      if (!projectId) throw new Error('Push notification setup is incomplete for this app build.');
+      const result = await Notifications.getExpoPushTokenAsync({ projectId });
+      await apiRequest(apiBase, 'customer_push_token.php', { method: 'POST', token, body: { token: result.data } });
+      setPushToken(result.data); setPushStatus('Phone notifications are enabled.');
+    } catch (problem) { setPushStatus(problem.message || 'Could not enable phone notifications. Try again later.'); }
+    finally { setPushBusy(false); }
+  };
+
+  useEffect(() => {
+    if (Platform.OS === 'web') return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        const permission = await Notifications.getPermissionsAsync();
+        if (!permission.granted || cancelled) return;
+        if (Platform.OS === 'android') await Notifications.setNotificationChannelAsync('laundry-updates', { name: 'Laundry updates', importance: Notifications.AndroidImportance.MAX });
+        const projectId = Constants.expoConfig?.extra?.eas?.projectId || Constants.easConfig?.projectId;
+        if (!projectId) return;
+        const result = await Notifications.getExpoPushTokenAsync({ projectId });
+        if (!cancelled) { await apiRequest(apiBase, 'customer_push_token.php', { method: 'POST', token, body: { token: result.data } }); setPushToken(result.data); }
+      } catch { /* Keep in-app notifications if push setup is unavailable. */ }
+    })();
+    return () => { cancelled = true; };
+  }, [apiBase, token]);
+
   const navigateTo = (nextTab, bookingNumber) => {
     if (nextTab === 'track' && bookingNumber) {
       router.replace({ pathname: '/track', params: { booking: bookingNumber } });
       return;
     }
-    const paths = { home: '/', track: '/track', offers: '/offers', about: '/about', profile: '/profile' };
+    const paths = { home: '/', track: '/track', notifications: '/notifications', offers: '/offers', about: '/about', profile: '/profile' };
     router.replace(paths[nextTab] || '/');
   };
+  const signOutCustomer = async () => {
+    if (pushToken) { try { await apiRequest(apiBase, 'customer_push_token.php', { method: 'POST', token, body: { action: 'unregister', token: pushToken } }); } catch { /* Sign-out still works if offline. */ } }
+    onSignOut();
+  };
+
   const clearTrackTickets = async () => {
     const clearedIds = trackTickets.map((ticket) => String(ticket.id || ticket.order_number));
     const nextIds = [...new Set([...hiddenTicketIds, ...clearedIds])];
@@ -933,74 +1000,6 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
   };
 
 
-  const updateCustomerLocation = async (ticket, action) => {
-    const ticketId = String(ticket.id);
-    setLocationBusy((current) => ({ ...current, [ticketId]: true }));
-    setLocationError((current) => ({ ...current, [ticketId]: '' }));
-    try {
-      const body = { order_id: Number(ticket.id), action };
-      if (action === 'share') {
-        const permission = await Location.requestForegroundPermissionsAsync();
-        if (permission.status !== 'granted') throw new Error('Allow location access to share your current delivery location.');
-        const currentLocation = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-        body.latitude = currentLocation.coords.latitude;
-        body.longitude = currentLocation.coords.longitude;
-        body.accuracy = currentLocation.coords.accuracy;
-      }
-      await apiRequest(apiBase, 'customer_delivery_location.php', { method: 'POST', token, body });
-      await loadShopData(true);
-    } catch (locationActionError) {
-      if (locationActionError.status === 401) await onSessionExpired();
-      setLocationError((current) => ({ ...current, [ticketId]: locationActionError.message || 'Could not update location sharing.' }));
-    } finally {
-      setLocationBusy((current) => ({ ...current, [ticketId]: false }));
-    }
-  };
-
-  const sharedDeliveryIds = tickets
-    .filter((ticket) => ticket.order_type === 'delivery_request' && ticket.status === 'out_for_delivery' && ticket.tracking?.customer_location_shared)
-    .map((ticket) => Number(ticket.id))
-    .filter((id) => Number.isInteger(id) && id > 0);
-  const sharedDeliveryKey = sharedDeliveryIds.join(',');
-
-  useEffect(() => {
-    if (!sharedDeliveryKey) return undefined;
-    let cancelled = false;
-    let subscription = null;
-    (async () => {
-      try {
-        const permission = await Location.getForegroundPermissionsAsync();
-        if (cancelled || permission.status !== 'granted') return;
-        subscription = await Location.watchPositionAsync(
-          { accuracy: Location.Accuracy.Balanced, timeInterval: 15000, distanceInterval: 25 },
-          (location) => {
-            const updates = sharedDeliveryKey.split(',').map((id) => apiRequest(apiBase, 'customer_delivery_location.php', {
-              method: 'POST',
-              token,
-              body: {
-                order_id: Number(id),
-                action: 'share',
-                latitude: location.coords.latitude,
-                longitude: location.coords.longitude,
-                accuracy: location.coords.accuracy,
-              },
-            }).catch(async (updateError) => {
-              if (updateError.status === 401) await onSessionExpired();
-              else if (updateError.status === 409) void loadShopData(true);
-            }));
-            void Promise.all(updates);
-          },
-        );
-        if (cancelled) subscription.remove();
-      } catch (_) {
-        // Keep the last shared location visible if live updates are unavailable.
-      }
-    })();
-    return () => {
-      cancelled = true;
-      subscription?.remove();
-    };
-  }, [apiBase, loadShopData, onSessionExpired, sharedDeliveryKey, token]);
   const visibleServices = useMemo(() => services.filter((service) => {
     const matchesCategory = filter === 'All' || serviceCategory(service) === filter;
     const query = search.trim().toLowerCase();
@@ -1346,7 +1345,18 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
             {error ? <Text style={styles.errorBox}>{error}</Text> : null}
             {loading ? <View style={styles.inlineLoading}><ActivityIndicator color={COLORS.purple} /><Text style={styles.mutedText}>Loading your tickets…</Text></View> : null}
             {!loading && trackTickets.length === 0 ? <View style={styles.emptyCard}><Text style={styles.emptyEmoji}>📋</Text><Text style={styles.emptyTitle}>{tickets.length ? 'Track list cleared' : 'No service tickets yet'}</Text><Text style={styles.mutedText}>{tickets.length ? 'Your recent transactions are still available in Profile.' : 'Your bookings will appear here after you book a service.'}</Text>{!tickets.length ? <Pressable onPress={() => navigateTo('offers')} style={styles.smallPrimary}><Text style={styles.smallPrimaryText}>Browse services</Text></Pressable> : <Pressable onPress={() => navigateTo('profile')} style={styles.smallPrimary}><Text style={styles.smallPrimaryText}>Open transaction history</Text></Pressable>}</View> : null}
-            {trackTickets.map((ticket) => <TicketCard key={ticket.id || ticket.order_number} ticket={ticket} apiBase={apiBase} token={token} onShareLocation={() => updateCustomerLocation(ticket, 'share')} onRevokeLocation={() => updateCustomerLocation(ticket, 'revoke')} locationBusy={Boolean(locationBusy[String(ticket.id)])} locationError={locationError[String(ticket.id)]} retryReference={retryReferences[String(ticket.id)] || ''} onRetryReferenceChange={(value) => setRetryReferences((current) => ({ ...current, [String(ticket.id)]: value }))} onResubmitGcash={() => resubmitGcashReference(ticket)} retryBusy={Boolean(retryBusy[String(ticket.id)])} />)}
+            {trackTickets.map((ticket) => <TicketCard key={ticket.id || ticket.order_number} ticket={ticket} apiBase={apiBase} token={token} retryReference={retryReferences[String(ticket.id)] || ''} onRetryReferenceChange={(value) => setRetryReferences((current) => ({ ...current, [String(ticket.id)]: value }))} onResubmitGcash={() => resubmitGcashReference(ticket)} retryBusy={Boolean(retryBusy[String(ticket.id)])} />)}
+          </View>
+        </ScrollView>
+      ) : tab === 'notifications' ? (
+        <ScrollView contentContainerStyle={styles.homeScroll}>
+          <View style={styles.pageWidth}>
+            <HeroBanner compact />
+            <View style={styles.notificationHeader}><View style={styles.flexOne}><Text style={styles.greeting}>Notifications</Text><Text style={styles.welcomeCopy}>Updates about your laundry orders.</Text></View><Pressable accessibilityRole="button" disabled={!unreadNotifications} onPress={() => { void markNotificationRead(); }} style={[styles.clearTicketsButton, !unreadNotifications && styles.disabledButton]}><Text style={styles.clearTicketsText}>Mark all read</Text></Pressable></View>
+            <View style={styles.notificationPushCard}><Text style={styles.trackingTitle}>Phone notifications</Text><Text style={styles.ticketDetail}>Get an alert when the shop updates your order, even when this app is closed.</Text><Pressable accessibilityRole="button" disabled={pushBusy} onPress={() => { void enablePushNotifications(); }} style={[styles.primaryButton, pushBusy && styles.disabledButton]}>{pushBusy ? <ActivityIndicator color={COLORS.white} /> : <Text style={styles.primaryButtonText}>Enable phone notifications</Text>}</Pressable>{pushStatus ? <Text style={styles.ticketDetail}>{pushStatus}</Text> : null}</View>
+            {loading && notifications.length === 0 ? <View style={styles.inlineLoading}><ActivityIndicator color={COLORS.purple} /><Text style={styles.mutedText}>Loading notifications...</Text></View> : null}
+            {!loading && notifications.length === 0 ? <View style={styles.emptyCard}><Text style={styles.emptyEmoji}>{String.fromCodePoint(0x1f514)}</Text><Text style={styles.emptyTitle}>No notifications yet</Text><Text style={styles.mutedText}>Laundry order updates will show up here.</Text></View> : null}
+            {notifications.map((item) => <Pressable key={String(item.id)} onPress={() => { if (!Number(item.is_read)) void markNotificationRead(item.id); if (item.order_number) navigateTo('track', item.order_number); }} style={[styles.notificationCard, !Number(item.is_read) && styles.notificationUnread]}><View style={styles.notificationTitleRow}><Text style={styles.notificationTitle}>{item.title}</Text>{!Number(item.is_read) ? <View style={styles.notificationDot} /> : null}</View><Text style={styles.ticketDetail}>{item.message}</Text>{item.order_number ? <Text style={styles.notificationOrder}>Ticket {item.order_number} - Tap to track</Text> : null}<Text style={styles.notificationDate}>{formatDate(item.created_at)}</Text></Pressable>)}
           </View>
         </ScrollView>
       ) : tab === 'about' ? (
@@ -1406,7 +1416,7 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
                 <View style={styles.profileLocationActions}><Pressable disabled={profileSaving} onPress={() => setEditingLocation(false)} style={styles.secondaryButton}><Text style={styles.secondaryButtonText}>Cancel</Text></Pressable><Pressable disabled={profileSaving} onPress={saveProfileLocation} style={[styles.primaryButton, profileSaving && styles.disabledButton]}>{profileSaving ? <ActivityIndicator color={COLORS.white} /> : <Text style={styles.primaryButtonText}>Save address</Text>}</Pressable></View>
               </> : <><Text style={[styles.locationPinSuccess, !isDeliveryArea(customer.location_latitude, customer.location_longitude) && styles.locationPinWarning]}>{isDeliveryArea(customer.location_latitude, customer.location_longitude) ? 'Your saved pin is in the pickup and delivery area.' : 'Pickup and delivery are unavailable at your saved pin. Choose Drop-off & Pick-up at the shop.'}</Text><Pressable onPress={beginLocationEdit} style={styles.locationPinButton}><Text style={styles.locationPinButtonText}>Edit address</Text></Pressable></>}
             </View>
-            <Pressable onPress={onSignOut} style={styles.signOutButton}><Text style={styles.signOutButtonText}>Sign out</Text></Pressable>
+            <Pressable onPress={() => { void signOutCustomer(); }} style={styles.signOutButton}><Text style={styles.signOutButtonText}>Sign out</Text></Pressable>
           </View>
         </ScrollView>
       )}
@@ -1414,11 +1424,13 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
       <View style={[styles.bottomNav, { paddingBottom: Math.max(insets.bottom, Platform.OS === 'android' ? 24 : 8) }]}>
         <NavItem icon="home" label="Home" active={tab === 'home'} onPress={() => navigateTo('home')} />
         <NavItem icon="track" label="Track" active={tab === 'track'} onPress={() => navigateTo('track')} />
+        <NavItem icon="notifications" label={unreadNotifications ? `Alerts (${unreadNotifications})` : 'Alerts'} active={tab === 'notifications'} onPress={() => navigateTo('notifications')} />
         <NavItem icon="offers" label="Offers" active={tab === 'offers'} onPress={() => navigateTo('offers')} />
         <NavItem icon="about" label="About" active={tab === 'about'} onPress={() => navigateTo('about')} />
         <NavItem icon="profile" label="Profile" active={tab === 'profile'} onPress={() => navigateTo('profile')} />
       </View>
 
+      {notificationToast ? <Pressable accessibilityRole="button" onPress={() => { const item = notificationToast; setNotificationToast(null); if (!Number(item.is_read)) void markNotificationRead(item.id); if (item.order_number) navigateTo('track', item.order_number); else navigateTo('notifications'); }} style={[styles.notificationToast, { top: Math.max(insets.top, 10) + 8 }]}><Text style={styles.notificationToastTitle}>{notificationToast.title}</Text><Text style={styles.notificationToastMessage} numberOfLines={2}>{notificationToast.message}</Text></Pressable> : null}
       <Modal transparent visible={Boolean(reviewPrompt)} animationType="fade" onRequestClose={closeReviewPrompt}>
         <View style={styles.modalShade}><View style={styles.modalCard}>
           <Pressable accessibilityRole="button" accessibilityLabel="Close review" disabled={reviewSaving} onPress={closeReviewPrompt} style={styles.reviewClose}><Text style={styles.reviewCloseText}>×</Text></Pressable>
@@ -1542,7 +1554,7 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
 }
 
 function NavItem({ icon, label, active, onPress }) {
-  return <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={[styles.navItem, active && styles.navItemActive]}><Image source={NAV_ICON_ASSETS[icon]} style={[styles.navIcon, icon !== 'offers' && { tintColor: active ? COLORS.plum : '#8a8089' }]} resizeMode="contain" /><Text style={[styles.navLabel, active && styles.navLabelActive]}>{label}</Text></Pressable>;
+  return <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={[styles.navItem, active && styles.navItemActive]}>{icon === 'notifications' ? <Text style={[styles.navBell, active && styles.navBellActive]}>{String.fromCodePoint(0x1f514)}</Text> : <Image source={NAV_ICON_ASSETS[icon]} style={[styles.navIcon, icon !== 'offers' && { tintColor: active ? COLORS.plum : '#8a8089' }]} resizeMode="contain" />}<Text numberOfLines={1} style={[styles.navLabel, active && styles.navLabelActive]}>{label}</Text></Pressable>;
 }
 function ProfileRow({ icon, label, value, last = false, editable = false, editing = false, draft = '', onChangeDraft, onEdit, onSave, onCancel, saving = false, keyboardType = 'default' }) {
   return <View style={[styles.profileRow, last && styles.profileRowLast]}><View style={styles.profileRowIcon}><Text style={styles.profileRowIconText}>{icon}</Text></View><View style={styles.flexOne}><Text style={styles.profileRowLabel}>{label}</Text>{editing ? <TextInput autoFocus value={draft} onChangeText={onChangeDraft} keyboardType={keyboardType} maxLength={label === 'Full name' ? 100 : 11} placeholder={label === 'Full name' ? 'Your full name' : '09xx xxx xxxx'} placeholderTextColor="#a59ba5" style={styles.profileRowInput} editable={!saving} /> : <Text style={styles.profileRowValue}>{value || 'Not provided'}</Text>}</View>{editable ? editing ? <View style={styles.profileRowEditActions}><Pressable accessibilityRole="button" accessibilityLabel={'Save ' + label} disabled={saving} onPress={onSave} style={styles.profileRowEditButton}><Text style={styles.profileRowEditText}>{saving ? '…' : '✓'}</Text></Pressable><Pressable accessibilityRole="button" accessibilityLabel="Cancel edit" disabled={saving} onPress={onCancel} style={styles.profileRowEditButton}><Text style={styles.profileRowCancelText}>×</Text></Pressable></View> : <Pressable accessibilityRole="button" accessibilityLabel={'Edit ' + label} onPress={onEdit} style={styles.profileRowEditButton}><Text style={styles.profileRowEditText}>✎</Text></Pressable> : null}</View>;
@@ -1687,7 +1699,7 @@ function TransactionHistoryRow({ ticket, onView }) {
     </View>
   );
 }
-function TicketCard({ ticket, apiBase, token, onShareLocation, onRevokeLocation, locationBusy, locationError, retryReference, onRetryReferenceChange, onResubmitGcash, retryBusy }) {
+function TicketCard({ ticket, apiBase, token, retryReference, onRetryReferenceChange, onResubmitGcash, retryBusy }) {
   const lines = (ticket.services || []).map((line) => line.estimated_weight_kg
     ? `${line.service_name} (${line.estimated_weight_kg} kg estimated · ${line.quantity} ${line.unit})`
     : `${line.service_name} (${line.quantity} ${line.unit})`).join(' · ');
@@ -1726,17 +1738,6 @@ function TicketCard({ ticket, apiBase, token, onShareLocation, onRevokeLocation,
           <View style={styles.deliveryTrackingPanel}>
             <Text style={styles.trackingTitle}>Delivery to your address</Text>
             {ticket.delivery_address ? <Text style={styles.ticketDetail}>{ticket.delivery_address}</Text> : null}
-            {ticket.status === 'out_for_delivery' ? (
-              <View style={styles.customerLocationPanel}>
-                <Text style={styles.ticketDetail}>Location sharing is optional and updates while this app is open and connected.</Text>
-                {ticket.tracking?.customer_location_shared ? <Text style={styles.locationSharedText}>Your location is shared. Last updated: {formatDate(ticket.tracking.customer_location_updated_at)}</Text> : null}
-                {locationError ? <Text style={styles.errorBox}>{locationError}</Text> : null}
-                <Pressable disabled={locationBusy} onPress={onShareLocation} style={[styles.locationShareButton, locationBusy && styles.disabledButton]}>
-                  {locationBusy ? <ActivityIndicator color={COLORS.white} /> : <Text style={styles.locationShareButtonText}>{ticket.tracking?.customer_location_shared ? 'Update my location now' : 'Share my live location with driver'}</Text>}
-                </Pressable>
-                {ticket.tracking?.customer_location_shared ? <Pressable disabled={locationBusy} onPress={onRevokeLocation} style={styles.locationRevokeButton}><Text style={styles.locationRevokeText}>Stop sharing my location</Text></Pressable> : null}
-              </View>
-            ) : null}
             {ticket.status === 'out_for_delivery' && ticket.tracking?.active ? (
               ticket.tracking.location ? (
                 <>
@@ -2003,6 +2004,15 @@ const styles = StyleSheet.create({
   navIcon: { width: 20, height: 20 },
   navLabel: { color: '#776c78', fontSize: 10, fontWeight: '700' },
   navLabelActive: { color: COLORS.plum },
+  navBell: { fontSize: 20, height: 22 }, navBellActive: { color: COLORS.plum },
+  notificationHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
+  notificationPushCard: { backgroundColor: COLORS.cream, borderRadius: 16, borderColor: COLORS.line, borderWidth: 1, padding: 16, gap: 8, marginBottom: 12 },
+  notificationCard: { backgroundColor: COLORS.cream, borderRadius: 15, borderColor: COLORS.line, borderWidth: 1, padding: 15, marginBottom: 10, gap: 6 },
+  notificationUnread: { borderColor: COLORS.purple, borderWidth: 1.5, backgroundColor: '#fff7ff' },
+  notificationTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  notificationTitle: { color: COLORS.plum, fontSize: 15, fontWeight: '800', flex: 1 }, notificationDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: COLORS.purple, marginLeft: 8 },
+  notificationOrder: { color: COLORS.plum, fontSize: 12, fontWeight: '700' }, notificationDate: { color: COLORS.muted, fontSize: 11 },
+  notificationToast: { position: 'absolute', left: 16, right: 16, zIndex: 20, elevation: 12, backgroundColor: COLORS.darkPanel, borderColor: COLORS.purple, borderWidth: 1, borderRadius: 14, padding: 14 }, notificationToastTitle: { color: COLORS.cream, fontSize: 14, fontWeight: '800' }, notificationToastMessage: { color: '#eee4ee', fontSize: 12, marginTop: 4 },
   homeWelcomeCard: { borderRadius: 20, padding: 20, backgroundColor: COLORS.cream, borderColor: '#eadfed', borderWidth: 1, marginBottom: 14 },
   homeEyebrow: { color: COLORS.copper, fontSize: 11, fontWeight: '900', letterSpacing: 1.4 },
   homeHeadline: { color: COLORS.ink, fontSize: 25, fontWeight: '900', marginTop: 6 },
@@ -2098,8 +2108,6 @@ const styles = StyleSheet.create({
   ticketBandEmoji: { fontSize: 20 },
   ticketNumber: { flex: 1, color: COLORS.white, fontWeight: '800', fontSize: 15 },
   ticketBody: { padding: 15 },
-  customerLocationPanel: { gap: 8, borderRadius: 12, backgroundColor: '#eee5f0', padding: 12, marginTop: 8 },
-  locationSharedText: { color: COLORS.green, fontSize: 12, fontWeight: '700' },
   locationShareButton: { minHeight: 42, borderRadius: 11, backgroundColor: COLORS.plum, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12, paddingVertical: 9 },
   locationShareButtonText: { color: COLORS.white, fontWeight: '800', fontSize: 12, textAlign: 'center' },
   locationRevokeButton: { alignSelf: 'flex-start', paddingVertical: 5 },

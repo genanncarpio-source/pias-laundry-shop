@@ -37,7 +37,7 @@ try {
             }
         }
         $pdo->prepare("UPDATE orders SET status = 'completed', completed_at = NOW() WHERE id = ?")->execute([$orderId]);
-        $pdo->prepare('UPDATE delivery_tracking SET is_active = 0, stopped_at = NOW(), customer_location_shared = 0 WHERE order_id = ?')->execute([$orderId]);
+        $pdo->prepare('UPDATE delivery_tracking SET is_active = 0, stopped_at = NOW() WHERE order_id = ?')->execute([$orderId]);
         add_order_history($orderId, 'completed', 'Driver confirmed delivery to the customer', null);
         if ($order['customer_id']) add_notification('customer', (int)$order['customer_id'], $orderId, 'Laundry delivered', 'Your laundry order ' . $order['order_number'] . ' was delivered.');
         $message = 'Laundry marked as delivered.';

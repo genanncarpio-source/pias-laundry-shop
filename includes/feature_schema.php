@@ -146,6 +146,7 @@ function ensure_workflow_schema(): void
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
     $statements = [
         "CREATE TABLE IF NOT EXISTS payments (id INT UNSIGNED NOT NULL AUTO_INCREMENT, order_id INT UNSIGNED NOT NULL, amount DECIMAL(10,2) NOT NULL, payment_method VARCHAR(30) NOT NULL, reference_number VARCHAR(120) DEFAULT NULL, status ENUM('paid','refunded') NOT NULL DEFAULT 'paid', received_by INT UNSIGNED DEFAULT NULL, paid_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (id), KEY idx_payments_order (order_id, paid_at), CONSTRAINT fk_payments_order FOREIGN KEY (order_id) REFERENCES orders(id), CONSTRAINT fk_payments_user FOREIGN KEY (received_by) REFERENCES users(id) ON DELETE SET NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "CREATE TABLE IF NOT EXISTS customer_push_tokens (id INT UNSIGNED NOT NULL AUTO_INCREMENT, customer_id INT UNSIGNED NOT NULL, expo_push_token VARCHAR(255) NOT NULL, updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, PRIMARY KEY (id), UNIQUE KEY uq_customer_push_token (expo_push_token), KEY idx_customer_push_tokens_customer (customer_id), CONSTRAINT fk_customer_push_tokens_customer FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
         "CREATE TABLE IF NOT EXISTS notifications (id INT UNSIGNED NOT NULL AUTO_INCREMENT, audience ENUM('customer','staff') NOT NULL, audience_id INT UNSIGNED NOT NULL, order_id INT UNSIGNED DEFAULT NULL, title VARCHAR(160) NOT NULL, message VARCHAR(500) NOT NULL, type VARCHAR(30) NOT NULL DEFAULT 'info', is_read TINYINT(1) NOT NULL DEFAULT 0, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (id), KEY idx_notifications_audience (audience, audience_id, is_read, created_at), KEY idx_notifications_order (order_id), CONSTRAINT fk_notifications_order FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE SET NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
         "CREATE TABLE IF NOT EXISTS gcash_payment_submissions (id INT UNSIGNED NOT NULL AUTO_INCREMENT, order_id INT UNSIGNED NOT NULL, amount DECIMAL(10,2) NOT NULL, reference_number VARCHAR(120) NOT NULL, status ENUM('pending','verified','rejected') NOT NULL DEFAULT 'pending', submitted_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, reviewed_at DATETIME DEFAULT NULL, reviewed_by INT UNSIGNED DEFAULT NULL, review_note VARCHAR(255) DEFAULT NULL, PRIMARY KEY (id), UNIQUE KEY uq_gcash_submission_reference (reference_number), KEY idx_gcash_submission_order (order_id, id), CONSTRAINT fk_gcash_submission_order FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE, CONSTRAINT fk_gcash_submission_reviewer FOREIGN KEY (reviewed_by) REFERENCES users(id) ON DELETE SET NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
         "CREATE TABLE IF NOT EXISTS audit_logs (id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT, user_id INT UNSIGNED DEFAULT NULL, role VARCHAR(20) DEFAULT NULL, action VARCHAR(120) NOT NULL, module VARCHAR(60) NOT NULL, record_id BIGINT UNSIGNED DEFAULT NULL, old_value TEXT DEFAULT NULL, new_value TEXT DEFAULT NULL, ip_address VARCHAR(45) DEFAULT NULL, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (id), KEY idx_audit_module_record (module, record_id, created_at), KEY idx_audit_user (user_id, created_at), CONSTRAINT fk_audit_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
@@ -191,12 +192,6 @@ function ensure_workflow_schema(): void
         accuracy DECIMAL(8,2) DEFAULT NULL,
         heading DECIMAL(7,2) DEFAULT NULL,
         speed DECIMAL(8,2) DEFAULT NULL,
-        customer_location_shared TINYINT(1) NOT NULL DEFAULT 0,
-        customer_latitude DECIMAL(10,7) DEFAULT NULL,
-        customer_longitude DECIMAL(10,7) DEFAULT NULL,
-        customer_accuracy DECIMAL(8,2) DEFAULT NULL,
-        customer_location_updated_at DATETIME DEFAULT NULL,
-        customer_shared_at DATETIME DEFAULT NULL,
         started_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT NULL,
         stopped_at DATETIME DEFAULT NULL,
@@ -206,20 +201,12 @@ function ensure_workflow_schema(): void
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
     $driverIndex = $pdo->query("SHOW INDEX FROM orders WHERE Key_name = 'idx_orders_driver'")->fetch(PDO::FETCH_ASSOC);
     if (!$driverIndex) $pdo->exec("ALTER TABLE orders ADD KEY idx_orders_driver (assigned_driver_id, status)");
-    $trackingColumns = [
-        'customer_location_shared' => "ALTER TABLE delivery_tracking ADD COLUMN customer_location_shared TINYINT(1) NOT NULL DEFAULT 0 AFTER speed",
-        'customer_latitude' => "ALTER TABLE delivery_tracking ADD COLUMN customer_latitude DECIMAL(10,7) DEFAULT NULL AFTER customer_location_shared",
-        'customer_longitude' => "ALTER TABLE delivery_tracking ADD COLUMN customer_longitude DECIMAL(10,7) DEFAULT NULL AFTER customer_latitude",
-        'customer_accuracy' => "ALTER TABLE delivery_tracking ADD COLUMN customer_accuracy DECIMAL(8,2) DEFAULT NULL AFTER customer_longitude",
-        'customer_location_updated_at' => "ALTER TABLE delivery_tracking ADD COLUMN customer_location_updated_at DATETIME DEFAULT NULL AFTER customer_accuracy",
-        'customer_shared_at' => "ALTER TABLE delivery_tracking ADD COLUMN customer_shared_at DATETIME DEFAULT NULL AFTER customer_location_updated_at",
-    ];
     $existingTrackingColumns = [];
     foreach ($pdo->query('SHOW COLUMNS FROM delivery_tracking')->fetchAll(PDO::FETCH_ASSOC) as $columnInfo) {
         $existingTrackingColumns[$columnInfo['Field']] = $columnInfo;
     }
-    foreach ($trackingColumns as $column => $sql) {
-        if (!isset($existingTrackingColumns[$column])) $pdo->exec($sql);
+    foreach (['customer_location_shared', 'customer_latitude', 'customer_longitude', 'customer_accuracy', 'customer_location_updated_at', 'customer_shared_at'] as $obsoleteColumn) {
+        if (isset($existingTrackingColumns[$obsoleteColumn])) $pdo->exec("ALTER TABLE delivery_tracking DROP COLUMN `$obsoleteColumn`");
     }
     if (isset($existingTrackingColumns['driver_code_hash']) && $existingTrackingColumns['driver_code_hash']['Null'] === 'NO') {
         $pdo->exec("ALTER TABLE delivery_tracking MODIFY driver_code_hash CHAR(64) DEFAULT NULL");

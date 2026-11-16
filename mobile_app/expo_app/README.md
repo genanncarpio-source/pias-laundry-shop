@@ -15,12 +15,11 @@ Only staff and admins can manage driver accounts; only the assigned driver's
 login can retrieve that active delivery.
 
 On the driver's phone, open `piaslaundry://driver` in the installed app and sign
-in with the account created by the shop. The driver can view the delivery
-address and the customer's GPS only if the customer chooses **Share my live
-location with driver** on that active ticket. Customer sharing updates while
-the customer's app is open and can be stopped at any time. Driver sharing can
-continue in the background when permission is granted; it stops when the order
-is completed or cancelled, or when the driver stops sharing. Customer accounts
+in with the account created by the shop. The driver can view the customer's saved delivery pin. Customers do not share
+live location; the customer can see the driver's live location while the order
+is out for delivery. Driver sharing can continue in the background when
+permission is granted; it stops when the order is completed or cancelled, or
+when the driver stops sharing. Customer accounts
 do not have a link to the driver screen and cannot access driver-only delivery
 records.
 

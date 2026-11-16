@@ -7,8 +7,7 @@ if (!$orderId || $orderId < 1) api_json(422, ['success' => false, 'error' => 'En
 
 $stmt = db()->prepare(
     'SELECT o.order_type, o.status, o.order_number, o.delivery_address, o.delivery_latitude, o.delivery_longitude, t.is_active, t.latitude, t.longitude,
-            t.accuracy, t.heading, t.speed, t.updated_at, t.stopped_at,
-            t.customer_location_shared, t.customer_location_updated_at
+            t.accuracy, t.heading, t.speed, t.updated_at, t.stopped_at
        FROM orders o
        LEFT JOIN delivery_tracking t ON t.order_id = o.id
       WHERE o.id = ? AND o.customer_id = ?
@@ -34,7 +33,6 @@ if ($active && $row['latitude'] !== null && $row['longitude'] !== null) {
         'stale' => !$updatedAt || $updatedAt < new DateTime('-90 seconds'),
     ];
 }
-$customerLocationShared = $active && (int)($row['customer_location_shared'] ?? 0) === 1;
 api_json(200, [
     'success' => true,
     'tracking' => [
@@ -44,7 +42,5 @@ api_json(200, [
         'location' => $location,
         'delivery_address' => $row['delivery_address'],
         'destination' => $row['delivery_latitude'] !== null && $row['delivery_longitude'] !== null ? ['latitude' => (float)$row['delivery_latitude'], 'longitude' => (float)$row['delivery_longitude']] : null,
-        'customer_location_shared' => $customerLocationShared,
-        'customer_location_updated_at' => $customerLocationShared ? $row['customer_location_updated_at'] : null,
     ],
 ]);

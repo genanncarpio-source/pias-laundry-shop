@@ -6,8 +6,7 @@ $pdo = db();
 $stmt = $pdo->prepare(
     "SELECT o.id, o.order_number, o.customer_name, o.pickup_address, o.delivery_address, o.delivery_latitude, o.delivery_longitude, o.expected_pickup, o.status, o.handoff_type, o.payment_method, o.total,
             o.assigned_driver_id, c.name AS account_name, c.phone AS customer_phone,
-            dt.latitude AS driver_latitude, dt.longitude AS driver_longitude, dt.updated_at AS driver_updated_at, dt.stopped_at,
-            dt.customer_location_shared, dt.customer_latitude, dt.customer_longitude, dt.customer_accuracy, dt.customer_location_updated_at
+            dt.latitude AS driver_latitude, dt.longitude AS driver_longitude, dt.updated_at AS driver_updated_at, dt.stopped_at
        FROM orders o
        LEFT JOIN customers c ON c.id = o.customer_id
        LEFT JOIN delivery_tracking dt ON dt.order_id = o.id
@@ -19,17 +18,6 @@ $stmt->execute([(int)$driver['id']]);
 $deliveries = [];
 foreach ($stmt->fetchAll() as $row) {
     $assignedToMe = (int)$row['assigned_driver_id'] === (int)$driver['id'];
-    $customerLocation = null;
-    if ($assignedToMe && (int)$row['customer_location_shared'] === 1 && $row['customer_latitude'] !== null && $row['customer_longitude'] !== null) {
-        $updated = $row['customer_location_updated_at'] ? new DateTime($row['customer_location_updated_at']) : null;
-        $customerLocation = [
-            'latitude' => (float)$row['customer_latitude'],
-            'longitude' => (float)$row['customer_longitude'],
-            'accuracy' => $row['customer_accuracy'] === null ? null : (float)$row['customer_accuracy'],
-            'updated_at' => $row['customer_location_updated_at'],
-            'stale' => !$updated || $updated < new DateTime('-10 minutes'),
-        ];
-    }
     $driverLocation = null;
     if ($assignedToMe && $row['driver_latitude'] !== null && $row['driver_longitude'] !== null && empty($row['stopped_at'])) {
         $driverLocation = ['latitude' => (float)$row['driver_latitude'], 'longitude' => (float)$row['driver_longitude'], 'updated_at' => $row['driver_updated_at']];
@@ -49,7 +37,6 @@ foreach ($stmt->fetchAll() as $row) {
         'payment_method' => $assignedToMe ? $row['payment_method'] : null,
         'total' => $assignedToMe ? (float)$row['total'] : null,
         'expected_delivery' => $row['expected_pickup'],
-        'customer_location' => $customerLocation,
         'driver_location' => $driverLocation,
     ];
 }

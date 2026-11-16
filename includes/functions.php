@@ -281,12 +281,46 @@ function add_order_history(int $orderId, string $status, string $note = '', ?int
     $stmt->execute([$orderId, $status, $note !== '' ? $note : null, $userId]);
 }
 
-/** Add an in-app notification for a customer or staff account. */
+/** Add an inbox notification and send opted-in customer push alerts. */
 function add_notification(string $audience, int $audienceId, ?int $orderId, string $title, string $message, string $type = 'info'): void
 {
     if (!in_array($audience, ['customer', 'staff'], true) || $audienceId < 1) return;
-    $stmt = db()->prepare('INSERT INTO notifications (audience, audience_id, order_id, title, message, type) VALUES (?, ?, ?, ?, ?, ?)');
+    $pdo = db();
+    $stmt = $pdo->prepare('INSERT INTO notifications (audience, audience_id, order_id, title, message, type) VALUES (?, ?, ?, ?, ?, ?)');
     $stmt->execute([$audience, $audienceId, $orderId, $title, $message, $type]);
+    $notificationId = (int)$pdo->lastInsertId();
+    if ($audience !== 'customer') return;
+    try {
+        $tokens = $pdo->prepare('SELECT expo_push_token FROM customer_push_tokens WHERE customer_id = ?');
+        $tokens->execute([$audienceId]);
+        $pushTokens = $tokens->fetchAll(PDO::FETCH_COLUMN);
+        if (!$pushTokens) return;
+        foreach (array_chunk(array_map(static fn($pushToken) => [
+            'to' => $pushToken, 'title' => $title, 'body' => $message, 'sound' => 'default',
+            'priority' => 'high', 'channelId' => 'laundry-updates',
+            'data' => ['url' => '/notifications', 'notificationId' => $notificationId, 'orderId' => $orderId],
+        ], $pushTokens), 100) as $batch) {
+            $headers = ['Accept: application/json', 'Content-Type: application/json'];
+            $accessToken = trim((string)getenv('EXPO_ACCESS_TOKEN'));
+            if ($accessToken !== '') $headers[] = 'Authorization: Bearer ' . $accessToken;
+            $payload = json_encode($batch, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+            if (!is_string($payload)) continue;
+            $context = stream_context_create(['http' => [
+                'method' => 'POST', 'header' => implode("\r\n", $headers), 'content' => $payload,
+                'timeout' => 3, 'ignore_errors' => true,
+            ]]);
+            $response = @file_get_contents('https://exp.host/--/api/v2/push/send', false, $context);
+            if (!is_string($response)) continue;
+            $result = json_decode($response, true);
+            foreach (($result['data'] ?? []) as $index => $receipt) {
+                if (($receipt['details']['error'] ?? '') !== 'DeviceNotRegistered' || empty($batch[$index]['to'])) continue;
+                $remove = $pdo->prepare('DELETE FROM customer_push_tokens WHERE expo_push_token = ?');
+                $remove->execute([$batch[$index]['to']]);
+            }
+        }
+    } catch (Throwable $error) {
+        error_log('Could not dispatch customer push notification: ' . $error->getMessage());
+    }
 }
 
 /** Record an auditable change without storing secrets. */

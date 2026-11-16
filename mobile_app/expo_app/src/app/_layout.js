@@ -7,6 +7,7 @@ export default function RootLayout() {
       <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#18131a' } }}>
         <Stack.Screen name="index" />
         <Stack.Screen name="track" />
+        <Stack.Screen name="notifications" />
       </Stack>
     </SafeAreaProvider>
   );
