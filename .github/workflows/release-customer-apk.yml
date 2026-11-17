@@ -48,9 +48,9 @@ jobs:
 
       - name: Name customer APK
         working-directory: mobile_app/expo_app
-        run: cp android/app/build/outputs/apk/debug/app-debug.apk pias-laundry-customer-1.1.0.apk
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk pias-laundry-customer-1.1.1.apk
 
       - name: Publish APK to GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "${GITHUB_REF_NAME}" mobile_app/expo_app/pias-laundry-customer-1.1.0.apk --repo "${GITHUB_REPOSITORY}" --title "Pia's Laundry Shop Customer v1.1.0" --generate-notes
+        run: gh release create "${GITHUB_REF_NAME}" mobile_app/expo_app/pias-laundry-customer-1.1.1.apk --repo "${GITHUB_REPOSITORY}" --title "Pia's Laundry Shop Customer v1.1.1" --generate-notes
