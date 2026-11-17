@@ -1412,25 +1412,35 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
               <View style={styles.aboutCard}><Text style={styles.aboutIcon}>✅</Text><Text style={styles.aboutTitle}>Shop confirmed</Text><Text style={styles.aboutText}>The shop confirms the final service, price, and schedule.</Text></View>
               <View style={styles.aboutCard}><Text style={styles.aboutIcon}>📱</Text><Text style={styles.aboutTitle}>Track online</Text><Text style={styles.aboutText}>Follow the latest status of every service ticket.</Text></View>
             </View>
-            <View style={styles.faqCard}>
-              <Text style={styles.faqHeading}>Frequently Asked Questions</Text>
-              <Text style={styles.faqIntro}>Quick answers about booking and laundry services.</Text>
+            <View style={styles.faqGroups}>
               {[
-                { question: 'What laundry services can I book?', answer: 'Open Offers to see the services and current prices available from the shop. Choose one main service, enter the estimated weight in kilograms, then select your preferred handoff option.' },
-                { question: 'How are Wash and Full Service priced?', answer: 'Wash is charged per load of up to 7 kg. Full Service covers up to 7 kg at its base price; an 8 kg load includes the displayed extra charge. The shop confirms the final weight and price when it receives your laundry.' },
-                { question: 'How do add-ons work?', answer: 'Fabcon and detergent can be added to Wash or Full Service once your entered weight reaches 7 kg. Add-ons are charged for each load. Full Service loads can hold up to 8 kg.' },
-                { question: 'Can I request pickup or delivery?', answer: 'Pickup and delivery options depend on the service area shown during booking. If delivery is unavailable for your address, choose Drop-off & Pick-up and bring your laundry to the shop.' },
-                { question: 'How do I follow my order?', answer: 'Open Track to see your ticket status and order updates. Enable phone notifications in Alerts if you also want notifications while the app is closed.' },
-                { question: 'When can I rate the service?', answer: 'You can submit a rating after the shop marks your order complete. Open About and choose the eligible order under Rate your experience.' },
-              ].map((item, index) => {
-                const isOpen = expandedFaq === index;
-                return <View key={item.question} style={styles.faqItem}>
-                  <Pressable accessibilityRole="button" accessibilityState={{ expanded: isOpen }} onPress={() => setExpandedFaq(isOpen ? null : index)} style={styles.faqQuestionRow}>
-                    <Text style={styles.faqQuestion}>{item.question}</Text><Text style={styles.faqToggle}>{isOpen ? '−' : '+'}</Text>
-                  </Pressable>
-                  {isOpen ? <Text style={styles.faqAnswer}>{item.answer}</Text> : null}
-                </View>;
-              })}
+                { title: 'General Questions', items: [
+                  { question: 'How do I book a laundry service?', answer: 'Open Offers, choose one main service, enter the estimated laundry weight, select a handoff option, and submit your booking. Your ticket will appear under Track.' },
+                  { question: 'Where can I see my order updates?', answer: 'Open Track for the latest status and Alerts for messages from the shop. Enable phone notifications in Alerts to receive push notifications when available.' },
+                ] },
+                { title: 'Service Questions', items: [
+                  { question: 'Which services and prices can I choose from?', answer: 'Open Offers to see the services and current prices configured by the shop. The shop confirms the final weight and price after receiving your laundry.' },
+                  { question: 'How are Wash and Full Service loads counted?', answer: 'Wash is priced in loads of up to 7 kg. Full Service covers up to 7 kg at its base price; 8 kg includes the extra charge shown in the app. Additional loads are calculated from the entered weight.' },
+                  { question: 'When can I add Fabcon or detergent?', answer: 'Add-ons become available at 7 kg for Wash and Full Service. They are charged per load; a Full Service load can contain up to 8 kg.' },
+                ] },
+                { title: 'Booking & Tracking Questions', items: [
+                  { question: 'How do I choose pickup or delivery?', answer: 'Choose an available handoff option while booking. Pickup and delivery depend on the service area shown for your address. If delivery is unavailable, choose Drop-off & Pick-up.' },
+                  { question: 'Where can I view or download my receipt?', answer: 'In Track, open your order and tap View receipt. Use Download / Share PDF receipt to save or share a copy.' },
+                  { question: 'When can I rate an order?', answer: 'The rating option becomes available after the shop marks your order complete. You can open About and select the eligible order under Rate your experience.' },
+                ] },
+              ].map((group) => <View key={group.title} style={styles.faqGroup}>
+                <Text style={styles.faqHeading}>{group.title}</Text>
+                <View style={styles.faqQuestions}>{group.items.map((item) => {
+                  const key = `${group.title}:${item.question}`;
+                  const isOpen = expandedFaq === key;
+                  return <View key={key} style={styles.faqItem}>
+                    <Pressable accessibilityRole="button" accessibilityState={{ expanded: isOpen }} onPress={() => setExpandedFaq(isOpen ? null : key)} style={styles.faqQuestionRow}>
+                      <Text style={styles.faqQuestion}>{item.question}</Text><Text style={styles.faqToggle}>{isOpen ? '−' : '⌄'}</Text>
+                    </Pressable>
+                    {isOpen ? <Text style={styles.faqAnswer}>{item.answer}</Text> : null}
+                  </View>;
+                })}</View>
+              </View>)}
             </View>
               <View style={styles.aboutReviewCard}>
                 <Text style={styles.aboutTitle}>Rate your experience</Text>
@@ -2160,14 +2170,15 @@ const styles = StyleSheet.create({
   reviewRatingLabel: { color: COLORS.plum, fontSize: 13, fontWeight: '800' },
   reviewInput: { minHeight: 90, maxHeight: 150, textAlignVertical: 'top', color: COLORS.ink, backgroundColor: '#fffdf9', borderColor: '#d0c3d1', borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 12 },
   aboutGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  faqCard: { marginTop: 18, padding: 18, borderRadius: 18, backgroundColor: COLORS.darkPanel, borderColor: '#403444', borderWidth: 1 },
-  faqHeading: { color: COLORS.cream, fontSize: 19, fontWeight: '900' },
-  faqIntro: { color: '#c7bac8', fontSize: 12, lineHeight: 18, marginTop: 5, marginBottom: 8 },
-  faqItem: { borderTopWidth: 1, borderTopColor: '#493b4c', paddingVertical: 3 },
-  faqQuestionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingVertical: 11 },
-  faqQuestion: { flex: 1, color: COLORS.cream, fontSize: 13, lineHeight: 19, fontWeight: '800' },
-  faqToggle: { color: '#d8b8e0', fontSize: 22, fontWeight: '700', width: 26, textAlign: 'center' },
-  faqAnswer: { color: '#c7bac8', fontSize: 12, lineHeight: 19, paddingRight: 24, paddingBottom: 12 },
+  faqGroups: { marginTop: 18, gap: 26 },
+  faqGroup: { gap: 12 },
+  faqHeading: { color: COLORS.cream, fontSize: 24, lineHeight: 30, fontWeight: '900', textAlign: 'center', marginBottom: 2 },
+  faqQuestions: { gap: 9 },
+  faqItem: { overflow: 'hidden', borderRadius: 10, backgroundColor: COLORS.darkPanel, borderWidth: 1, borderColor: '#403444' },
+  faqQuestionRow: { minHeight: 52, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingHorizontal: 15, paddingVertical: 12, backgroundColor: COLORS.darkPanel },
+  faqQuestion: { flex: 1, color: COLORS.cream, fontSize: 14, lineHeight: 20, fontWeight: '800' },
+  faqToggle: { color: '#bfeaf2', fontSize: 24, lineHeight: 26, fontWeight: '800', width: 26, textAlign: 'center' },
+  faqAnswer: { color: COLORS.ink, backgroundColor: COLORS.cream, fontSize: 13, lineHeight: 20, paddingHorizontal: 15, paddingVertical: 14 },
   aboutReviewCard: { backgroundColor: COLORS.darkPanel, borderColor: '#403444', borderWidth: 1, borderRadius: 18, padding: 18, marginTop: 18 },
   aboutReviewButton: { alignSelf: 'flex-start', marginTop: 14, backgroundColor: COLORS.plum, borderRadius: 12, paddingHorizontal: 20, paddingVertical: 12 },
   aboutReviewButtonText: { color: COLORS.white, fontSize: 14, fontWeight: '800' },
