@@ -10,7 +10,7 @@ $pdo = db();
 $id = (int)($_GET['id'] ?? 0);
 
 /* ---------- Handle status update ---------- */
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['update_status']) || isset($_POST['cancel_order']) || isset($_POST['refund_order']) || isset($_POST['record_payment']) || isset($_POST['record_weight']) || isset($_POST['save_staff_notes']) || isset($_POST['assign_delivery_driver']) || isset($_POST['verify_gcash']) || isset($_POST['reject_gcash']) || isset($_POST['notify_customer']))) {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['update_status']) || isset($_POST['cancel_order']) || isset($_POST['refund_order']) || isset($_POST['record_payment']) || isset($_POST['record_weight']) || isset($_POST['assign_delivery_driver']) || isset($_POST['verify_gcash']) || isset($_POST['reject_gcash']) || isset($_POST['notify_customer']))) {
     if (is_admin() && !isset($_POST['refund_order']) && !isset($_POST['verify_gcash']) && !isset($_POST['reject_gcash']) && !isset($_POST['notify_customer'])) {
         flash_set('error', 'Admin accounts can monitor orders. Staff accounts handle order processing and payments.');
         redirect("order_view.php?id=$id");
@@ -35,13 +35,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['update_status']) || 
 
             if (isset($_POST['notify_customer'])) {
                 if (!$currentOrder['customer_id']) throw new InvalidArgumentException('This order is not linked to a customer account.');
-                if (!in_array($currentOrder['status'], ['ready', 'ready_for_pickup', 'out_for_delivery'], true)) throw new InvalidArgumentException('Send this update when the order is ready for pickup or delivery.');
-                $onWay = $currentOrder['status'] === 'out_for_delivery';
-                $title = $onWay ? 'Your laundry is on the way' : 'Your laundry is ready';
-                $message = 'Hi ' . ($currentOrder['customer_name'] ?: 'there') . ', your laundry order ' . $currentOrder['order_number'] . ($onWay ? ' is on the way to your address.' : ($currentOrder['order_type'] === 'delivery_request' ? ' is ready for delivery from ' : ' is ready for pickup at ') . get_setting('shop_name', "Pia's Laundry Shop") . '.');
+                $message = trim((string)($_POST['customer_message'] ?? ''));
+                if ($message === '') throw new InvalidArgumentException('Type a message for the customer first.');
+                if (mb_strlen($message) > 500) throw new InvalidArgumentException('The customer message must be 500 characters or fewer.');
+                $title = 'Message from ' . get_setting('shop_name', "Pia's Laundry Shop");
                 add_notification('customer', (int)$currentOrder['customer_id'], $id, $title, $message);
-                add_audit_log('Customer order update sent', 'orders', $id, null, $title);
-                flash_set('success', 'Update saved to customer Alerts and sent as a phone push if notifications are enabled.');
+                add_audit_log('Customer order update sent', 'orders', $id, null, $message);
+                flash_set('success', 'Message saved to the customer Alerts page and sent as a phone push if notifications are enabled.');
             } elseif (isset($_POST['verify_gcash'])) {
                 $pdo->beginTransaction();
                 $lockedOrderStmt = $pdo->prepare('SELECT * FROM orders WHERE id = ? FOR UPDATE');
@@ -100,13 +100,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['update_status']) || 
                 add_order_history($id, (string)$currentOrder['status'], $driverId > 0 ? 'Delivery driver assigned' : 'Delivery driver assignment removed', (int)$_SESSION['user_id']);
                 add_audit_log('Delivery driver assignment changed', 'orders', $id, $currentOrder['assigned_driver_id'] ?? null, $driverId > 0 ? (int)$driverId : null);
                 flash_set('success', $driverId > 0 ? 'Delivery driver assigned.' : 'Delivery driver unassigned.');
-            } elseif (isset($_POST['save_staff_notes'])) {
-                $staffNotes = trim((string)($_POST['staff_notes'] ?? ''));
-                if (mb_strlen($staffNotes) > 1000) throw new InvalidArgumentException('Processing notes must be 1,000 characters or fewer.');
-                $pdo->prepare('UPDATE orders SET staff_notes = ? WHERE id = ?')->execute([$staffNotes !== '' ? $staffNotes : null, $id]);
-                add_order_history($id, (string)$currentOrder['status'], 'Processing note updated', (int)$_SESSION['user_id']);
-                add_audit_log('Processing notes updated', 'orders', $id, $currentOrder['staff_notes'], $staffNotes);
-                flash_set('success', 'Processing notes saved.');
             } elseif (isset($_POST['record_payment'])) {
                 if (in_array($currentOrder['status'], ['cancelled', 'rejected'], true)) throw new InvalidArgumentException('Payments cannot be recorded for a cancelled or rejected order.');
                 $amountInput = trim((string)($_POST['payment_amount'] ?? ''));
@@ -399,7 +392,6 @@ include __DIR__ . '/includes/header.php';
         <?php if ($order['notes']): ?>
           <tr><td class="muted">Notes</td><td><?= e($order['notes']) ?></td></tr>
         <?php endif; ?>
-        <?php if ($order['staff_notes']): ?><tr><td class="muted">Processing Notes</td><td><?= nl2br(e($order['staff_notes'])) ?></td></tr><?php endif; ?>
       </tbody>
     </table>
   </div>
@@ -456,16 +448,6 @@ include __DIR__ . '/includes/header.php';
   </div>
 </div>
 
-<?php if (!is_admin() && !in_array($order['status'], ['completed', 'picked_up', 'cancelled', 'rejected'], true)): ?>
-<div class="card mt-16">
-  <h2>Processing notes</h2>
-  <form method="post" action="order_view.php?id=<?= (int)$id ?>">
-    <?= csrf_field() ?><input type="hidden" name="save_staff_notes" value="1">
-    <textarea name="staff_notes" maxlength="1000" rows="3" placeholder="Laundry handling or processing notes"><?= e($order['staff_notes'] ?? '') ?></textarea>
-    <button class="btn btn-outline mt-16" type="submit">Save notes</button>
-  </form>
-</div>
-<?php endif; ?>
 
 <?php if (!is_admin() && !$gcashUnverified && $hasWeightService): ?>
 <div class="card mt-16">
@@ -583,13 +565,15 @@ include __DIR__ . '/includes/header.php';
   <?php endif; ?>
 </div>
 
-<?php if (!$gcashUnverified && $order['customer_id'] && in_array($order['status'], ['ready', 'ready_for_pickup', 'out_for_delivery'], true)): ?>
+<?php if ($order['customer_id']): ?>
 <div class="card mt-16">
   <h2>Notify customer</h2>
-  <p class="muted">Save this update to the customer Alerts page and send a phone push if they enabled notifications.</p>
-  <form method="post" action="order_view.php?id=<?= (int)$id ?>" onsubmit="return confirm('Send this update to the customer Alerts page and phone notifications?');">
+  <p class="muted">Write an order update. It will appear in the customer Alerts page and be sent as a phone push if notifications are enabled.</p>
+  <form method="post" action="order_view.php?id=<?= (int)$id ?>" onsubmit="return confirm('Send this message to the customer Alerts page and phone notifications?');">
     <?= csrf_field() ?><input type="hidden" name="notify_customer" value="1">
-    <button type="submit" class="btn btn-primary">Send to customer</button>
+    <label for="customerMessage">Message to customer</label>
+    <textarea id="customerMessage" name="customer_message" maxlength="500" rows="4" required placeholder="Type an update about this order..."></textarea>
+    <button type="submit" class="btn btn-primary mt-16">Send to customer</button>
   </form>
 </div>
 <?php endif; ?>

@@ -1728,7 +1728,7 @@ function ServiceCard({ service, quantity, onQuantityChange, wide, index, addonSe
             <Text style={styles.servicePrice}>{money(service.price)} <Text style={styles.serviceUnit}>/ {weightBased ? 'up to 7 kg' : (service.unit || 'unit')}</Text></Text>
           </View>
           <View style={styles.quantityControl}>
-            <Pressable accessibilityLabel={weightBased ? 'Remove 1 kg of ' + service.name : 'Remove one ' + service.name} onPress={() => onQuantityChange(String(Math.max(0, (Number(quantity) || 0) - 1)))} style={styles.quantityButton}><Text style={styles.quantityButtonText}>âˆ’</Text></Pressable>
+            <Pressable accessibilityLabel={weightBased ? 'Remove 1 kg of ' + service.name : 'Remove one ' + service.name} onPress={() => onQuantityChange(String(Math.max(0, (Number(quantity) || 0) - 1)))} style={styles.quantityButton}><Text style={styles.quantityButtonText}>−</Text></Pressable>
             <View style={styles.quantityBox}>
               <TextInput value={String(quantity)} onChangeText={onQuantityChange} keyboardType="decimal-pad" maxLength={weightBased ? 5 : undefined} placeholder="0" placeholderTextColor="#9d929c" style={styles.quantityInput} accessibilityLabel={weightBased ? 'Estimated laundry weight in kg for ' + service.name : 'Quantity for ' + service.name} />
               <Text style={styles.quantityUnit}>{weightBased ? 'kg total' : (service.unit || 'unit')}</Text>
@@ -2081,7 +2081,7 @@ const styles = StyleSheet.create({
   servicePrice: { color: COLORS.copper, fontSize: 15, fontWeight: '900', marginTop: 4 },
   serviceUnit: { color: '#786f78', fontSize: 12, fontWeight: '600' },
   quantityControl: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  quantityButton: { width: 34, height: 42, borderRadius: 11, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.purpleLight, borderColor: '#d5c8d7', borderWidth: 1 },
+  quantityButton: { width: 40, height: 42, borderRadius: 11, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.purpleLight, borderColor: '#d5c8d7', borderWidth: 1 },
   quantityButtonText: { color: COLORS.plum, fontSize: 22, fontWeight: '800', lineHeight: 24 },
   quantityBox: { width: 62, borderRadius: 12, borderWidth: 1, borderColor: '#d5c8d7', backgroundColor: '#fffdf9', alignItems: 'center', padding: 4 },
   quantityInput: { width: '100%', color: COLORS.ink, textAlign: 'center', fontWeight: '800', fontSize: 16, padding: 4, outlineStyle: 'none' },
