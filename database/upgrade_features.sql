@@ -186,3 +186,15 @@ SET @order_completed_at_sql = IF(@order_completed_at = 0, 'ALTER TABLE orders AD
 PREPARE order_completed_at_stmt FROM @order_completed_at_sql;
 EXECUTE order_completed_at_stmt;
 DEALLOCATE PREPARE order_completed_at_stmt;
+
+SET @order_archived_at = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'orders' AND COLUMN_NAME = 'archived_at');
+SET @order_archived_at_sql = IF(@order_archived_at = 0, 'ALTER TABLE orders ADD COLUMN archived_at DATETIME DEFAULT NULL AFTER completed_at', 'SELECT 1');
+PREPARE order_archived_at_stmt FROM @order_archived_at_sql;
+EXECUTE order_archived_at_stmt;
+DEALLOCATE PREPARE order_archived_at_stmt;
+
+SET @order_archived_index = (SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'orders' AND INDEX_NAME = 'idx_orders_archived');
+SET @order_archived_index_sql = IF(@order_archived_index = 0, 'ALTER TABLE orders ADD KEY idx_orders_archived (archived_at)', 'SELECT 1');
+PREPARE order_archived_index_stmt FROM @order_archived_index_sql;
+EXECUTE order_archived_index_stmt;
+DEALLOCATE PREPARE order_archived_index_stmt;

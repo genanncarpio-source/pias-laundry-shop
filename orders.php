@@ -6,6 +6,22 @@ ensure_workflow_schema();
 
 $pdo = db();
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!csrf_verify($_POST['csrf'] ?? null)) {
+        flash_set('error', 'This form has expired. Refresh the page and try again.');
+        redirect('orders.php');
+    }
+    if (isset($_POST['archive_all_orders'])) {
+        $pdo->exec('UPDATE orders SET archived_at = NOW() WHERE archived_at IS NULL');
+        flash_set('success', 'All service bookings were moved to History Service Detail.');
+    } elseif (isset($_POST['archive_order'])) {
+        $archive = $pdo->prepare('UPDATE orders SET archived_at = NOW() WHERE id = ? AND archived_at IS NULL');
+        $archive->execute([(int)($_POST['order_id'] ?? 0)]);
+        flash_set('success', $archive->rowCount() ? 'Service booking moved to History Service Detail.' : 'Service booking was not found.');
+    }
+    redirect('orders.php');
+}
+
 $status  = is_string($_GET['status'] ?? null) ? $_GET['status'] : '';
 $search  = is_string($_GET['search'] ?? null) ? trim($_GET['search']) : '';
 $type = $_GET['type'] ?? '';
@@ -36,6 +52,7 @@ if ($status === 'expected') {
     $where[] = "o.status = ?";
     $params[] = $status;
 } else { $status = ''; }
+$where[] = 'o.archived_at IS NULL';
 if ($search !== '') {
     $where[] = "(o.order_number LIKE ? OR o.customer_name LIKE ?)";
     $params[] = "%$search%";
@@ -97,6 +114,9 @@ include __DIR__ . '/includes/header.php';
       </a>
     <?php endforeach; ?>
   </div>
+  <form method="post" onsubmit="return confirm('Move all service bookings off this list and into History Service Detail? You can permanently delete them there.');">
+    <?= csrf_field() ?><button class="btn btn-danger" name="archive_all_orders" value="1">Clear bookings</button>
+  </form>
 </div>
 
 <form method="get" action="orders.php" class="card order-filters mb-16">
@@ -131,7 +151,7 @@ include __DIR__ . '/includes/header.php';
           <td><span class="badge badge-<?= e($o['status']) ?>"><?= e($o['status'] === 'ready_for_pickup' && $o['order_type'] === 'delivery_request' ? 'Ready for Delivery' : ($statusLabels[$o['status']] ?? $o['status'])) ?></span></td>
           <td class="muted"><?= e(date('M j, Y', strtotime($o['created_at']))) ?></td>
           <td class="right">
-            <a class="btn btn-outline btn-sm" href="order_view.php?id=<?= (int)$o['id'] ?>">View</a>
+            <div class="order-actions"><a class="btn btn-outline btn-sm" href="order_view.php?id=<?= (int)$o['id'] ?>">View</a><form method="post" onsubmit="return confirm('Move this service booking to History Service Detail?');"><?= csrf_field() ?><input type="hidden" name="order_id" value="<?= (int)$o['id'] ?>"><button class="btn btn-danger btn-sm" name="archive_order" value="1" aria-label="Archive service booking" title="Move to history">×</button></form></div>
           </td>
         </tr>
         <?php endforeach; ?>

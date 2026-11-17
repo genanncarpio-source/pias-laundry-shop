@@ -37,7 +37,7 @@ include __DIR__ . '/includes/header.php';
       <td><?php if ($notice['order_id']): ?><a href="order_view.php?id=<?= (int)$notice['order_id'] ?>"><?= e($notice['order_number'] ?: 'View order') ?></a><?php else: ?>—<?php endif; ?></td>
       <td><?= e(date('M j, Y g:i A', strtotime($notice['created_at']))) ?></td>
       <td><?= $notice['is_read'] ? 'Read' : 'Unread' ?></td>
-      <td><div class="row" style="gap:6px;justify-content:flex-end"><?php if (!$notice['is_read']): ?><form method="post"><?= csrf_field() ?><input type="hidden" name="notification_id" value="<?= (int)$notice['id'] ?>"><button class="btn btn-outline btn-sm" name="mark_read" value="1">Mark read</button></form><?php endif; ?><form method="post" onsubmit="return confirm('Delete this notification?');"><?= csrf_field() ?><input type="hidden" name="notification_id" value="<?= (int)$notice['id'] ?>"><button class="btn btn-outline btn-sm" name="delete_notification" value="1" aria-label="Delete notification" title="Delete notification">×</button></form></div></td>
+      <td><div class="notification-actions"><?php if (!$notice['is_read']): ?><form method="post"><?= csrf_field() ?><input type="hidden" name="notification_id" value="<?= (int)$notice['id'] ?>"><button class="btn btn-outline btn-sm" name="mark_read" value="1">Mark read</button></form><?php endif; ?><form method="post" onsubmit="return confirm('Delete this notification?');"><?= csrf_field() ?><input type="hidden" name="notification_id" value="<?= (int)$notice['id'] ?>"><button class="btn btn-danger btn-sm" name="delete_notification" value="1" aria-label="Delete notification" title="Delete notification">×</button></form></div></td>
     </tr>
   <?php endforeach; ?>
   </tbody></table></div>

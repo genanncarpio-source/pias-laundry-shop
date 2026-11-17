@@ -162,6 +162,7 @@ function ensure_workflow_schema(): void
         'handoff_type' => "ALTER TABLE orders ADD COLUMN handoff_type VARCHAR(30) NOT NULL DEFAULT 'dropoff_delivery' AFTER order_type",
         'staff_notes' => "ALTER TABLE orders ADD COLUMN staff_notes VARCHAR(1000) DEFAULT NULL AFTER notes",
         'completed_at' => "ALTER TABLE orders ADD COLUMN completed_at DATETIME DEFAULT NULL AFTER updated_at",
+        'archived_at' => "ALTER TABLE orders ADD COLUMN archived_at DATETIME DEFAULT NULL AFTER completed_at",
         'delivery_fee' => "ALTER TABLE orders ADD COLUMN delivery_fee DECIMAL(10,2) NOT NULL DEFAULT 0.00 AFTER subtotal",
         'delivery_latitude' => "ALTER TABLE orders ADD COLUMN delivery_latitude DECIMAL(10,7) DEFAULT NULL AFTER delivery_address",
         'delivery_longitude' => "ALTER TABLE orders ADD COLUMN delivery_longitude DECIMAL(10,7) DEFAULT NULL AFTER delivery_latitude",
@@ -171,6 +172,8 @@ function ensure_workflow_schema(): void
     foreach ($columns as $column => $sql) {
         if (!isset($existingColumns[$column])) $pdo->exec($sql);
     }
+    $archivedOrdersIndex = $pdo->query("SHOW INDEX FROM orders WHERE Key_name = 'idx_orders_archived'")->fetch(PDO::FETCH_ASSOC);
+    if (!$archivedOrdersIndex) $pdo->exec('ALTER TABLE orders ADD KEY idx_orders_archived (archived_at)');
     $estimatedWeightColumn = $pdo->query("SHOW COLUMNS FROM order_items LIKE 'estimated_weight_kg'")->fetch(PDO::FETCH_ASSOC);
     if (!$estimatedWeightColumn) $pdo->exec('ALTER TABLE order_items ADD COLUMN estimated_weight_kg DECIMAL(10,2) DEFAULT NULL AFTER quantity');
     $actualWeightColumn = $pdo->query("SHOW COLUMNS FROM order_items LIKE 'actual_weight_kg'")->fetch(PDO::FETCH_ASSOC);

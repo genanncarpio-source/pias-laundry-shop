@@ -201,6 +201,10 @@ td.num, th.num { text-align: right; }
 .btn-outline:hover { border-color: var(--pink); color: var(--pink-light); background: var(--pink-soft); filter: none; }
 .btn-danger  { background: #fff4f3; color: var(--red); border-color: #edc2c0; }
 .btn-danger:hover { background: #ffe8e6; filter: none; }
+.notification-actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; white-space: nowrap; }
+.notification-actions form { margin: 0; }
+.order-actions { display: inline-flex; align-items: center; justify-content: flex-end; gap: 6px; white-space: nowrap; }
+.order-actions form { margin: 0; }
 .btn-ghost   { background: transparent; color: var(--pink-light); }
 .btn-ghost:hover { background: var(--pink-soft); filter: none; }
 .btn[disabled], .btn:disabled { opacity: .4; cursor: not-allowed; box-shadow: none; }

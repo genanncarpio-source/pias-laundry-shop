@@ -6,6 +6,39 @@
  */
 require_once __DIR__ . '/includes/auth.php';
 require_admin();
+require_once __DIR__ . '/includes/feature_schema.php';
+ensure_workflow_schema();
+$pdo = db();
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['delete_archived_all']) || isset($_POST['delete_archived_order']))) {
+    if (!csrf_verify($_POST['csrf'] ?? null)) {
+        flash_set('error', 'This form has expired. Refresh the page and try again.');
+        redirect('settings.php#history-service-detail');
+    }
+    $pdo->beginTransaction();
+    try {
+        if (isset($_POST['delete_archived_all'])) {
+            $pdo->exec('DELETE FROM payments WHERE order_id IN (SELECT id FROM orders WHERE archived_at IS NOT NULL)');
+            $pdo->exec('DELETE FROM reviews WHERE order_id IN (SELECT id FROM orders WHERE archived_at IS NOT NULL)');
+            $pdo->exec('DELETE FROM orders WHERE archived_at IS NOT NULL');
+            flash_set('success', 'Archived service bookings and their records were permanently deleted.');
+        } else {
+            $orderId = (int)($_POST['order_id'] ?? 0);
+            $paymentDelete = $pdo->prepare('DELETE FROM payments WHERE order_id = ? AND EXISTS (SELECT 1 FROM orders WHERE id = ? AND archived_at IS NOT NULL)');
+            $paymentDelete->execute([$orderId, $orderId]);
+            $reviewDelete = $pdo->prepare('DELETE FROM reviews WHERE order_id = ? AND EXISTS (SELECT 1 FROM orders WHERE id = ? AND archived_at IS NOT NULL)');
+            $reviewDelete->execute([$orderId, $orderId]);
+            $orderDelete = $pdo->prepare('DELETE FROM orders WHERE id = ? AND archived_at IS NOT NULL');
+            $orderDelete->execute([$orderId]);
+            flash_set('success', $orderDelete->rowCount() ? 'Service booking was permanently deleted.' : 'Archived booking was not found.');
+        }
+        $pdo->commit();
+    } catch (Throwable $error) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        throw $error;
+    }
+    redirect('settings.php#history-service-detail');
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!csrf_verify($_POST['csrf'] ?? null)) {
@@ -75,6 +108,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $pageTitle = 'Settings';
 $pageSubtitle = 'Shop information';
+$archivedOrders = $pdo->query("SELECT o.id, o.order_number, o.customer_name, o.status, o.total, o.created_at, o.archived_at, (SELECT COUNT(*) FROM order_items oi WHERE oi.order_id = o.id) AS item_count FROM orders o WHERE o.archived_at IS NOT NULL ORDER BY o.archived_at DESC, o.id DESC")->fetchAll();
+$historyStatusLabels = order_status_labels();
 include __DIR__ . '/includes/header.php';
 ?>
 
@@ -138,6 +173,18 @@ include __DIR__ . '/includes/header.php';
     See <code>README.md</code> for setup instructions and <code>docs/</code> for the
     project documentation.
   </p> -->
+</div>
+
+<!-- ================= Archived service bookings ================= -->
+<div class="card mt-16" id="history-service-detail">
+  <div class="row-between mb-16"><div><h2 class="mt-0">History Service Detail</h2><p class="muted mb-0">Cleared bookings are kept here until permanently deleted.</p></div><?php if ($archivedOrders): ?><form method="post" onsubmit="return confirm('Permanently delete every archived service booking and its related payment and review records? This cannot be undone.');"><?= csrf_field() ?><button class="btn btn-danger" name="delete_archived_all" value="1">Delete all permanently</button></form><?php endif; ?></div>
+  <?php if (!$archivedOrders): ?><p class="empty-state">No cleared service bookings yet.</p><?php else: ?>
+  <div class="table-wrap"><table><thead><tr><th>Order #</th><th>Customer</th><th>Items</th><th>Total</th><th>Status</th><th>Service date</th><th>Cleared</th><th></th></tr></thead><tbody>
+    <?php foreach ($archivedOrders as $archived): ?><tr>
+      <td><a href="order_view.php?id=<?= (int)$archived['id'] ?>"><?= e($archived['order_number']) ?></a></td><td><?= e($archived['customer_name'] ?: 'Walk-in') ?></td><td><?= (int)$archived['item_count'] ?></td><td><?= money($archived['total']) ?></td><td><?= e($historyStatusLabels[$archived['status']] ?? ucfirst(str_replace('_', ' ', $archived['status']))) ?></td><td><?= e(date('M j, Y', strtotime($archived['created_at']))) ?></td><td><?= e(date('M j, Y g:i A', strtotime($archived['archived_at']))) ?></td>
+      <td><form method="post" onsubmit="return confirm('Permanently delete this service booking and its related payment and review records? This cannot be undone.');"><?= csrf_field() ?><input type="hidden" name="order_id" value="<?= (int)$archived['id'] ?>"><button class="btn btn-danger btn-sm" name="delete_archived_order" value="1">Delete</button></form></td>
+    </tr><?php endforeach; ?>
+  </tbody></table></div><?php endif; ?>
 </div>
 
 

@@ -156,8 +156,7 @@ document.addEventListener('DOMContentLoaded', function () {
       status.textContent = notice.is_read ? 'Read' : 'Unread';
       const action = document.createElement('td');
       const actionGroup = document.createElement('div');
-      actionGroup.className = 'row';
-      actionGroup.style.cssText = 'gap:6px;justify-content:flex-end';
+      actionGroup.className = 'notification-actions';
       if (!notice.is_read) {
         const form = document.createElement('form');
         form.method = 'post';
@@ -178,7 +177,7 @@ document.addEventListener('DOMContentLoaded', function () {
       const deleteNoticeId = document.createElement('input');
       deleteNoticeId.type = 'hidden'; deleteNoticeId.name = 'notification_id'; deleteNoticeId.value = String(notice.id);
       const deleteButton = document.createElement('button');
-      deleteButton.className = 'btn btn-outline btn-sm'; deleteButton.name = 'delete_notification'; deleteButton.value = '1';
+      deleteButton.className = 'btn btn-danger btn-sm'; deleteButton.name = 'delete_notification'; deleteButton.value = '1';
       deleteButton.setAttribute('aria-label', 'Delete notification'); deleteButton.title = 'Delete notification'; deleteButton.textContent = '×';
       deleteForm.append(deleteCsrf, deleteNoticeId, deleteButton);
       actionGroup.appendChild(deleteForm);

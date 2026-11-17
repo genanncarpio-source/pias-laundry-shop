@@ -30,7 +30,7 @@ $nav = [
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title><?= isset($pageTitle) ? e($pageTitle) . ' Â· ' . e($shopName) : e($shopName) ?></title>
-<link rel="stylesheet" href="<?= e(asset('assets/css/style.css')) ?>?v=password-visibility-20261117">
+<link rel="stylesheet" href="<?= e(asset('assets/css/style.css')) ?>?v=booking-history-20261117">
 </head>
 <body>
 <div class="app" data-notification-poll-url="<?= e($prefix) ?>notification_poll.php" data-notification-latest-id="<?= (int)$notificationState['latest_id'] ?>">

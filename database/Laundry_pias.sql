@@ -109,10 +109,12 @@ CREATE TABLE orders (
   created_by      INT UNSIGNED DEFAULT NULL,
   created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  archived_at     DATETIME     DEFAULT NULL,
   PRIMARY KEY (id),
   UNIQUE KEY uq_orders_number (order_number),
   KEY idx_orders_status (status),
   KEY idx_orders_created (created_at),
+  KEY idx_orders_archived (archived_at),
   CONSTRAINT fk_orders_customer FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL,
   CONSTRAINT fk_orders_user     FOREIGN KEY (created_by)  REFERENCES users(id)     ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
