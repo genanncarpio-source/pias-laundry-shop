@@ -17,8 +17,8 @@ try {
         if (($order['handoff_type'] ?? '') !== 'pickup_delivery' || $order['status'] !== 'confirmed') throw new InvalidArgumentException('This laundry is not ready for customer pickup.');
         $pdo->prepare("UPDATE orders SET status = 'picked_up_for_service' WHERE id = ?")->execute([$orderId]);
         if ($order['payment_method'] === 'cash_on_handoff' && (float)$order['amount_paid'] <= 0) {
-            $pdo->prepare("INSERT INTO payments (order_id, amount, payment_method, reference_number, received_by) VALUES (?, ?, 'cash', ?, NULL)")
-                ->execute([$orderId, (float)$order['total'], 'Collected by driver ' . $driver['full_name']]);
+            $pdo->prepare("INSERT INTO payments (order_id, amount, payment_method, reference_number, received_by, received_by_driver_id) VALUES (?, ?, 'cash', ?, NULL, ?)")
+                ->execute([$orderId, (float)$order['total'], 'Collected by driver ' . $driver['full_name'], (int)$driver['id']]);
             $pdo->prepare('UPDATE orders SET amount_paid = total, change_due = 0 WHERE id = ?')->execute([$orderId]);
         }
         add_order_history($orderId, 'picked_up_for_service', 'Driver collected the laundry from the customer', null);
@@ -31,8 +31,8 @@ try {
             $paidStmt->execute([$orderId]);
             $outstanding = max(0, (float)$order['total'] - (float)$paidStmt->fetchColumn());
             if ($outstanding > 0.009) {
-                $pdo->prepare("INSERT INTO payments (order_id, amount, payment_method, reference_number, received_by) VALUES (?, ?, 'cash', ?, NULL)")
-                    ->execute([$orderId, $outstanding, 'Collected by driver ' . $driver['full_name']]);
+                $pdo->prepare("INSERT INTO payments (order_id, amount, payment_method, reference_number, received_by, received_by_driver_id) VALUES (?, ?, 'cash', ?, NULL, ?)")
+                    ->execute([$orderId, $outstanding, 'Collected by driver ' . $driver['full_name'], (int)$driver['id']]);
                 $pdo->prepare('UPDATE orders SET amount_paid = total, change_due = 0 WHERE id = ?')->execute([$orderId]);
             }
         }

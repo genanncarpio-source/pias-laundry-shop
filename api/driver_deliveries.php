@@ -5,6 +5,7 @@ $driver = api_current_driver();
 $pdo = db();
 $stmt = $pdo->prepare(
     "SELECT o.id, o.order_number, o.customer_name, o.pickup_address, o.delivery_address, o.delivery_latitude, o.delivery_longitude, o.expected_pickup, o.status, o.handoff_type, o.payment_method, o.total,
+            GREATEST(o.total - COALESCE((SELECT SUM(paid.amount) FROM payments paid WHERE paid.order_id = o.id AND paid.status = 'paid'), 0), 0) AS balance_due,
             o.assigned_driver_id, c.name AS account_name, c.phone AS customer_phone,
             dt.latitude AS driver_latitude, dt.longitude AS driver_longitude, dt.updated_at AS driver_updated_at, dt.stopped_at
        FROM orders o
@@ -36,6 +37,7 @@ foreach ($stmt->fetchAll() as $row) {
         'handoff_type' => $row['handoff_type'],
         'payment_method' => $assignedToMe ? $row['payment_method'] : null,
         'total' => $assignedToMe ? (float)$row['total'] : null,
+        'balance_due' => $assignedToMe ? (float)$row['balance_due'] : null,
         'expected_delivery' => $row['expected_pickup'],
         'driver_location' => $driverLocation,
     ];
@@ -69,12 +71,26 @@ foreach ($historyStmt->fetchAll() as $row) {
         'total' => $assignedToMe ? (float)$row['total'] : null,
     ];
 }
-$paymentStmt = $pdo->prepare("SELECT p.id, p.order_id, o.order_number, p.amount, p.payment_method, p.paid_at
+$paymentStmt = $pdo->prepare("SELECT p.id, p.order_id, o.order_number, p.amount, p.payment_method, p.reference_number, p.paid_at
  FROM payments p JOIN orders o ON o.id = p.order_id
- WHERE o.assigned_driver_id = ? AND o.order_type = 'delivery_request' AND p.status = 'paid'
- AND p.payment_method IN ('cash','gcash') ORDER BY p.paid_at DESC, p.id DESC LIMIT 300");
+ LEFT JOIN driver_remittance_items ri ON ri.payment_id = p.id
+ WHERE p.received_by_driver_id = ? AND p.status = 'paid'
+ AND p.payment_method IN ('cash','gcash') AND ri.payment_id IS NULL ORDER BY p.paid_at DESC, p.id DESC");
 $paymentStmt->execute([(int)$driver['id']]);
 $wallet = $paymentStmt->fetchAll();
 foreach ($wallet as &$payment) { $payment['id'] = (int)$payment['id']; $payment['amount'] = (float)$payment['amount']; }
 unset($payment);
-api_json(200, ['success' => true, 'deliveries' => $deliveries, 'history' => $history, 'wallet' => $wallet]);
+$remittanceStmt = $pdo->prepare('SELECT id, cash_total, gcash_total, payment_count, remitted_at FROM driver_remittances WHERE driver_id = ? ORDER BY id DESC LIMIT 20');
+$remittanceStmt->execute([(int)$driver['id']]);
+$remittances = $remittanceStmt->fetchAll();
+foreach ($remittances as &$remittance) {
+    $remittance['id'] = (int)$remittance['id'];
+    $remittance['cash_total'] = (float)$remittance['cash_total'];
+    $remittance['gcash_total'] = (float)$remittance['gcash_total'];
+    $remittance['payment_count'] = (int)$remittance['payment_count'];
+}
+unset($remittance);
+$gcashQrPath = trim(get_setting('gcash_qr_path'));
+if ($gcashQrPath !== '' && !preg_match('#^uploads/gcash/[A-Za-z0-9._-]+\.(?:png|jpe?g|webp)$#i', $gcashQrPath)) $gcashQrPath = '';
+$gcash = ['configured' => trim(get_setting('gcash_account_name')) !== '' && trim(get_setting('gcash_number')) !== '', 'account_name' => get_setting('gcash_account_name'), 'number' => get_setting('gcash_number'), 'qr_path' => $gcashQrPath];
+api_json(200, ['success' => true, 'deliveries' => $deliveries, 'history' => $history, 'wallet' => $wallet, 'remittances' => $remittances, 'gcash' => $gcash]);

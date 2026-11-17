@@ -80,6 +80,12 @@ $drivers = $pdo->query(
       GROUP BY d.id
       ORDER BY d.is_active DESC, d.full_name"
 )->fetchAll();
+$remittances = $pdo->query(
+    'SELECT r.id, r.cash_total, r.gcash_total, r.payment_count, r.remitted_at, d.full_name AS driver_name
+       FROM driver_remittances r
+       JOIN delivery_drivers d ON d.id = r.driver_id
+      ORDER BY r.id DESC LIMIT 100'
+)->fetchAll();
 
 $pageTitle = 'Delivery Drivers';
 $pageSubtitle = 'Create and manage driver-only app accounts';
@@ -136,5 +142,19 @@ include __DIR__ . '/includes/header.php';
     <?php endif; ?>
   </section>
 </div>
+
+<section class="card mt-16">
+  <h2>Driver remittance history</h2>
+  <?php if (!$remittances): ?>
+    <p class="muted">No remittances have been recorded yet.</p>
+  <?php else: ?>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Date</th><th>Driver</th><th>Payments</th><th class="num">Cash</th><th class="num">GCash</th><th class="num">Total remitted</th></tr></thead>
+      <tbody><?php foreach ($remittances as $remittance): ?>
+        <tr><td><?= e(date('M j, Y g:i A', strtotime($remittance['remitted_at']))) ?></td><td><?= e($remittance['driver_name']) ?></td><td><?= (int)$remittance['payment_count'] ?></td><td class="num"><?= money($remittance['cash_total']) ?></td><td class="num"><?= money($remittance['gcash_total']) ?></td><td class="num"><strong><?= money((float)$remittance['cash_total'] + (float)$remittance['gcash_total']) ?></strong></td></tr>
+      <?php endforeach; ?></tbody>
+    </table></div>
+  <?php endif; ?>
+</section>
 
 <?php include __DIR__ . '/includes/footer.php'; ?>
