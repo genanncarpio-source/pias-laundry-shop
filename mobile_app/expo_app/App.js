@@ -115,9 +115,10 @@ function isCoreLoadService(service) {
 function billableLoadCount(weightKg, category) {
   const normalized = String(category || '').toLowerCase();
   if (!['wash', 'full service'].includes(normalized)) return 0;
-  const capacity = normalized === 'full service' ? 8 : 7;
   const weight = Number(weightKg);
-  return Number.isFinite(weight) && weight >= capacity ? Math.ceil(weight / capacity) : 0;
+  if (!Number.isFinite(weight) || weight < 7) return 0;
+  const capacity = normalized === 'full service' ? 8 : 7;
+  return Math.ceil(weight / capacity);
 }
 
 function loadPriceForWeight(weightKg, basePrice, category) {
@@ -753,6 +754,7 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
   const [reviewRating, setReviewRating] = useState(0);
   const [reviewSaving, setReviewSaving] = useState(false);
   const [reviewError, setReviewError] = useState('');
+  const [expandedFaq, setExpandedFaq] = useState(null);
   const [reviewAvailability, setReviewAvailability] = useState(null);
   const [reviewAvailabilityLoading, setReviewAvailabilityLoading] = useState(false);
   const [reviewAvailabilityError, setReviewAvailabilityError] = useState('');
@@ -1066,12 +1068,22 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
     const isCoreService = ['Wash', 'Dry', 'Full service'].includes(serviceCategory(service));
     if (isCoreService && Number(clean || 0) > 99) { setBookingError('Each laundry service is limited to 99 kg.'); return; }
     setQuantities((current) => {
-      if (!isCoreService || Number(clean || 0) <= 0) return { ...current, [id]: clean };
-      const next = { ...current };
-      services.forEach((item) => {
-        if (String(item.id) !== id && ['Wash', 'Dry', 'Full service'].includes(serviceCategory(item))) next[String(item.id)] = '';
-      });
-      next[id] = clean;
+      if (!isCoreService) return { ...current, [id]: clean };
+      const next = { ...current, [id]: clean };
+      if (Number(clean || 0) > 0) {
+        services.forEach((item) => {
+          if (String(item.id) !== id && ['Wash', 'Dry', 'Full service'].includes(serviceCategory(item))) next[String(item.id)] = '';
+        });
+      }
+      const coreCategory = serviceCategory(service);
+      const belowAddonLoad = coreCategory === 'Wash' || coreCategory === 'Full service'
+        ? Number(clean || 0) < 7
+        : true;
+      if (belowAddonLoad) {
+        services.forEach((item) => {
+          if (serviceCategory(item) === 'Add-ons') next[String(item.id)] = '';
+        });
+      }
       return next;
     });
     if (isCoreService && Number(clean || 0) > 0) {
@@ -1400,6 +1412,26 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
               <View style={styles.aboutCard}><Text style={styles.aboutIcon}>✅</Text><Text style={styles.aboutTitle}>Shop confirmed</Text><Text style={styles.aboutText}>The shop confirms the final service, price, and schedule.</Text></View>
               <View style={styles.aboutCard}><Text style={styles.aboutIcon}>📱</Text><Text style={styles.aboutTitle}>Track online</Text><Text style={styles.aboutText}>Follow the latest status of every service ticket.</Text></View>
             </View>
+            <View style={styles.faqCard}>
+              <Text style={styles.faqHeading}>Frequently Asked Questions</Text>
+              <Text style={styles.faqIntro}>Quick answers about booking and laundry services.</Text>
+              {[
+                { question: 'What laundry services can I book?', answer: 'Open Offers to see the services and current prices available from the shop. Choose one main service, enter the estimated weight in kilograms, then select your preferred handoff option.' },
+                { question: 'How are Wash and Full Service priced?', answer: 'Wash is charged per load of up to 7 kg. Full Service covers up to 7 kg at its base price; an 8 kg load includes the displayed extra charge. The shop confirms the final weight and price when it receives your laundry.' },
+                { question: 'How do add-ons work?', answer: 'Fabcon and detergent can be added to Wash or Full Service once your entered weight reaches 7 kg. Add-ons are charged for each load. Full Service loads can hold up to 8 kg.' },
+                { question: 'Can I request pickup or delivery?', answer: 'Pickup and delivery options depend on the service area shown during booking. If delivery is unavailable for your address, choose Drop-off & Pick-up and bring your laundry to the shop.' },
+                { question: 'How do I follow my order?', answer: 'Open Track to see your ticket status and order updates. Enable phone notifications in Alerts if you also want notifications while the app is closed.' },
+                { question: 'When can I rate the service?', answer: 'You can submit a rating after the shop marks your order complete. Open About and choose the eligible order under Rate your experience.' },
+              ].map((item, index) => {
+                const isOpen = expandedFaq === index;
+                return <View key={item.question} style={styles.faqItem}>
+                  <Pressable accessibilityRole="button" accessibilityState={{ expanded: isOpen }} onPress={() => setExpandedFaq(isOpen ? null : index)} style={styles.faqQuestionRow}>
+                    <Text style={styles.faqQuestion}>{item.question}</Text><Text style={styles.faqToggle}>{isOpen ? '−' : '+'}</Text>
+                  </Pressable>
+                  {isOpen ? <Text style={styles.faqAnswer}>{item.answer}</Text> : null}
+                </View>;
+              })}
+            </View>
               <View style={styles.aboutReviewCard}>
                 <Text style={styles.aboutTitle}>Rate your experience</Text>
                 <Text style={styles.aboutText}>{reviewAvailability?.has_reviewed ? 'Thank you — you have already rated Pia’s Laundry Shop.' : 'You can leave a rating anytime. A comment is optional.'}</Text>
@@ -1628,7 +1660,6 @@ function ServiceCard({ service, quantity, onQuantityChange, wide, index, addonSe
   const colors = gradients[index % gradients.length];
   const weightBased = isCoreLoadService(service);
   const category = serviceCategory(service);
-  const loadCapacity = category === 'Full service' ? 8 : 7;
   const currentWeight = Number(quantity) || 0;
   const addonLoadCount = billableLoadCount(currentWeight, category);
   const basePrice = Number(service.price) || 0;
@@ -1661,8 +1692,8 @@ function ServiceCard({ service, quantity, onQuantityChange, wide, index, addonSe
           </View>
         </View>
         {addonServices.length ? <View style={styles.inlineAddons}>
-          <Text style={styles.inlineAddonsTitle}>Add-ons <Text style={styles.inlineAddonsHint}>({loadCapacity} kg per load)</Text></Text>
-          {addonLoadCount < 1 ? <Text style={styles.inlineAddonsHint}>Reach {loadCapacity} kg to add extras, charged per load.</Text> : null}
+          <Text style={styles.inlineAddonsTitle}>Add-ons <Text style={styles.inlineAddonsHint}>({category === 'Full service' ? '7 kg minimum · up to 8 kg per load' : '7 kg per load'})</Text></Text>
+          {addonLoadCount < 1 ? <Text style={styles.inlineAddonsHint}>Reach 7 kg to add extras, charged per load.</Text> : null}
           {addonServices.map((addon) => <AddonCard key={addon.id} service={addon} selected={Number(addonQuantities[String(addon.id)] || 0) > 0} loadCount={addonLoadCount} onToggle={(selected) => onAddonToggle?.(addon, selected)} />)}
         </View> : null}
       </View>
@@ -2129,6 +2160,14 @@ const styles = StyleSheet.create({
   reviewRatingLabel: { color: COLORS.plum, fontSize: 13, fontWeight: '800' },
   reviewInput: { minHeight: 90, maxHeight: 150, textAlignVertical: 'top', color: COLORS.ink, backgroundColor: '#fffdf9', borderColor: '#d0c3d1', borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 12 },
   aboutGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  faqCard: { marginTop: 18, padding: 18, borderRadius: 18, backgroundColor: COLORS.darkPanel, borderColor: '#403444', borderWidth: 1 },
+  faqHeading: { color: COLORS.cream, fontSize: 19, fontWeight: '900' },
+  faqIntro: { color: '#c7bac8', fontSize: 12, lineHeight: 18, marginTop: 5, marginBottom: 8 },
+  faqItem: { borderTopWidth: 1, borderTopColor: '#493b4c', paddingVertical: 3 },
+  faqQuestionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingVertical: 11 },
+  faqQuestion: { flex: 1, color: COLORS.cream, fontSize: 13, lineHeight: 19, fontWeight: '800' },
+  faqToggle: { color: '#d8b8e0', fontSize: 22, fontWeight: '700', width: 26, textAlign: 'center' },
+  faqAnswer: { color: '#c7bac8', fontSize: 12, lineHeight: 19, paddingRight: 24, paddingBottom: 12 },
   aboutReviewCard: { backgroundColor: COLORS.darkPanel, borderColor: '#403444', borderWidth: 1, borderRadius: 18, padding: 18, marginTop: 18 },
   aboutReviewButton: { alignSelf: 'flex-start', marginTop: 14, backgroundColor: COLORS.plum, borderRadius: 12, paddingHorizontal: 20, paddingVertical: 12 },
   aboutReviewButtonText: { color: COLORS.white, fontSize: 14, fontWeight: '800' },
