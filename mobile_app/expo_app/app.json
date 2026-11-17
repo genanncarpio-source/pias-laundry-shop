@@ -46,7 +46,7 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "Pia's Laundry Shop uses location only when you share it for a delivery or while your assigned driver tracking is active.",
+          "locationWhenInUsePermission": "Pia's Laundry Shop uses your location once when you tap Use current location to fill your address, and while assigned driver tracking is active.",
           "locationAlwaysAndWhenInUsePermission": "The driver's location is shared with the customer only during an active delivery.",
           "isAndroidBackgroundLocationEnabled": true,
           "isAndroidForegroundServiceEnabled": true,

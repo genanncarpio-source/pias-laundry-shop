@@ -5,6 +5,7 @@ import { apiRequest } from './src/api';
 import { readSession, readLegacyToken, saveVerifiedSession, clearSession, getActiveSession, hasDismissedReviewPrompt, dismissReviewPrompt, hasSeenNotificationPrompt, markNotificationPromptSeen, readHiddenTicketIds, saveHiddenTicketIds } from './src/session';
 import { useOnlineShop } from './src/useOnlineShop';
 import * as Notifications from 'expo-notifications';
+import * as Location from 'expo-location';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -91,6 +92,30 @@ function isDeliveryArea(latitude, longitude) {
   return Number.isFinite(lat) && Number.isFinite(lon)
     && lat >= DELIVERY_BOUNDS.south && lat <= DELIVERY_BOUNDS.north
     && lon >= DELIVERY_BOUNDS.west && lon <= DELIVERY_BOUNDS.east;
+}
+
+async function getCurrentAddressPlace() {
+  const permission = await Location.requestForegroundPermissionsAsync();
+  if (permission.status !== 'granted') throw new Error('Location permission was not allowed. You can enable it in your phone settings and try again.');
+  const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+  const { latitude, longitude } = position.coords;
+  let address = '';
+  try {
+    const [place] = await Location.reverseGeocodeAsync({ latitude, longitude });
+    if (place) {
+      address = place.formattedAddress || [
+        [place.streetNumber, place.street].filter(Boolean).join(' '),
+        place.name && place.name !== place.street ? place.name : '',
+        place.district || place.subregion,
+        place.city,
+        place.region,
+        place.postalCode,
+        place.country,
+      ].filter(Boolean).filter((part, index, parts) => parts.indexOf(part) === index).join(', ');
+    }
+  } catch {}
+  if (!address) throw new Error('Your phone could not find a street address here. Search for your address and move the map pin instead.');
+  return { address, latitude, longitude, delivery_available: isDeliveryArea(latitude, longitude) };
 }
 
 function money(value) {
@@ -350,9 +375,10 @@ function Field({ label, value, onChangeText, secureTextEntry, right, error, ...i
   );
 }
 
-function PlaceAddressSearch({ apiBase, value, onChangeText, onPlaceSelected, disabled = false }) {
+function PlaceAddressSearch({ apiBase, value, onChangeText, onPlaceSelected, onUseCurrentLocation, disabled = false }) {
   const [suggestions, setSuggestions] = useState([]);
   const [searching, setSearching] = useState(false);
+  const [locating, setLocating] = useState(false);
   const [searchError, setSearchError] = useState('');
   const requestId = useRef(0);
   const selectedAddress = useRef('');
@@ -377,9 +403,18 @@ function PlaceAddressSearch({ apiBase, value, onChangeText, onPlaceSelected, dis
     setSearchError('');
     onPlaceSelected(suggestion);
   };
+  const useCurrentLocation = async () => {
+    if (!onUseCurrentLocation || locating || disabled) return;
+    setLocating(true);
+    setSearchError('');
+    try { choosePlace(await onUseCurrentLocation()); }
+    catch (problem) { setSearchError(problem.message || 'Could not get your current location. Check your location settings and try again.'); }
+    finally { setLocating(false); }
+  };
   return <View style={styles.placeSearchWrap}>
     <Text style={styles.fieldLabel}>Address</Text>
     <View style={styles.inputShell}><TextInput value={value} onChangeText={onChangeText} editable={!disabled} placeholder="Type your street, barangay, or landmark" placeholderTextColor="#988d99" style={styles.input} autoCapitalize="words" maxLength={180} returnKeyType="search" />{searching ? <View style={styles.inputRight}><ActivityIndicator color={COLORS.plum} size="small" /></View> : null}</View>
+    {onUseCurrentLocation ? <><Pressable accessibilityRole="button" disabled={disabled || locating} onPress={useCurrentLocation} style={[styles.currentLocationButton, (disabled || locating) && styles.disabledButton]}>{locating ? <ActivityIndicator color={COLORS.plum} size="small" /> : <Text style={styles.currentLocationButtonText}>◎  Use current location</Text>}</Pressable><Text style={styles.currentLocationHint}>Uses your location once while the app is open. No background location sharing.</Text></> : null}
     {suggestions.length > 0 ? <View style={styles.placeSuggestions}>{suggestions.map((suggestion) => <Pressable key={suggestion.place_id} onPress={() => choosePlace(suggestion)} style={styles.placeSuggestion}><Text style={styles.placeSuggestionPrimary}>{suggestion.primary_text}</Text>{suggestion.secondary_text ? <Text style={styles.placeSuggestionSecondary}>{suggestion.secondary_text}</Text> : null}</Pressable>)}</View> : null}
     {searchError ? <Text style={styles.placeSearchError}>{searchError}</Text> : null}
     <Text style={styles.placeAttribution} onPress={() => Linking.openURL('https://www.geoapify.com/')}>Powered by Geoapify | OpenStreetMap contributors</Text>
@@ -643,9 +678,9 @@ function AuthScreen({ apiBase, onSignedIn, sessionNotice }) {
             ) : <>
             {registering ? <Field label="Full name" value={name} onChangeText={setName} placeholder="Your name" autoCapitalize="words" maxLength={100} returnKeyType="next" /> : null}
             {registering ? <Field label="Phone number" value={phone} onChangeText={(value) => setPhone(value.replace(/\D/g, '').slice(0, 11))} placeholder="09xx xxx xxxx" keyboardType="phone-pad" maxLength={11} returnKeyType="next" /> : null}
-            {registering ? <><PlaceAddressSearch apiBase={apiBase} value={address} onChangeText={(value) => { setAddress(value); setLocationPin(null); }} onPlaceSelected={selectRegistrationPlace} />
+            {registering ? <><PlaceAddressSearch apiBase={apiBase} value={address} onChangeText={(value) => { setAddress(value); setLocationPin(null); }} onPlaceSelected={selectRegistrationPlace} onUseCurrentLocation={getCurrentAddressPlace} />
               <Field label="Address Detail (optional)" value={addressDetails} onChangeText={setAddressDetails} placeholder="House number, unit, gate, or nearby landmark" autoCapitalize="words" maxLength={180} returnKeyType="next" />
-              <View style={styles.locationPinPanel}><Text style={styles.locationPinTitle}>Pin Address</Text><Text style={styles.locationPinCopy}>Choose one address, then pin the exact spot where the driver should go. Tap “Full-screen map” for a larger map preview. The pin is saved with your address. Pickup and delivery are available only in San Jose, San Manuel, and Balingcanaway, Tarlac.</Text>{locationPin ? <><Text style={[styles.locationPinSuccess, !locationPin.deliveryAvailable && styles.locationPinWarning]}>{locationPin.deliveryAvailable ? 'This pin is in the pickup and delivery area.' : 'Pickup and delivery are unavailable at this pin. Choose Drop-off & Pick-up at the shop.'}</Text><Text style={styles.locationPinCopy}>Adjust the marker to your exact home or gate. The coordinates below are what the driver will use.</Text><View style={styles.registrationMap}><DeliveryMap location={locationPin} label="Delivery pin" editable onLocationChange={adjustRegistrationPin} /></View></> : <Text style={styles.locationPinCopy}>Select one address from the search suggestions to place its pin on the map.</Text>}</View></> : null}
+              <View style={styles.locationPinPanel}><Text style={styles.locationPinTitle}>Pin Address</Text><Text style={styles.locationPinCopy}>Choose one address, then pin the exact spot where the driver should go. Tap “Full-screen map” for a larger map preview. The pin is saved with your address. Pickup and delivery are available only in San Jose, San Manuel, and Balingcanaway, Tarlac.</Text>{locationPin ? <><Text style={[styles.locationPinSuccess, !locationPin.deliveryAvailable && styles.locationPinWarning]}>{locationPin.deliveryAvailable ? 'This pin is in the pickup and delivery area.' : 'Pickup and delivery are unavailable at this pin. Choose Drop-off & Pick-up at the shop.'}</Text><Text style={styles.locationPinCopy}>Adjust the marker to your exact home or gate. The coordinates below are what the driver will use.</Text><View style={styles.registrationMap}><DeliveryMap location={locationPin} label="Delivery pin" editable onLocationChange={adjustRegistrationPin} /></View></> : <Text style={styles.locationPinCopy}>Search for an address above or use your current location to place its pin on the map.</Text>}</View></> : null}
             <Field label="Email address" value={email} onFocus={scrollAuthFieldIntoView} onChangeText={changeAuthField(setEmail, 'email')} error={errorField === 'email' ? error : ''} placeholder="you@example.com" keyboardType="email-address" autoCapitalize="none" autoCorrect={false} maxLength={120} returnKeyType="next" />
             <Field
               label="Password"
@@ -1476,10 +1511,10 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
               <Text style={styles.profileLocationTitle}>Address and saved location</Text>
               <Text style={styles.profileLocationCopy}>Save one delivery address and one map pin. Choose a search result, then move the marker to your exact home or gate. Pickup and delivery are available only in San Jose, San Manuel, and Balingcanaway, Tarlac.</Text>
               {editingLocation ? <>
-                <PlaceAddressSearch apiBase={apiBase} value={profileAddress} onChangeText={(value) => { setProfileAddress(value); setProfilePin(null); }} onPlaceSelected={selectProfilePlace} disabled={profileSaving} />
+                <PlaceAddressSearch apiBase={apiBase} value={profileAddress} onChangeText={(value) => { setProfileAddress(value); setProfilePin(null); }} onPlaceSelected={selectProfilePlace} onUseCurrentLocation={async () => ({ ...(await getCurrentAddressPlace()), preserve_address_details: true })} disabled={profileSaving} />
                 <Text style={styles.profileAddressLabel}>Address Detail (optional)</Text>
                 <TextInput value={profileAddressDetails} onChangeText={setProfileAddressDetails} maxLength={180} placeholder="House number, unit, gate, or nearby landmark" placeholderTextColor="#a59ba5" style={styles.deliveryAddressInput} />
-                {profilePin ? <><Text style={[styles.locationPinSuccess, !profilePin.deliveryAvailable && styles.locationPinWarning]}>{profilePin.deliveryAvailable ? 'This pin is in the pickup and delivery area.' : 'Pickup and delivery are unavailable at this pin. Choose Drop-off & Pick-up at the shop.'}</Text><Text style={styles.profileLocationCopy}>Drag the marker or tap the exact spot for the driver. Tap “Full-screen map” to preview it larger.</Text><View style={styles.registrationMap}><DeliveryMap location={profilePin} label="Delivery pin" editable onLocationChange={adjustProfilePin} /></View></> : <Text style={styles.profileLocationCopy}>Select one address from the search suggestions to place its pin on the map.</Text>}
+                {profilePin ? <><Text style={[styles.locationPinSuccess, !profilePin.deliveryAvailable && styles.locationPinWarning]}>{profilePin.deliveryAvailable ? 'This pin is in the pickup and delivery area.' : 'Pickup and delivery are unavailable at this pin. Choose Drop-off & Pick-up at the shop.'}</Text><Text style={styles.profileLocationCopy}>Drag the marker or tap the exact spot for the driver. Tap “Full-screen map” to preview it larger.</Text><View style={styles.registrationMap}><DeliveryMap location={profilePin} label="Delivery pin" editable onLocationChange={adjustProfilePin} /></View></> : <Text style={styles.profileLocationCopy}>Search for an address above or use your current location to place its pin on the map.</Text>}
                 {profileLocationError ? <Text style={styles.errorBox}>{profileLocationError}</Text> : null}
                 <View style={styles.profileLocationActions}><Pressable disabled={profileSaving} onPress={() => setEditingLocation(false)} style={styles.secondaryButton}><Text style={styles.secondaryButtonText}>Cancel</Text></Pressable><Pressable disabled={profileSaving} onPress={saveProfileLocation} style={[styles.primaryButton, profileSaving && styles.disabledButton]}>{profileSaving ? <ActivityIndicator color={COLORS.white} /> : <Text style={styles.primaryButtonText}>Save address</Text>}</Pressable></View>
               </> : <><Text style={[styles.locationPinSuccess, !isDeliveryArea(customer.location_latitude, customer.location_longitude) && styles.locationPinWarning]}>{isDeliveryArea(customer.location_latitude, customer.location_longitude) ? 'Your saved pin is in the pickup and delivery area.' : 'Pickup and delivery are unavailable at your saved pin. Choose Drop-off & Pick-up at the shop.'}</Text><Pressable onPress={beginLocationEdit} style={styles.locationPinButton}><Text style={styles.locationPinButtonText}>Edit address</Text></Pressable></>}
@@ -1944,6 +1979,9 @@ const styles = StyleSheet.create({
   driverSignInText: { color: COLORS.plum, fontWeight: '700', fontSize: 13 },
   errorBox: { color: '#7d1d2b', backgroundColor: '#fbe6e8', borderRadius: 12, paddingHorizontal: 13, paddingVertical: 11, fontSize: 14, lineHeight: 20, marginVertical: 8 },
   placeSearchWrap: { marginBottom: 12, zIndex: 3 },
+  currentLocationButton: { minHeight: 40, alignSelf: 'flex-start', justifyContent: 'center', paddingHorizontal: 13, marginTop: 7, borderRadius: 10, borderWidth: 1, borderColor: COLORS.plum, backgroundColor: COLORS.purpleLight },
+  currentLocationButtonText: { color: COLORS.plum, fontSize: 12, fontWeight: '800' },
+  currentLocationHint: { color: COLORS.muted, fontSize: 10, lineHeight: 14, marginTop: 4 },
   placeSuggestions: { marginTop: 5, borderWidth: 1, borderColor: '#d5c8d7', borderRadius: 10, backgroundColor: COLORS.white, overflow: 'hidden' },
   placeSuggestion: { paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#eee5ee' },
   placeSuggestionPrimary: { color: COLORS.ink, fontSize: 13, fontWeight: '700' },
