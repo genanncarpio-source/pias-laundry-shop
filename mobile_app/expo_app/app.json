@@ -14,7 +14,7 @@
     "android": {
       "package": "com.piaslaundry.customer",
       "softwareKeyboardLayoutMode": "resize",
-      "versionCode": 11,
+      "versionCode": 12,
       "adaptiveIcon": {
         "backgroundColor": "#FFFFFF",
         "foregroundImage": "./assets/pias-logo-app-icon.png"

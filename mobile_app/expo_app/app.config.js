@@ -15,7 +15,7 @@ module.exports = ({ config }) => {
     slug: config.slug,
     scheme: driver ? 'piaslaundrydriver' : config.scheme,
     ios: { ...config.ios, bundleIdentifier: driver ? 'com.piaslaundry.driver' : config.ios?.bundleIdentifier },
-    android: { ...config.android, package: driver ? 'com.piaslaundry.driver' : config.android?.package, versionCode: driver ? 1 : config.android?.versionCode, ...(driver ? {} : { permissions: (config.android?.permissions || []).filter((permission) => !/LOCATION|FOREGROUND_SERVICE/i.test(permission)) }) },
+    android: { ...config.android, package: driver ? 'com.piaslaundry.driver' : config.android?.package, versionCode: driver ? 1 : config.android?.versionCode, ...(driver ? {} : { googleServicesFile: './google-services.json', permissions: (config.android?.permissions || []).filter((permission) => !/LOCATION|FOREGROUND_SERVICE/i.test(permission)) }) },
     plugins,
     web: { ...config.web, output },
   };

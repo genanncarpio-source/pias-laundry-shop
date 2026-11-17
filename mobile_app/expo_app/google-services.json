@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "858491174310",
+    "project_id": "pia-s-laundry-shop",
+    "storage_bucket": "pia-s-laundry-shop.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:858491174310:android:988e5aa969eabe63aba367",
+        "android_client_info": {
+          "package_name": "com.piaslaundry.customer"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBzAWLRy0SgrStZQ0TZ2SOV0HFLHOaQP9s"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
