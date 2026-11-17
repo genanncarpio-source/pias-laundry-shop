@@ -10,9 +10,10 @@ if ($method === 'GET') {
     $review = db()->prepare('SELECT id, rating, created_at FROM reviews WHERE customer_id = ? ORDER BY id DESC LIMIT 1');
     $review->execute([$customerId]);
     $existingReview = $review->fetch();
-    $eligibleOrder = db()->prepare('SELECT o.id, o.order_number FROM orders o WHERE o.customer_id = ? AND NOT EXISTS (SELECT 1 FROM reviews r WHERE r.order_id = o.id) ORDER BY o.id DESC LIMIT 1');
-    $eligibleOrder->execute([$customerId]);
-    api_json(200, ['success' => true, 'has_reviewed' => (bool)$existingReview, 'review' => $existingReview ?: null, 'eligible_order' => $eligibleOrder->fetch() ?: null]);
+    $eligibleOrders = db()->prepare("SELECT o.id, o.order_number, o.status FROM orders o WHERE o.customer_id = ? AND o.status IN ('completed','picked_up') AND NOT EXISTS (SELECT 1 FROM reviews r WHERE r.order_id = o.id) ORDER BY COALESCE(o.completed_at, o.updated_at) DESC, o.id DESC LIMIT 20");
+    $eligibleOrders->execute([$customerId]);
+    $eligible = $eligibleOrders->fetchAll();
+    api_json(200, ['success' => true, 'has_reviewed' => (bool)$existingReview, 'review' => $existingReview ?: null, 'eligible_orders' => $eligible, 'eligible_order' => $eligible[0] ?? null]);
 }
 if ($method !== 'POST') {
     header('Allow: GET, POST, OPTIONS');
@@ -33,17 +34,17 @@ try {
     $pdo->beginTransaction();
     $customerLock = $pdo->prepare('SELECT id FROM customers WHERE id = ? FOR UPDATE');
     $customerLock->execute([(int)$customer['id']]);
-    $alreadyRated = $pdo->prepare('SELECT id FROM reviews WHERE customer_id = ? LIMIT 1');
-    $alreadyRated->execute([(int)$customer['id']]);
-    if ($alreadyRated->fetchColumn()) {
-        $pdo->rollBack();
-        api_json(409, ['success' => false, 'error' => 'You have already submitted a rating. Thank you.']);
-    }
-    $order = $pdo->prepare('SELECT id FROM orders WHERE id = ? AND customer_id = ? LIMIT 1');
+    $order = $pdo->prepare("SELECT id FROM orders WHERE id = ? AND customer_id = ? AND status IN ('completed','picked_up') LIMIT 1 FOR UPDATE");
     $order->execute([$orderId, (int)$customer['id']]);
     if (!$order->fetchColumn()) {
         $pdo->rollBack();
-        api_json(404, ['success' => false, 'error' => 'That booking could not be found in your account.']);
+        api_json(409, ['success' => false, 'error' => 'You can rate this booking after the shop marks it complete.']);
+    }
+    $alreadyRated = $pdo->prepare('SELECT id FROM reviews WHERE order_id = ? LIMIT 1');
+    $alreadyRated->execute([$orderId]);
+    if ($alreadyRated->fetchColumn()) {
+        $pdo->rollBack();
+        api_json(409, ['success' => false, 'error' => 'You have already rated this booking. Thank you.']);
     }
     $insert = $pdo->prepare('INSERT INTO reviews (order_id, customer_id, rating, comment) VALUES (?, ?, ?, ?)');
     $insert->execute([$orderId, (int)$customer['id'], $rating, $comment !== '' ? $comment : null]);

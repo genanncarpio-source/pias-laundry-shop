@@ -45,12 +45,15 @@ export async function readSession(apiBase) {
 
 export async function readLegacyToken() { return get(LEGACY_TOKEN_KEY); }
 const reviewPromptDismissalKey = (customerId) => 'pias_review_prompt_dismissed_' + String(customerId);
-export async function hasDismissedReviewPrompt(customerId) {
-  return (await get(reviewPromptDismissalKey(customerId))) === '1';
+export async function hasDismissedReviewPrompt(customerId, orderId = 'legacy') {
+  return (await get(reviewPromptDismissalKey(customerId) + '_' + String(orderId))) === '1';
 }
-export function dismissReviewPrompt(customerId) {
-  return set(reviewPromptDismissalKey(customerId), '1');
+export function dismissReviewPrompt(customerId, orderId = 'legacy') {
+  return set(reviewPromptDismissalKey(customerId) + '_' + String(orderId), '1');
 }
+const notificationPromptKey = (customerId) => 'pias_notification_prompt_seen_' + String(customerId);
+export async function hasSeenNotificationPrompt(customerId) { return (await get(notificationPromptKey(customerId))) === '1'; }
+export function markNotificationPromptSeen(customerId) { return set(notificationPromptKey(customerId), '1'); }
 const hiddenTicketIdsKey = (customerId) => 'pias_hidden_track_tickets_' + String(customerId);
 export async function readHiddenTicketIds(customerId) {
   const raw = await get(hiddenTicketIdsKey(customerId));

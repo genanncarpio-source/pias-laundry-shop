@@ -10,8 +10,8 @@ $pdo = db();
 $id = (int)($_GET['id'] ?? 0);
 
 /* ---------- Handle status update ---------- */
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['update_status']) || isset($_POST['cancel_order']) || isset($_POST['refund_order']) || isset($_POST['record_payment']) || isset($_POST['record_weight']) || isset($_POST['save_staff_notes']) || isset($_POST['assign_delivery_driver']) || isset($_POST['verify_gcash']) || isset($_POST['reject_gcash']))) {
-    if (is_admin() && !isset($_POST['refund_order']) && !isset($_POST['verify_gcash']) && !isset($_POST['reject_gcash'])) {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['update_status']) || isset($_POST['cancel_order']) || isset($_POST['refund_order']) || isset($_POST['record_payment']) || isset($_POST['record_weight']) || isset($_POST['save_staff_notes']) || isset($_POST['assign_delivery_driver']) || isset($_POST['verify_gcash']) || isset($_POST['reject_gcash']) || isset($_POST['notify_customer']))) {
+    if (is_admin() && !isset($_POST['refund_order']) && !isset($_POST['verify_gcash']) && !isset($_POST['reject_gcash']) && !isset($_POST['notify_customer'])) {
         flash_set('error', 'Admin accounts can monitor orders. Staff accounts handle order processing and payments.');
         redirect("order_view.php?id=$id");
     }
@@ -19,7 +19,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['update_status']) || 
         flash_set('error', 'This form has expired. Refresh the page and try again.');
     } else {
         try {
-            $current = $pdo->prepare('SELECT * FROM orders WHERE id = ?');
+            $current = $pdo->prepare('SELECT o.*, c.name AS customer_name FROM orders o LEFT JOIN customers c ON c.id = o.customer_id WHERE o.id = ?');
             $current->execute([$id]);
             $currentOrder = $current->fetch();
             if (!$currentOrder) throw new InvalidArgumentException('Order not found.');
@@ -33,7 +33,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['update_status']) || 
             $processItems = $processStmt->fetchAll();
             $isFullService = order_has_full_service($processItems);
 
-            if (isset($_POST['verify_gcash'])) {
+            if (isset($_POST['notify_customer'])) {
+                if (!$currentOrder['customer_id']) throw new InvalidArgumentException('This order is not linked to a customer account.');
+                if (!in_array($currentOrder['status'], ['ready', 'ready_for_pickup', 'out_for_delivery'], true)) throw new InvalidArgumentException('Send this update when the order is ready for pickup or delivery.');
+                $onWay = $currentOrder['status'] === 'out_for_delivery';
+                $title = $onWay ? 'Your laundry is on the way' : 'Your laundry is ready';
+                $message = 'Hi ' . ($currentOrder['customer_name'] ?: 'there') . ', your laundry order ' . $currentOrder['order_number'] . ($onWay ? ' is on the way to your address.' : ($currentOrder['order_type'] === 'delivery_request' ? ' is ready for delivery from ' : ' is ready for pickup at ') . get_setting('shop_name', "Pia's Laundry Shop") . '.');
+                add_notification('customer', (int)$currentOrder['customer_id'], $id, $title, $message);
+                add_audit_log('Customer order update sent', 'orders', $id, null, $title);
+                flash_set('success', 'Update saved to customer Alerts and sent as a phone push if notifications are enabled.');
+            } elseif (isset($_POST['verify_gcash'])) {
                 $pdo->beginTransaction();
                 $lockedOrderStmt = $pdo->prepare('SELECT * FROM orders WHERE id = ? FOR UPDATE');
                 $lockedOrderStmt->execute([$id]);
@@ -351,7 +360,6 @@ $adjustments = $adjustmentStmt->fetchAll();
 $refundTotal = 0.0;
 foreach ($adjustments as $adjustment) if ($adjustment['adjustment_type'] === 'refund') $refundTotal += (float)$adjustment['amount'];
 $refundableBalance = max(0, $paidTotal - $refundTotal);
-$smsMessage = 'Hi ' . ($order['customer_name'] ?: 'there') . ', your laundry order ' . $order['order_number'] . ($order['order_type'] === 'delivery_request' ? ' is ready for delivery from ' : ' is ready for pickup at ') . get_setting('shop_name', "Pia's Laundry Shop") . '.';
 $smsPhone = preg_replace('/[^0-9+]/', '', (string)($order['customer_phone'] ?? ''));
 
 $pageTitle = 'Order ' . $order['order_number'];
@@ -575,12 +583,14 @@ include __DIR__ . '/includes/header.php';
   <?php endif; ?>
 </div>
 
-<?php if (in_array($order['status'], ['ready', 'ready_for_pickup'], true) && $smsPhone !== ''): ?>
+<?php if (!$gcashUnverified && $order['customer_id'] && in_array($order['status'], ['ready', 'ready_for_pickup', 'out_for_delivery'], true)): ?>
 <div class="card mt-16">
   <h2>Notify customer</h2>
-  <p class="muted">Open the phone's messaging app with a ready-for-<?= $order['order_type'] === 'delivery_request' ? 'delivery' : 'pickup' ?> message, then review and send it.</p>
-  <textarea id="readySms" rows="2" readonly><?= e($smsMessage) ?></textarea>
-  <div class="form-actions"><a class="btn btn-primary" href="sms:<?= e($smsPhone) ?>?body=<?= e(rawurlencode($smsMessage)) ?>">Open SMS app</a><button class="btn btn-outline" type="button" onclick="navigator.clipboard.writeText(document.getElementById('readySms').value).then(()=>this.textContent='Copied')">Copy message</button></div>
+  <p class="muted">Save this update to the customer Alerts page and send a phone push if they enabled notifications.</p>
+  <form method="post" action="order_view.php?id=<?= (int)$id ?>" onsubmit="return confirm('Send this update to the customer Alerts page and phone notifications?');">
+    <?= csrf_field() ?><input type="hidden" name="notify_customer" value="1">
+    <button type="submit" class="btn btn-primary">Send to customer</button>
+  </form>
 </div>
 <?php endif; ?>
 

@@ -6,6 +6,7 @@ module.exports = ({ config }) => {
     return name !== 'expo-router' && (driver || name !== 'expo-location') && !(driver && name === 'expo-notifications');
   });
   plugins.push(['expo-router', { root: driver ? './src/driver-app' : './src/app' }]);
+  if (!driver && !plugins.some((plugin) => (Array.isArray(plugin) ? plugin[0] : plugin) === 'expo-sharing')) plugins.push('expo-sharing');
   return {
     ...config,
     name: driver ? 'Pia Laundry Driver' : config.name,

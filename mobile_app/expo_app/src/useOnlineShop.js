@@ -3,7 +3,7 @@ import { AppState } from 'react-native';
 import { apiRequest } from './api';
 import { getActiveSession, saveVerifiedSession } from './session';
 
-const empty = { services: [], tickets: [], payment: null, notifications: [], unreadNotifications: 0 };
+const empty = { services: [], tickets: [], payment: null, notifications: [], unreadNotifications: 0, shop: {} };
 
 export function useOnlineShop({ apiBase, customer, token, onSessionExpired }) {
   const [snapshot, setSnapshot] = useState(empty);
@@ -60,7 +60,7 @@ export function useOnlineShop({ apiBase, customer, token, onSessionExpired }) {
           }
         }));
         if (active.current) {
-          setSnapshot((current) => ({ ...current, services: services.services || [], tickets: withTracking, payment: payment.payment || null }));
+          setSnapshot((current) => ({ ...current, services: services.services || [], tickets: withTracking, payment: payment.payment || null, shop: tickets.shop || current.shop }));
           setError('');
         }
       } catch (problem) {

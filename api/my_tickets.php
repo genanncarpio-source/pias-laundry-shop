@@ -3,7 +3,7 @@ require_once __DIR__ . '/bootstrap.php';
 api_require_method('GET');
 $customer = api_current_customer();
 
-$stmt = db()->prepare('SELECT o.id, o.order_number, o.order_type, o.handoff_type, o.pickup_address, o.delivery_address, o.status, o.subtotal, o.delivery_fee, o.delivery_latitude, o.delivery_longitude, o.total, o.payment_method,
+$stmt = db()->prepare('SELECT o.id, o.order_number, o.order_type, o.handoff_type, o.pickup_address, o.delivery_address, o.status, o.subtotal, o.discount, o.delivery_fee, o.delivery_latitude, o.delivery_longitude, o.total, o.payment_method,
     GREATEST(o.amount_paid - o.change_due, 0) AS amount_paid,
     GREATEST(o.total - GREATEST(o.amount_paid - o.change_due, 0), 0) AS balance_due,
     o.expected_pickup, o.notes, o.created_at,
@@ -20,4 +20,9 @@ foreach ($tickets as &$ticket) {
     $ticket['history'] = order_history((int)$ticket['id']);
 }
 unset($ticket);
-api_json(200, ['success' => true, 'tickets' => $tickets]);
+api_json(200, ['success' => true, 'tickets' => $tickets, 'shop' => [
+    'name' => get_setting('shop_name', "Pia's Laundry Shop"),
+    'address' => get_setting('shop_address'),
+    'phone' => get_setting('shop_phone'),
+    'receipt_note' => get_setting('receipt_note'),
+]]);
