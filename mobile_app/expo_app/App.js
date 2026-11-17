@@ -112,6 +112,14 @@ function isCoreLoadService(service) {
   return service?.unit === 'load' && ['Wash', 'Dry', 'Full service'].includes(serviceCategory(service));
 }
 
+function billableLoadCount(weightKg, category) {
+  const normalized = String(category || '').toLowerCase();
+  if (!['wash', 'full service'].includes(normalized)) return 0;
+  const capacity = normalized === 'full service' ? 8 : 7;
+  const weight = Number(weightKg);
+  return Number.isFinite(weight) && weight >= capacity ? Math.ceil(weight / capacity) : 0;
+}
+
 function loadPriceForWeight(weightKg, basePrice, category) {
   const requestedWeight = Number(weightKg);
   if (!Number.isFinite(requestedWeight) || requestedWeight <= 0 || requestedWeight > 500) return 0;
@@ -713,8 +721,16 @@ function AuthScreen({ apiBase, onSignedIn, sessionNotice }) {
 
 function makeReceiptHtml(ticket, customer, shop) {
   const esc=(v)=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  const rows=(ticket.services||[]).map(line=>'<tr><td>'+esc(line.service_name)+'<br><small>'+esc(line.quantity)+' '+esc(line.unit)+'</small></td><td>'+esc(money(line.subtotal))+'</td></tr>').join('');
-  return '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{font:14px monospace;max-width:380px;margin:20px auto;padding:18px;color:#201820}header{text-align:center;border-bottom:1px dashed #777;padding-bottom:12px}table{width:100%;border-collapse:collapse;margin:14px 0}td{padding:8px 2px;border-bottom:1px dashed #aaa}td:last-child{text-align:right}.total{font-weight:bold;font-size:18px;border-top:1px solid #222;padding-top:10px}.center{text-align:center}</style></head><body><header><h2>'+esc(shop?.name||"Pia's Laundry Shop")+'</h2><div>'+esc(shop?.address||'')+'</div><div>'+esc(shop?.phone||'')+'</div></header><p>Receipt / Order<br><b>'+esc(ticket.order_number||'')+'</b></p><p>Customer: '+esc(customer.name||'')+'<br>Date: '+esc(formatDate(ticket.created_at))+'<br>Status: '+esc(statusLabel(ticket.status))+'</p><table><tr><th>Service</th><th>Amount</th></tr>'+rows+'</table><p>Subtotal <span style="float:right">'+esc(money(ticket.subtotal))+'</span></p><p>Discount <span style="float:right">'+esc(money(ticket.discount||0))+'</span></p><p>Delivery <span style="float:right">'+esc(money(ticket.delivery_fee||0))+'</span></p><p class="total">TOTAL <span style="float:right">'+esc(money(ticket.total))+'</span></p><p>Paid <span style="float:right">'+esc(money(ticket.amount_paid||0))+'</span></p><p>Balance <span style="float:right">'+esc(money(ticket.balance_due||0))+'</span></p><hr><p class="center">'+esc(shop?.receipt_note||'Thank you for choosing our laundry shop!')+'</p></body></html>';
+  const lines=(ticket.services||[]).map(line=>'<tr><td>'+esc(line.service_name)+'</td><td class="qty">'+esc(line.quantity)+' '+esc(line.unit)+(line.estimated_weight_kg?' ('+esc(line.estimated_weight_kg)+' kg est.)':'')+'</td><td class="amount">'+esc(money(line.subtotal))+'</td></tr>').join('');
+  const address=ticket.handoff_type==='pickup_delivery'?(ticket.pickup_address||''):(ticket.delivery_address||ticket.pickup_address||'');
+  const type=({pickup_delivery:'Pickup & Delivery',dropoff_delivery:'Drop-off & Delivery',dropoff_pickup:'Drop-off & Pick-up'})[ticket.handoff_type]||'Walk-in';
+  const date=new Date(String(ticket.created_at||'').replace(' ','T'));
+  const orderCode=String(ticket.order_number||'').toUpperCase().replace(/[^0-9A-Z-]/g,'');
+  const code39={"0":"nnnwwnwnn","1":"wnnwnnnnw","2":"nnwwnnnnw","3":"wnwwnnnnn","4":"nnnwwnnnw","5":"wnnwwnnnn","6":"nnwwwnnnn","7":"nnnwnnwnw","8":"wnnwnnwnn","9":"nnwwnnwnn","A":"wnnnnwnnw","B":"nnwnnwnnw","C":"wnwnnwnnn","D":"nnnnwwnnw","E":"wnnnwwnnn","F":"nnwnwwnnn","G":"nnnnnwwnw","H":"wnnnnwwnn","I":"nnwnnwwnn","J":"nnnnwwwnn","K":"wnnnnnnww","L":"nnwnnnnww","M":"wnwnnnnwn","N":"nnnnwnnww","O":"wnnnwnnwn","P":"nnwnwnnwn","Q":"nnnnnnwww","R":"wnnnnnwwn","S":"nnwnnnwwn","T":"nnnnwnwwn","U":"wwnnnnnnw","V":"nwwnnnnnw","W":"wwwnnnnnn","X":"nwnnwnnnw","Y":"wwnnwnnnn","Z":"nwwnwnnnn","-":"nwnnnnwnw"};
+  let barcodeWidth=6;const barcodeRects=[];for(const ch of '*'+orderCode+'*'){const pattern=code39[ch]||code39['-'];for(let i=0;i<pattern.length;i++){const width=pattern[i]==='w'?2:1;if(i%2===0)barcodeRects.push('<rect x="'+barcodeWidth+'" y="0" width="'+width+'" height="48" fill="#111"/>');barcodeWidth+=width;}barcodeWidth++;}
+  const bars='<svg viewBox="0 0 '+barcodeWidth+' 48" width="100%" height="48" preserveAspectRatio="none" aria-label="Barcode '+esc(ticket.order_number||'')+'">'+barcodeRects.join('')+'</svg>';
+  const payment=String(ticket.payment_method||'cash_on_handoff').replaceAll('_',' ').toUpperCase();
+  return '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>*{box-sizing:border-box}body{font:12px monospace;width:320px;margin:20px auto;padding:18px;color:#111;background:#fff}.center{text-align:center}header{text-align:center;padding-bottom:10px}header b{font-size:16px}.divider{border-top:1px dashed #888;margin:9px 0}.row{display:flex;justify-content:space-between;gap:8px;margin:4px 0}.row span:last-child{text-align:right}table{width:100%;border-collapse:collapse;margin:10px 0}th,td{padding:5px 2px;vertical-align:top;text-align:left}th{border-bottom:1px solid #bbb}.qty,.amount{text-align:right;white-space:nowrap}.small{font-size:11px;line-height:1.4;overflow-wrap:anywhere}.bold{font-weight:bold}.barcode{text-align:center;white-space:nowrap;overflow:hidden;margin:10px 0 3px}.watermark{position:fixed;top:48%;left:-30px;transform:rotate(-25deg);color:#eee;font-size:12px;white-space:nowrap;z-index:-1}</style></head><body><div class="watermark">PIA\'S LAUNDRY - OFFICIAL RECEIPT</div><header><b>'+esc(shop?.name||"Pia's Laundry Shop")+'</b><div class="small">'+esc(shop?.address||'')+'</div><div>'+esc(shop?.phone||'')+'</div></header><div class="divider"></div><div class="center"><b>CLAIM CHECK</b></div><div class="row"><span>DATE:</span><span>'+esc(Number.isNaN(date.getTime())?'':date.toLocaleDateString())+'</span></div><div class="row"><span>TIME:</span><span>'+esc(Number.isNaN(date.getTime())?'':date.toLocaleTimeString([], {hour:'numeric',minute:'2-digit'}))+'</span></div><div class="row"><span>TYPE:</span><span>'+esc(type)+'</span></div><div class="row"><span>CUSTOMER:</span><span>'+esc(customer.name||'')+'</span></div>'+(customer.phone?'<div class="row"><span>PHONE:</span><span>'+esc(customer.phone)+'</span></div>':'')+'<div class="row"><span>TICKET #:</span><b>'+esc(ticket.order_number||'')+'</b></div>'+(ticket.expected_pickup?'<div class="row"><span>PICKUP:</span><span>'+esc(formatDate(ticket.expected_pickup))+'</span></div>':'')+(address?'<div class="small"><b>ADDRESS:</b> '+esc(address)+'</div>':'')+'<div class="divider"></div><table><thead><tr><th>SERVICE</th><th class="qty">QTY</th><th class="amount">AMOUNT</th></tr></thead><tbody>'+lines+'</tbody></table><div class="divider"></div><div class="row"><span>Subtotal</span><span>'+esc(money(ticket.subtotal))+'</span></div>'+(Number(ticket.discount)>0?'<div class="row"><span>Discount</span><span>-'+esc(money(ticket.discount))+'</span></div>':'')+(Number(ticket.delivery_fee)>0?'<div class="row"><span>Delivery fee</span><span>'+esc(money(ticket.delivery_fee))+'</span></div>':'')+'<div class="row bold"><span>TOTAL</span><span>'+esc(money(ticket.total))+'</span></div><div class="row"><span>Payment</span><span>'+esc(payment)+'</span></div><div class="row"><span>Amount Paid</span><span>'+esc(money(ticket.amount_paid||0))+'</span></div><div class="row"><span>Balance</span><span>'+esc(money(ticket.balance_due||0))+'</span></div><div class="divider"></div><div class="center"><b>PLEASE KEEP THIS RECEIPT<br>FOR PICKUP / CLAIMING</b><p>'+esc(shop?.receipt_note||'Thank you for choosing our laundry shop!')+'</p></div><div class="divider"></div><div class="barcode">'+bars+'</div><div class="center small">'+esc(ticket.order_number||'')+'</div><div class="divider"></div><div class="center small">Use the Pia\'s Laundry Shop mobile app to track this order.</div></body></html>';
 }
 
 function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, onCustomerUpdated }) {
@@ -1026,7 +1042,7 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
 
 
   const visibleServices = useMemo(() => services.filter((service) => {
-    const matchesCategory = filter === 'All' || serviceCategory(service) === filter;
+    const matchesCategory = (filter === 'All' || serviceCategory(service) === filter) && serviceCategory(service) !== 'Add-ons';
     const query = search.trim().toLowerCase();
     const matchesSearch = !query || `${service.name || ''} ${service.category || ''} ${service.description || ''}`.toLowerCase().includes(query);
     return matchesCategory && matchesSearch;
@@ -1034,7 +1050,7 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
 
   const mainLaundry = services.find((service) => isCoreLoadService(service) && Number(quantities[String(service.id)] || 0) > 0);
   const mainLaundryWeight = mainLaundry ? Number(quantities[String(mainLaundry.id)] || 0) : 0;
-  const mainLoadCount = mainLaundry ? Math.ceil(mainLaundryWeight / (serviceCategory(mainLaundry) === 'Full service' ? 8 : 7)) : 0;
+  const mainLoadCount = mainLaundry ? billableLoadCount(mainLaundryWeight, serviceCategory(mainLaundry)) : 0;
   const serviceSubtotal = useMemo(() => services.reduce((total, service) => {
     const quantity = Number(quantities[String(service.id)] || 0);
     if (!Number.isFinite(quantity) || quantity <= 0) return total;
@@ -1166,7 +1182,7 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
     }
   };
 
-  const standardFilters = ['Wash', 'Dry', 'Full service', 'Add-ons'];
+  const standardFilters = ['Wash', 'Dry', 'Full service'];
   const customFilters = [...new Set(services.map(serviceCategory))].filter((category) => !standardFilters.some((standard) => standard.toLowerCase() === category.toLowerCase()));
   const filters = ['All', ...standardFilters, ...customFilters];
   const todayForSchedule = new Date();
@@ -1268,11 +1284,9 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
             ) : visibleServices.length ? (
               <View style={styles.serviceGrid}>
                 {visibleServices.map((service, index) => (
-                  serviceCategory(service) === 'Add-ons' ? (
-                    <AddonCard key={service.id} service={service} selected={Number(quantities[String(service.id)] || 0) > 0} loadCount={mainLoadCount} onToggle={(selected) => updateQuantity(service, selected ? '1' : '')} wide={wide} />
-                  ) : (
-                    <ServiceCard key={service.id} service={service} quantity={quantities[String(service.id)] || ''} onQuantityChange={(value) => updateQuantity(service, value)} wide={wide} index={index} />
-                  )
+                  <ServiceCard key={service.id} service={service} quantity={quantities[String(service.id)] || ''} onQuantityChange={(value) => updateQuantity(service, value)} wide={wide} index={index}
+                    addonServices={['Wash', 'Full service'].includes(serviceCategory(service)) ? services.filter((item) => serviceCategory(item) === 'Add-ons') : []}
+                    addonQuantities={quantities} onAddonToggle={(addon, selected) => updateQuantity(addon, selected ? '1' : '')} />
                 ))}
               </View>
             ) : (
@@ -1453,10 +1467,10 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
       </Modal>
       <Modal transparent visible={Boolean(receiptTicket)} animationType="fade" onRequestClose={() => setReceiptTicket(null)}>
         <View style={styles.modalShade}><View style={[styles.modalCard,styles.transactionDetailModal]}>
-          <Text style={styles.modalTitle}>Receipt</Text><Text style={styles.modalCopy}>{receiptTicket?.order_number||''}</Text>
-          {receiptTicket?<ScrollView style={styles.transactionDetailScroll}><Text style={styles.receiptHeading}>{shop?.name||"Pia's Laundry Shop"}</Text><Text style={styles.ticketDetail}>{shop?.address||''}</Text><Text style={styles.ticketDetail}>{shop?.phone||''}</Text><View style={styles.transactionDetailSection}><Text style={styles.transactionDetailHeading}>Order details</Text><Text style={styles.transactionDetailValue}>Customer: {customer.name||''}</Text><Text style={styles.transactionDetailValue}>Date: {formatDate(receiptTicket.created_at)}</Text><Text style={styles.transactionDetailValue}>Status: {statusLabel(receiptTicket.status)}</Text></View><View style={styles.transactionDetailSection}><Text style={styles.transactionDetailHeading}>Services</Text>{(receiptTicket.services||[]).map((line,index)=><View key={String(line.service_name)+index} style={styles.transactionDetailLine}><Text style={styles.transactionDetailValue}>{line.service_name} ({line.quantity} {line.unit})</Text><Text style={styles.transactionDetailValue}>{money(line.subtotal)}</Text></View>)}</View><View style={styles.transactionDetailSection}><Text style={styles.transactionDetailValue}>Subtotal {money(receiptTicket.subtotal)} - Discount {money(receiptTicket.discount||0)}</Text><Text style={styles.transactionDetailValue}>Total {money(receiptTicket.total)}</Text><Text style={styles.transactionDetailValue}>Paid {money(receiptTicket.amount_paid||0)} - Balance {money(receiptTicket.balance_due||0)}</Text></View><Text style={styles.ticketDetail}>{shop?.receipt_note||'Thank you for choosing our laundry shop!'}</Text></ScrollView>:null}
-          <Pressable disabled={receiptBusy} onPress={()=>{void downloadReceipt(receiptTicket);}} style={[styles.primaryButton,receiptBusy&&styles.disabledButton]}>{receiptBusy?<ActivityIndicator color={COLORS.white}/>:<Text style={styles.primaryButtonText}>Download / Share PDF receipt</Text>}</Pressable>
-          <Pressable onPress={()=>setReceiptTicket(null)} style={styles.secondaryButton}><Text style={styles.secondaryButtonText}>Close</Text></Pressable>
+          <Text style={styles.modalTitle}>Claim Check</Text><Text style={styles.modalCopy}>{receiptTicket?.order_number||''}</Text>
+          {receiptTicket?<ScrollView contentContainerStyle={styles.receiptPreview} style={styles.transactionDetailScroll}><Text style={styles.receiptHeading}>{shop?.name||"Pia's Laundry Shop"}</Text><Text style={styles.receiptShopDetail}>{shop?.address||''}</Text><Text style={styles.receiptShopDetail}>{shop?.phone||''}</Text><View style={styles.receiptDivider}/><Text style={styles.receiptClaimTitle}>CLAIM CHECK</Text><View style={styles.receiptMeta}><Text style={styles.receiptMetaText}>DATE: {formatDate(receiptTicket.created_at)}</Text><Text style={styles.receiptMetaText}>TYPE: {receiptTicket.handoff_type==='pickup_delivery'?'Pickup & Delivery':receiptTicket.handoff_type==='dropoff_delivery'?'Drop-off & Delivery':receiptTicket.handoff_type==='dropoff_pickup'?'Drop-off & Pick-up':'Walk-in'}</Text><Text style={styles.receiptMetaText}>CUSTOMER: {customer.name||''}</Text>{customer.phone?<Text style={styles.receiptMetaText}>PHONE: {customer.phone}</Text>:null}<Text style={styles.receiptMetaText}>TICKET #: {receiptTicket.order_number}</Text>{receiptTicket.expected_pickup?<Text style={styles.receiptMetaText}>PICKUP: {formatDate(receiptTicket.expected_pickup)}</Text>:null}</View>{(receiptTicket.handoff_type==='pickup_delivery'?receiptTicket.pickup_address:(receiptTicket.delivery_address||receiptTicket.pickup_address))?<Text style={styles.receiptAddress}>ADDRESS: {receiptTicket.handoff_type==='pickup_delivery'?receiptTicket.pickup_address:(receiptTicket.delivery_address||receiptTicket.pickup_address)}</Text>:null}<View style={styles.receiptDivider}/><View style={styles.transactionDetailSection}><Text style={styles.transactionDetailHeading}>SERVICES</Text>{(receiptTicket.services||[]).map((line,index)=><View key={String(line.service_name)+index} style={styles.transactionDetailLine}><Text style={styles.transactionDetailValue}>{line.service_name} ({line.quantity} {line.unit}{line.estimated_weight_kg?` · ${line.estimated_weight_kg} kg est.`:''})</Text><Text style={styles.transactionDetailValue}>{money(line.subtotal)}</Text></View>)}</View><View style={styles.receiptTotals}><Text style={styles.transactionDetailValue}>Subtotal {money(receiptTicket.subtotal)}</Text>{Number(receiptTicket.discount)>0?<Text style={styles.transactionDetailValue}>Discount -{money(receiptTicket.discount)}</Text>:null}{Number(receiptTicket.delivery_fee)>0?<Text style={styles.transactionDetailValue}>Delivery fee {money(receiptTicket.delivery_fee)}</Text>:null}<Text style={styles.receiptTotal}>TOTAL  {money(receiptTicket.total)}</Text><Text style={styles.transactionDetailValue}>Payment {String(receiptTicket.payment_method||'').replaceAll('_',' ').toUpperCase()}</Text><Text style={styles.transactionDetailValue}>Amount paid {money(receiptTicket.amount_paid||0)}</Text>{Number(receiptTicket.change_due)>0?<Text style={styles.transactionDetailValue}>Change {money(receiptTicket.change_due)}</Text>:null}<Text style={styles.transactionDetailValue}>Balance {money(receiptTicket.balance_due||0)}</Text></View><View style={styles.receiptDivider}/><Text style={styles.receiptClaimTitle}>PLEASE KEEP THIS RECEIPT{'\n'}FOR PICKUP / CLAIMING</Text><Text style={styles.ticketDetail}>{shop?.receipt_note||'Thank you for choosing our laundry shop!'}</Text><View style={styles.receiptBarcode}>{String(receiptTicket.order_number||'').split('').map((char,index)=><View key={index} style={{width:(char.charCodeAt(0)%3)+1,marginRight:1,backgroundColor:COLORS.ink,height:38}}/>)}</View><Text style={styles.receiptBarcodeText}>{receiptTicket.order_number}</Text></ScrollView>:null}
+          <View style={styles.receiptActions}><Pressable disabled={receiptBusy} onPress={()=>{void downloadReceipt(receiptTicket);}} style={[styles.primaryButton,receiptBusy&&styles.disabledButton]}>{receiptBusy?<ActivityIndicator color={COLORS.white}/>:<Text style={styles.primaryButtonText}>Download / Share PDF receipt</Text>}</Pressable>
+          <Pressable onPress={()=>setReceiptTicket(null)} style={styles.secondaryButton}><Text style={styles.secondaryButtonText}>Close</Text></Pressable></View>
         </View></View>
       </Modal>
       <Modal transparent visible={Boolean(reviewPrompt)} animationType="fade" onRequestClose={closeReviewPrompt}>
@@ -1588,28 +1602,23 @@ function ProfileRow({ icon, label, value, last = false, editable = false, editin
   return <View style={[styles.profileRow, last && styles.profileRowLast]}><View style={styles.profileRowIcon}><Text style={styles.profileRowIconText}>{icon}</Text></View><View style={styles.flexOne}><Text style={styles.profileRowLabel}>{label}</Text>{editing ? <TextInput autoFocus value={draft} onChangeText={onChangeDraft} keyboardType={keyboardType} maxLength={label === 'Full name' ? 100 : 11} placeholder={label === 'Full name' ? 'Your full name' : '09xx xxx xxxx'} placeholderTextColor="#a59ba5" style={styles.profileRowInput} editable={!saving} /> : <Text style={styles.profileRowValue}>{value || 'Not provided'}</Text>}</View>{editable ? editing ? <View style={styles.profileRowEditActions}><Pressable accessibilityRole="button" accessibilityLabel={'Save ' + label} disabled={saving} onPress={onSave} style={styles.profileRowEditButton}><Text style={styles.profileRowEditText}>{saving ? '…' : '✓'}</Text></Pressable><Pressable accessibilityRole="button" accessibilityLabel="Cancel edit" disabled={saving} onPress={onCancel} style={styles.profileRowEditButton}><Text style={styles.profileRowCancelText}>×</Text></Pressable></View> : <Pressable accessibilityRole="button" accessibilityLabel={'Edit ' + label} onPress={onEdit} style={styles.profileRowEditButton}><Text style={styles.profileRowEditText}>✎</Text></Pressable> : null}</View>;
 }
 
-function AddonCard({ service, selected, loadCount, onToggle, wide }) {
+function AddonCard({ service, selected, loadCount, onToggle }) {
   const count = selected ? loadCount : 0;
-  const serviceName = String(service.name || '').toLowerCase();
-  const addonIcon = serviceName.includes('detergent')
-    ? 'https://cdn-icons-png.flaticon.com/128/4596/4596056.png'
-    : 'https://cdn-icons-png.flaticon.com/128/4596/4596059.png';
+  const disabled = loadCount < 1;
   return (
-    <View style={[styles.serviceCard, wide ? styles.serviceCardWide : styles.serviceCardNarrow]}>
-      <LinearGradient colors={['#45234f', '#88568c']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0.8 }} style={styles.serviceImageBand}>
-        <Image accessibilityLabel={serviceName.includes('detergent') ? 'Detergent icon' : 'Fabric softener icon'} source={{ uri: addonIcon }} resizeMode="contain" style={styles.addonIcon} /><Text style={styles.serviceBandCaption}>ADD-ON</Text><View style={styles.bandBubble} />
-      </LinearGradient>
-      <View style={styles.serviceCardBody}>
-        <View style={styles.addonRow}>
-          <View style={styles.serviceTextBlock}><Text style={styles.serviceTitle}>{service.name}</Text><Text style={styles.serviceDescription}>Added to every laundry load</Text><Text style={styles.servicePrice}>{money(service.price)} <Text style={styles.serviceUnit}>/ load</Text></Text>{selected ? <Text style={styles.addonTotal}>{count} {count === 1 ? 'load' : 'loads'} · {money(Number(service.price) * count)}</Text> : null}</View>
-          <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: selected }} onPress={() => onToggle(!selected)} style={[styles.addonToggle, selected && styles.addonToggleActive]}><Text style={[styles.addonToggleText, selected && styles.addonToggleTextActive]}>{selected ? 'Added' : 'Add'}</Text></Pressable>
-        </View>
-        {selected && !loadCount ? <Text style={styles.addonHelp}>Choose Wash, Dry, or Full Service to set the number of loads.</Text> : null}
+    <View style={styles.inlineAddon}>
+      <View style={styles.flexOne}>
+        <Text style={styles.serviceTitle}>{service.name}</Text>
+        <Text style={styles.serviceDescription}>Added per load Â· {money(service.price)} each</Text>
+        {selected ? <Text style={styles.addonTotal}>{count} {count === 1 ? 'load' : 'loads'} Â· {money(Number(service.price) * count)}</Text> : null}
       </View>
+      <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: selected, disabled }} disabled={disabled && !selected} onPress={() => onToggle(!selected)} style={[styles.addonToggle, selected && styles.addonToggleActive, disabled && styles.disabledButton]}>
+        <Text style={[styles.addonToggleText, selected && styles.addonToggleTextActive]}>{selected ? 'Added' : 'Add'}</Text>
+      </Pressable>
     </View>
   );
 }
-function ServiceCard({ service, quantity, onQuantityChange, wide, index }) {
+function ServiceCard({ service, quantity, onQuantityChange, wide, index, addonServices = [], addonQuantities = {}, onAddonToggle }) {
   const gradients = [
     ['#45234f', '#88568c'],
     ['#362741', '#756283'],
@@ -1618,17 +1627,21 @@ function ServiceCard({ service, quantity, onQuantityChange, wide, index }) {
   ];
   const colors = gradients[index % gradients.length];
   const weightBased = isCoreLoadService(service);
+  const category = serviceCategory(service);
+  const loadCapacity = category === 'Full service' ? 8 : 7;
+  const currentWeight = Number(quantity) || 0;
+  const addonLoadCount = billableLoadCount(currentWeight, category);
   const basePrice = Number(service.price) || 0;
   const description = weightBased
-    ? (serviceCategory(service) === 'Full service'
+    ? (category === 'Full service'
       ? `${money(basePrice)} covers up to 7 kg; 8 kg is ${money(basePrice + 39)}. Over 8 kg uses separate ${money(basePrice)} loads.`
       : `${money(basePrice)} per load covers up to 7 kg. Every additional load starts another charge.`)
-    : service.description || 'Laundry service · ' + (service.unit || 'unit');
+    : service.description || 'Laundry service Â· ' + (service.unit || 'unit');
   return (
     <View style={[styles.serviceCard, wide ? styles.serviceCardWide : styles.serviceCardNarrow]}>
       <LinearGradient colors={colors} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0.8 }} style={styles.serviceImageBand}>
         <Text style={styles.serviceHeroEmoji}>{serviceEmoji(service)}</Text>
-        <Text style={styles.serviceBandCaption}>{serviceCategory(service).toUpperCase()}</Text>
+        <Text style={styles.serviceBandCaption}>{category.toUpperCase()}</Text>
         <View style={styles.bandBubble} />
       </LinearGradient>
       <View style={styles.serviceCardBody}>
@@ -1639,7 +1652,7 @@ function ServiceCard({ service, quantity, onQuantityChange, wide, index }) {
             <Text style={styles.servicePrice}>{money(service.price)} <Text style={styles.serviceUnit}>/ {weightBased ? 'up to 7 kg' : (service.unit || 'unit')}</Text></Text>
           </View>
           <View style={styles.quantityControl}>
-            <Pressable accessibilityLabel={weightBased ? 'Remove 1 kg of ' + service.name : 'Remove one ' + service.name} onPress={() => onQuantityChange(String(Math.max(0, (Number(quantity) || 0) - 1)))} style={styles.quantityButton}><Text style={styles.quantityButtonText}>−</Text></Pressable>
+            <Pressable accessibilityLabel={weightBased ? 'Remove 1 kg of ' + service.name : 'Remove one ' + service.name} onPress={() => onQuantityChange(String(Math.max(0, (Number(quantity) || 0) - 1)))} style={styles.quantityButton}><Text style={styles.quantityButtonText}>âˆ’</Text></Pressable>
             <View style={styles.quantityBox}>
               <TextInput value={String(quantity)} onChangeText={onQuantityChange} keyboardType="decimal-pad" maxLength={weightBased ? 5 : undefined} placeholder="0" placeholderTextColor="#9d929c" style={styles.quantityInput} accessibilityLabel={weightBased ? 'Estimated laundry weight in kg for ' + service.name : 'Quantity for ' + service.name} />
               <Text style={styles.quantityUnit}>{weightBased ? 'kg total' : (service.unit || 'unit')}</Text>
@@ -1647,11 +1660,15 @@ function ServiceCard({ service, quantity, onQuantityChange, wide, index }) {
             <Pressable accessibilityLabel={weightBased ? 'Add 1 kg of ' + service.name : 'Add one ' + service.name} onPress={() => onQuantityChange(String((Number(quantity) || 0) + 1))} style={styles.quantityButton}><Text style={styles.quantityButtonText}>+</Text></Pressable>
           </View>
         </View>
+        {addonServices.length ? <View style={styles.inlineAddons}>
+          <Text style={styles.inlineAddonsTitle}>Add-ons <Text style={styles.inlineAddonsHint}>({loadCapacity} kg per load)</Text></Text>
+          {addonLoadCount < 1 ? <Text style={styles.inlineAddonsHint}>Reach {loadCapacity} kg to add extras, charged per load.</Text> : null}
+          {addonServices.map((addon) => <AddonCard key={addon.id} service={addon} selected={Number(addonQuantities[String(addon.id)] || 0) > 0} loadCount={addonLoadCount} onToggle={(selected) => onAddonToggle?.(addon, selected)} />)}
+        </View> : null}
       </View>
     </View>
   );
 }
-
 function OrderProgress({ ticket }) {
   const isPickup = ticket.handoff_type === 'pickup_delivery';
   const hasDelivery = ['pickup_delivery', 'dropoff_delivery'].includes(ticket.handoff_type);
@@ -1930,6 +1947,18 @@ const styles = StyleSheet.create({
   transactionDetailModal: { maxHeight: '92%', padding: 16 },
   transactionHistoryActions: { gap: 6 },
   receiptHeading: { color: COLORS.plum, fontSize: 18, fontWeight: '900', textAlign: 'center', marginVertical: 8 },
+  receiptPreview: { padding: 16, paddingBottom: 20, borderWidth: 1, borderColor: COLORS.line, borderRadius: 12, backgroundColor: '#fffdf9' },
+  receiptShopDetail: { textAlign: 'center', color: COLORS.muted, fontSize: 12, marginBottom: 3 },
+  receiptDivider: { borderBottomWidth: 1, borderStyle: 'dashed', borderColor: '#9b9298', marginVertical: 10 },
+  receiptClaimTitle: { textAlign: 'center', color: COLORS.ink, fontSize: 13, fontWeight: '900', marginVertical: 5 },
+  receiptMeta: { gap: 4 },
+  receiptMetaText: { color: COLORS.ink, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', fontSize: 11 },
+  receiptAddress: { color: COLORS.ink, fontSize: 11, lineHeight: 16, marginTop: 6 },
+  receiptTotals: { gap: 5 },
+  receiptTotal: { color: COLORS.ink, fontSize: 15, fontWeight: '900', paddingTop: 5 },
+  receiptBarcode: { height: 42, flexDirection: 'row', alignItems: 'stretch', justifyContent: 'center', overflow: 'hidden', marginTop: 12 },
+  receiptBarcodeText: { color: COLORS.ink, textAlign: 'center', fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', fontSize: 10 },
+  receiptActions: { gap: 12, marginTop: 12 },
   transactionDetailHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   transactionDetailScroll: { flexShrink: 1 },
   transactionDetailSection: { padding: 13, marginBottom: 10, backgroundColor: '#f4edf5', borderRadius: 12, gap: 5 },
@@ -1946,6 +1975,10 @@ const styles = StyleSheet.create({
   serviceRuleNote: { borderRadius: 13, backgroundColor: '#2b2330', borderColor: '#554359', borderWidth: 1, padding: 12, marginBottom: 14 },
   serviceRuleTitle: { color: '#f4e7f6', fontSize: 13, fontWeight: '900' },
   serviceRuleCopy: { color: '#cfc0d1', fontSize: 11, lineHeight: 17, marginTop: 3 },  serviceGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 16, paddingBottom: 18 },
+  inlineAddons: { marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: COLORS.line, gap: 8 },
+  inlineAddonsTitle: { color: COLORS.plum, fontSize: 13, fontWeight: '900' },
+  inlineAddonsHint: { color: COLORS.muted, fontSize: 11, fontWeight: '600' },
+  inlineAddon: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 10, borderRadius: 12, backgroundColor: '#f4edf5' },
   serviceCard: { borderRadius: 17, overflow: 'hidden', backgroundColor: COLORS.cream, borderColor: '#ddd2df', borderWidth: 1, ...(Platform.OS === 'web' ? { boxShadow: '0px 3px 8px rgba(0,0,0,0.14)' } : { shadowColor: '#000', shadowOpacity: 0.14, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 2 }) },
   serviceCardWide: { width: '48.8%' },
   serviceCardNarrow: { width: '100%' },
