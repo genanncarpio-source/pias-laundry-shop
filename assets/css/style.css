@@ -359,8 +359,8 @@ textarea { resize: vertical; min-height: 80px; }
 .login-err { background: #fff0f0; border: 1px solid #f0c2c5; color: #a52e38; padding: 10px 14px; border-radius: 8px; font-size: 13px; margin-bottom: 14px; }
 
 /* Password field with show/hide toggle */
-.password-field { position: relative; }
-.password-field input { padding-right: 48px; }
+.password-field { position: relative; width: 100%; }
+.password-field input { width: 100%; padding-right: 48px; }
 .toggle-password {
   position: absolute;
   top: 50%;
@@ -378,6 +378,8 @@ textarea { resize: vertical; min-height: 80px; }
 }
 .toggle-password:hover { color: var(--pink); background: var(--pink-soft); }
 .toggle-password:focus { outline: none; box-shadow: 0 0 0 3px var(--pink-soft); }
+.toggle-password svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; vertical-align: middle; }
+.toggle-password .eye-open { display: none; }
 
 /* Responsive: small phones */
 @media (max-width: 420px) {

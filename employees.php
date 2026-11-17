@@ -5,6 +5,11 @@ require_once __DIR__ . '/includes/feature_schema.php';
 ensure_workflow_schema();
 
 $pdo = db();
+$findUser = static function (int $id) use ($pdo): ?array {
+    $stmt = $pdo->prepare('SELECT id, username, is_active FROM users WHERE id = ? LIMIT 1');
+    $stmt->execute([$id]);
+    return $stmt->fetch() ?: null;
+};
 
 /* ---------- Add employee ---------- */
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add'])) {
@@ -44,7 +49,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['toggle'])) {
         flash_set('error', 'This form has expired. Refresh the page and try again.');
     } else {
         $id = (int)$_POST['id'];
-        if ($id === (int)$_SESSION['user_id']) {
+        $target = $findUser($id);
+        if (!$target) {
+            flash_set('error', 'Account not found.');
+        } elseif (strtolower((string)$target['username']) === 'superadmin' && (int)$target['is_active'] === 1) {
+            flash_set('error', 'The superadmin account is protected and cannot be deactivated.');
+        } elseif ($id === (int)$_SESSION['user_id']) {
             flash_set('error', 'You cannot deactivate your own account.');
         } else {
             $stmt = $pdo->prepare("UPDATE users SET is_active = 1 - is_active WHERE id = ?");
@@ -61,13 +71,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['reset_password'])) {
     if (!csrf_verify($_POST['csrf'] ?? null)) {
         flash_set('error', 'This form has expired. Refresh the page and try again.');
     } else {
+        $targetId = (int)($_POST['id'] ?? 0);
+        $target = $findUser($targetId);
         $newPass = (string)($_POST['new_password'] ?? '');
-        if (strlen($newPass) < 8) {
+        if (!$target) {
+            flash_set('error', 'Account not found.');
+        } elseif (strtolower((string)$target['username']) === 'superadmin') {
+            flash_set('error', 'The superadmin password can only be changed by superadmin from My Account.');
+        } elseif ($targetId === (int)$_SESSION['user_id']) {
+            flash_set('error', 'Use My Account to change your own password.');
+        } elseif (strlen($newPass) < 8) {
             flash_set('error', 'New password must be at least 8 characters.');
         } else {
             $stmt = $pdo->prepare("UPDATE users SET password = ? WHERE id = ?");
-            $stmt->execute([password_hash($newPass, PASSWORD_DEFAULT), (int)$_POST['id']]);
-            add_audit_log('User password reset by administrator', 'users', (int)$_POST['id']);
+            $stmt->execute([password_hash($newPass, PASSWORD_DEFAULT), $targetId]);
+            add_audit_log('User password reset by administrator', 'users', $targetId);
             flash_set('success', 'Password reset.');
         }
     }
@@ -80,7 +98,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete'])) {
         flash_set('error', 'This form has expired. Refresh the page and try again.');
     } else {
         $id = (int)$_POST['id'];
-        if ($id === (int)$_SESSION['user_id']) {
+        $target = $findUser($id);
+        if (!$target) {
+            flash_set('error', 'Account not found.');
+        } elseif (strtolower((string)$target['username']) === 'superadmin') {
+            flash_set('error', 'The superadmin account is protected and cannot be deactivated.');
+        } elseif ($id === (int)$_SESSION['user_id']) {
             flash_set('error', 'You cannot delete your own account.');
         } else {
             $stmt = $pdo->prepare("UPDATE users SET is_active = 0 WHERE id = ?");
@@ -144,13 +167,14 @@ include __DIR__ . '/includes/header.php';
         <thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Status</th><th></th></tr></thead>
         <tbody>
           <?php foreach ($users as $u): ?>
+          <?php $isProtectedSuperadmin = strtolower((string)$u['username']) === 'superadmin'; ?>
           <tr>
             <td><?= e($u['full_name']) ?><?= $u['id'] == $_SESSION['user_id'] ? ' <span class="muted">(you)</span>' : '' ?></td>
             <td class="muted"><?= e($u['username']) ?></td>
             <td><span class="badge badge-<?= e($u['role']) ?>"><?= $u['role'] === 'admin' ? 'Admin' : 'Staff' ?></span></td>
             <td><span class="badge badge-<?= $u['is_active'] ? 'active' : 'inactive' ?>"><?= $u['is_active'] ? 'Active' : 'Inactive' ?></span></td>
             <td class="right" style="white-space:nowrap;">
-              <?php if ($u['id'] != $_SESSION['user_id']): ?>
+              <?php if ($u['id'] != $_SESSION['user_id'] && !$isProtectedSuperadmin): ?>
                 <form method="post" action="employees.php" style="display:inline;" data-confirm="<?= $u['is_active'] ? 'Deactivate this staff account?' : 'Activate this staff account?' ?>">
                   <?= csrf_field() ?>
                   <input type="hidden" name="toggle" value="1">
@@ -158,6 +182,8 @@ include __DIR__ . '/includes/header.php';
                   <button class="btn <?= $u['is_active'] ? 'btn-danger' : 'btn-outline' ?> btn-sm" type="submit"><?= $u['is_active'] ? 'Deactivate' : 'Activate' ?></button>
                 </form>
                 <button class="btn btn-outline btn-sm" data-modal-open="resetModal-<?= (int)$u['id'] ?>">Reset Password</button>
+              <?php elseif ($isProtectedSuperadmin): ?>
+                <span class="muted">Protected · self-managed password</span>
               <?php else: ?>
                 <span class="muted">—</span>
               <?php endif; ?>
@@ -165,6 +191,7 @@ include __DIR__ . '/includes/header.php';
           </tr>
 
           <!-- Reset password modal -->
+          <?php if (!$isProtectedSuperadmin && $u['id'] != $_SESSION['user_id']): ?>
           <div class="modal-overlay" id="resetModal-<?= (int)$u['id'] ?>">
             <div class="modal">
               <div class="modal-head">
@@ -185,6 +212,7 @@ include __DIR__ . '/includes/header.php';
               </form>
             </div>
           </div>
+          <?php endif; ?>
           <?php endforeach; ?>
         </tbody>
       </table>

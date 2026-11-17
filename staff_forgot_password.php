@@ -29,11 +29,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = 'Enter a valid email address.';
             $errorField = 'email';
         } else {
-            $query = db()->prepare("SELECT id, full_name, email FROM users WHERE LOWER(email) = ? AND email IS NOT NULL AND email <> '' AND is_active = 1 LIMIT 1");
+            $query = db()->prepare("SELECT id, full_name, email, username FROM users WHERE LOWER(email) = ? AND email IS NOT NULL AND email <> '' AND is_active = 1 LIMIT 1");
             $query->execute([$email]);
             $user = $query->fetch();
             $_SESSION['staff_reset_email'] = $email;
-            if ($user) {
+            if ($user && strtolower((string)$user['username']) !== 'superadmin') {
                 $pendingQuery = db()->prepare('SELECT id, resend_count, TIMESTAMPDIFF(SECOND, last_sent_at, NOW()) AS seconds_since_sent, TIMESTAMPDIFF(SECOND, created_at, NOW()) AS seconds_since_created FROM staff_password_reset_otps WHERE user_id = ? LIMIT 1');
                 $pendingQuery->execute([$user['id']]);
                 $pending = $pendingQuery->fetch();
@@ -88,7 +88,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = 'Enter the 6-digit code sent to your email.';
             $errorField = 'code';
         } else {
-            $query = db()->prepare('SELECT r.*, u.id AS account_id, (r.expires_at < NOW()) AS is_expired FROM staff_password_reset_otps r JOIN users u ON u.id = r.user_id WHERE LOWER(r.email) = ? AND u.is_active = 1 LIMIT 1');
+            $query = db()->prepare("SELECT r.*, u.id AS account_id, (r.expires_at < NOW()) AS is_expired FROM staff_password_reset_otps r JOIN users u ON u.id = r.user_id WHERE LOWER(r.email) = ? AND u.is_active = 1 AND LOWER(u.username) <> 'superadmin' LIMIT 1");
             $query->execute([$email]);
             $reset = $query->fetch();
             if (!$reset) {
@@ -136,8 +136,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             db()->beginTransaction();
             try {
-                $update = db()->prepare('UPDATE users SET password = ? WHERE id = ? AND is_active = 1');
+                $update = db()->prepare("UPDATE users SET password = ? WHERE id = ? AND is_active = 1 AND LOWER(username) <> 'superadmin'");
                 $update->execute([password_hash($newPassword, PASSWORD_DEFAULT), $verifiedUserId]);
+                if ($update->rowCount() !== 1) {
+                    throw new RuntimeException('Password reset is not allowed for this account.');
+                }
                 db()->prepare('DELETE FROM staff_password_reset_otps WHERE user_id = ?')->execute([$verifiedUserId]);
                 db()->commit();
                 unset($_SESSION['staff_reset_email'], $_SESSION['staff_reset_verified_user_id'], $_SESSION['staff_reset_verified_until']);

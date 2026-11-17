@@ -1,6 +1,37 @@
 /* Shared JavaScript for the Laundry POS system. */
 
 document.addEventListener('DOMContentLoaded', function () {
+  // Add a consistent show/hide control to password inputs on authenticated pages.
+  document.querySelectorAll('input[type="password"]').forEach((input) => {
+    let field = input.closest('.password-field');
+    if (!field) {
+      field = document.createElement('div');
+      field.className = 'password-field';
+      input.parentNode.insertBefore(field, input);
+      field.appendChild(input);
+    }
+    if (field.querySelector('.toggle-password')) return;
+
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'toggle-password';
+    toggle.setAttribute('aria-label', 'Show password');
+    toggle.setAttribute('title', 'Show password');
+    toggle.setAttribute('aria-pressed', 'false');
+    toggle.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path class="eye-open" d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z"/><circle class="eye-open" cx="12" cy="12" r="3"/><path class="eye-closed" d="m3 3 18 18M10.6 5.1A10.8 10.8 0 0 1 12 5c6.4 0 10 7 10 7a17 17 0 0 1-3.1 3.9M6.2 6.2C3.5 8 2 12 2 12s3.6 7 10 7c1.1 0 2.2-.2 3.1-.6"/><path class="eye-closed" d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>';
+    toggle.addEventListener('click', () => {
+      const show = input.type === 'password';
+      input.type = show ? 'text' : 'password';
+      toggle.querySelectorAll('.eye-open').forEach((part) => { part.style.display = show ? '' : 'none'; });
+      toggle.querySelectorAll('.eye-closed').forEach((part) => { part.style.display = show ? 'none' : ''; });
+      toggle.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+      toggle.setAttribute('title', show ? 'Hide password' : 'Show password');
+      toggle.setAttribute('aria-pressed', show ? 'true' : 'false');
+      input.focus();
+    });
+    field.appendChild(toggle);
+  });
+
   // Mobile sidebar drawer
   const toggle = document.getElementById('menuToggle');
   const sidebar = document.getElementById('sidebar');
