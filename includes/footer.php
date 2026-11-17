@@ -2,6 +2,6 @@
   </div><!-- /.main -->
 </div><!-- /.app -->
 
-<script src="<?= e(asset('assets/js/app.js')) ?>?v=live-notifications-20261115"></script>
+<script src="<?= e(asset('assets/js/app.js')) ?>?v=password-visibility-20261117"></script>
 </body>
 </html>
