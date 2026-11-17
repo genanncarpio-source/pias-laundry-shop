@@ -18,60 +18,49 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save'])) {
     $phone   = trim($_POST['phone'] ?? '');
     $email   = trim($_POST['email'] ?? '');
     $address = trim($_POST['address'] ?? '');
-
-    $isActive    = isset($_POST['is_active']) ? 1 : 0;
+    $isActive = isset($_POST['is_active']) ? 1 : 0;
 
     if ($name === '') {
         flash_set('error', 'Customer name is required.');
         redirect('customers.php' . ($id ? "?id=$id" : ''));
     }
 
-    /* Validate the email address (if given) and keep it unique. */
-    if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-        flash_set('error', 'That email address is not valid.');
-        redirect('customers.php' . ($id ? "?id=$id" : ''));
-    }
-    if ($email !== '') {
-        $dup = $pdo->prepare("SELECT id FROM customers WHERE email = ? AND id <> ?");
-        $dup->execute([$email, $id]);
-        if ($dup->fetch()) {
-            flash_set('error', 'Another customer is already using that email address.');
-            redirect('customers.php' . ($id ? "?id=$id" : ''));
-        }
-        $accountDup = $pdo->prepare('SELECT customer_id FROM customer_accounts WHERE email = ? AND customer_id <> ?');
-        $accountDup->execute([$email, $id]);
-        if ($accountDup->fetch()) {
-            flash_set('error', 'That email is already used by another customer login.');
-            redirect('customers.php' . ($id ? "?id=$id" : ''));
-        }
-    }
-    if ($id > 0 && $email === '') {
-        $loginCheck = $pdo->prepare('SELECT id FROM customer_accounts WHERE customer_id = ?');
-        $loginCheck->execute([$id]);
-        if ($loginCheck->fetchColumn()) {
-            flash_set('error', 'A customer with a login account must keep a valid email address.');
-            redirect('customers.php' . ($id ? "?id=$id" : ''));
-        }
-    }
-
-
     if ($id > 0) {
         $beforeStmt = $pdo->prepare('SELECT name, phone, email, address, is_active FROM customers WHERE id = ?');
         $beforeStmt->execute([$id]);
         $before = $beforeStmt->fetch();
+        if (!$before) {
+            flash_set('error', 'Customer not found.');
+            redirect('customers.php');
+        }
         $stmt = $pdo->prepare(
             "UPDATE customers
-                SET name = ?, phone = ?, email = ?, address = ?, is_active = ?
+                SET name = ?, phone = ?, address = ?
               WHERE id = ?"
         );
-        $stmt->execute([$name, $phone, $email !== '' ? $email : null, $address, $isActive, $id]);
-        if ($email !== '') {
-            $accountUpdate = $pdo->prepare('UPDATE customer_accounts SET email = ? WHERE customer_id = ?');
-            $accountUpdate->execute([$email, $id]);
-        }
-        add_audit_log('Customer updated', 'customers', $id, $before, ['name' => $name, 'phone' => $phone, 'email' => $email, 'address' => $address, 'is_active' => $isActive]);
+        $stmt->execute([$name, $phone, $address, $id]);
+        add_audit_log('Customer updated', 'customers', $id, $before, ['name' => $name, 'phone' => $phone, 'email' => $before['email'], 'address' => $address, 'is_active' => (int)$before['is_active']]);
         flash_set('success', 'Customer updated.');
     } else {
+        /* Validate and keep new customer emails unique. Existing customer emails are immutable. */
+        if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            flash_set('error', 'That email address is not valid.');
+            redirect('customers.php');
+        }
+        if ($email !== '') {
+            $dup = $pdo->prepare("SELECT id FROM customers WHERE email = ?");
+            $dup->execute([$email]);
+            if ($dup->fetch()) {
+                flash_set('error', 'Another customer is already using that email address.');
+                redirect('customers.php');
+            }
+            $accountDup = $pdo->prepare('SELECT customer_id FROM customer_accounts WHERE email = ?');
+            $accountDup->execute([$email]);
+            if ($accountDup->fetch()) {
+                flash_set('error', 'That email is already used by another customer login.');
+                redirect('customers.php');
+            }
+        }
         $stmt = $pdo->prepare(
             "INSERT INTO customers
                 (name, phone, email, address, is_active)
@@ -84,17 +73,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save'])) {
     redirect('customers.php');
 }
 
-/* ---------- Delete (admin only) ---------- */
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete'])) {
-    if (!is_admin()) {
-        flash_set('error', 'Only administrators can delete customers.');
-    } elseif (!csrf_verify($_POST['csrf'] ?? null)) {
+/* ---------- Activate / deactivate customer ---------- */
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['set_customer_status'])) {
+    if (!csrf_verify($_POST['csrf'] ?? null)) {
         flash_set('error', 'This form has expired. Refresh the page and try again.');
     } else {
-        $stmt = $pdo->prepare("UPDATE customers SET is_active = 0 WHERE id = ?");
-        $stmt->execute([(int)$_POST['id']]);
-        add_audit_log('Customer deactivated', 'customers', (int)$_POST['id']);
-        flash_set('success', 'Customer deactivated. Order history has been preserved.');
+        $id = (int)($_POST['id'] ?? 0);
+        $isActive = (int)($_POST['is_active'] ?? 0) === 1 ? 1 : 0;
+        $beforeStmt = $pdo->prepare('SELECT id, name, is_active FROM customers WHERE id = ?');
+        $beforeStmt->execute([$id]);
+        $before = $beforeStmt->fetch();
+        if (!$before) {
+            flash_set('error', 'Customer not found.');
+        } elseif ((int)$before['is_active'] === $isActive) {
+            flash_set('info', 'Customer status is already up to date.');
+        } else {
+            try {
+                $pdo->beginTransaction();
+                $status = $pdo->prepare('UPDATE customers SET is_active = ? WHERE id = ?');
+                $status->execute([$isActive, $id]);
+                if (!$isActive) {
+                    // Revoke existing mobile sessions immediately; a reactivated customer must sign in again.
+                    $pdo->prepare('DELETE FROM customer_sessions WHERE customer_id = ?')->execute([$id]);
+                }
+                add_audit_log($isActive ? 'Customer reactivated' : 'Customer deactivated', 'customers', $id, ['is_active' => (int)$before['is_active']], ['is_active' => $isActive]);
+                $pdo->commit();
+                flash_set('success', $isActive ? 'Customer reactivated.' : 'Customer deactivated. Order history has been preserved.');
+            } catch (Throwable $exception) {
+                if ($pdo->inTransaction()) $pdo->rollBack();
+                error_log('Customer status update failed: ' . $exception->getMessage());
+                flash_set('error', 'Could not update customer status. Please try again.');
+            }
+        }
     }
     redirect('customers.php');
 }
@@ -150,16 +160,21 @@ include __DIR__ . '/includes/header.php';
       <input type="text" id="phone" name="phone" value="<?= e($editing['phone'] ?? '') ?>">
 
       <label for="email">Email</label>
-      <input type="email" id="email" name="email" value="<?= e($editing['email'] ?? '') ?>">
+      <input type="email" id="email" name="email" value="<?= e($editing['email'] ?? '') ?>" <?= $editing ? 'readonly aria-readonly="true"' : '' ?>>
+      <?php if ($editing): ?><small class="muted">Customer email cannot be changed here.</small><?php endif; ?>
 
       <label for="address">Address</label>
       <input type="text" id="address" name="address" value="<?= e($editing['address'] ?? '') ?>">
 
+      <?php if (!$editing): ?>
       <label class="checkbox-row">
         <input type="checkbox" name="is_active" value="1"
                <?= (!isset($editing['is_active']) || (int)$editing['is_active'] === 1) ? 'checked' : '' ?>>
         <span>Active customer</span>
       </label>
+      <?php else: ?>
+      <p class="muted">Status: <span class="badge badge-<?= (int)$editing['is_active'] === 1 ? 'active' : 'inactive' ?>"><?= (int)$editing['is_active'] === 1 ? 'Active' : 'Inactive' ?></span>. Change status using the customer list.</p>
+      <?php endif; ?>
 
       <div class="form-actions">
         <button type="submit" class="btn btn-primary"><?= $editing ? 'Update' : 'Save' ?> Customer</button>
@@ -194,15 +209,15 @@ include __DIR__ . '/includes/header.php';
             <?php if ($showCustomerSpending): ?><td class="num"><?= money($c['total_spent']) ?></td><?php endif; ?>
             <td class="right">
               <a class="btn btn-outline btn-sm" href="customers.php?id=<?= (int)$c['id'] ?>">Edit</a>
-              <?php if (is_admin()): ?>
+              <?php $customerActive = (int)($c['is_active'] ?? 1) === 1; ?>
               <form method="post" action="customers.php" style="display:inline;"
-                    onsubmit="return confirm('Deactivate this customer account? Order history will be preserved.');">
+                    onsubmit="return confirm('<?= $customerActive ? 'Deactivate' : 'Reactivate' ?> this customer account?<?= $customerActive ? ' They will be signed out of the mobile app; order history will be preserved.' : '' ?>');">
                 <?= csrf_field() ?>
-                <input type="hidden" name="delete" value="1">
+                <input type="hidden" name="set_customer_status" value="1">
                 <input type="hidden" name="id" value="<?= (int)$c['id'] ?>">
-                <button class="btn btn-danger btn-sm" type="submit">Deactivate</button>
+                <input type="hidden" name="is_active" value="<?= $customerActive ? '0' : '1' ?>">
+                <button class="btn <?= $customerActive ? 'btn-danger' : 'btn-outline' ?> btn-sm" type="submit"><?= $customerActive ? 'Deactivate' : 'Activate' ?></button>
               </form>
-              <?php endif; ?>
             </td>
           </tr>
           <?php endforeach; ?>

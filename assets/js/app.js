@@ -131,6 +131,7 @@ document.addEventListener('DOMContentLoaded', function () {
       const tbody = list.querySelector('tbody');
       if (!tbody || document.getElementById('notification-' + notice.id)) return;
       list.querySelector('[data-notification-empty]')?.setAttribute('hidden', '');
+      document.querySelector('[data-clear-all-notifications]')?.removeAttribute('hidden');
 
       const row = document.createElement('tr');
       row.id = 'notification-' + notice.id;
@@ -154,6 +155,9 @@ document.addEventListener('DOMContentLoaded', function () {
       const status = document.createElement('td');
       status.textContent = notice.is_read ? 'Read' : 'Unread';
       const action = document.createElement('td');
+      const actionGroup = document.createElement('div');
+      actionGroup.className = 'row';
+      actionGroup.style.cssText = 'gap:6px;justify-content:flex-end';
       if (!notice.is_read) {
         const form = document.createElement('form');
         form.method = 'post';
@@ -164,8 +168,21 @@ document.addEventListener('DOMContentLoaded', function () {
         const markRead = document.createElement('button');
         markRead.className = 'btn btn-outline btn-sm'; markRead.name = 'mark_read'; markRead.value = '1'; markRead.textContent = 'Mark read';
         form.append(csrf, noticeId, markRead);
-        action.appendChild(form);
+        actionGroup.appendChild(form);
       }
+      const deleteForm = document.createElement('form');
+      deleteForm.method = 'post';
+      deleteForm.onsubmit = () => window.confirm('Delete this notification?');
+      const deleteCsrf = document.createElement('input');
+      deleteCsrf.type = 'hidden'; deleteCsrf.name = 'csrf'; deleteCsrf.value = list.dataset.csrfToken || '';
+      const deleteNoticeId = document.createElement('input');
+      deleteNoticeId.type = 'hidden'; deleteNoticeId.name = 'notification_id'; deleteNoticeId.value = String(notice.id);
+      const deleteButton = document.createElement('button');
+      deleteButton.className = 'btn btn-outline btn-sm'; deleteButton.name = 'delete_notification'; deleteButton.value = '1';
+      deleteButton.setAttribute('aria-label', 'Delete notification'); deleteButton.title = 'Delete notification'; deleteButton.textContent = '×';
+      deleteForm.append(deleteCsrf, deleteNoticeId, deleteButton);
+      actionGroup.appendChild(deleteForm);
+      action.appendChild(actionGroup);
       row.append(detail, order, date, status, action);
       tbody.prepend(row);
     };

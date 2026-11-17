@@ -9,6 +9,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && csrf_verify($_POST['csrf'] ?? null)
     if (isset($_POST['mark_all'])) {
         $stmt = $pdo->prepare("UPDATE notifications SET is_read = 1 WHERE audience = 'staff' AND audience_id = ?");
         $stmt->execute([(int)$user['id']]);
+    } elseif (isset($_POST['delete_all'])) {
+        $stmt = $pdo->prepare("DELETE FROM notifications WHERE audience = 'staff' AND audience_id = ?");
+        $stmt->execute([(int)$user['id']]);
+    } elseif (isset($_POST['delete_notification'])) {
+        $stmt = $pdo->prepare("DELETE FROM notifications WHERE id = ? AND audience = 'staff' AND audience_id = ?");
+        $stmt->execute([(int)$_POST['notification_id'], (int)$user['id']]);
     } elseif (isset($_POST['mark_read'])) {
         $stmt = $pdo->prepare("UPDATE notifications SET is_read = 1 WHERE id = ? AND audience = 'staff' AND audience_id = ?");
         $stmt->execute([(int)$_POST['notification_id'], (int)$user['id']]);
@@ -21,7 +27,7 @@ $pageTitle = 'Notifications';
 $pageSubtitle = 'Order and payment updates';
 include __DIR__ . '/includes/header.php';
 ?>
-<div class="row-between mb-16"><div><p class="muted">Notifications assigned to your account.</p></div><form method="post"><?= csrf_field() ?><button class="btn btn-outline" name="mark_all" value="1">Mark all read</button></form></div>
+<div class="row-between mb-16"><div><p class="muted">Notifications assigned to your account.</p></div><div class="row" style="gap:8px"><form method="post"><?= csrf_field() ?><button class="btn btn-outline" name="mark_all" value="1">Mark all read</button></form><form method="post" data-clear-all-notifications <?= $notifications ? '' : 'hidden' ?> onsubmit="return confirm('Delete all notifications assigned to your account? This cannot be undone.');"><?= csrf_field() ?><button class="btn btn-danger" name="delete_all" value="1">Clear all</button></form></div></div>
 <div class="card" data-notification-list data-csrf-token="<?= e(csrf_token()) ?>">
   <p class="muted" data-notification-empty <?= $notifications ? 'hidden' : '' ?>>No notifications yet.</p>
   <div class="table-wrap"><table><thead><tr><th>Notification</th><th>Order</th><th>Date</th><th>Status</th><th></th></tr></thead><tbody>
@@ -31,7 +37,7 @@ include __DIR__ . '/includes/header.php';
       <td><?php if ($notice['order_id']): ?><a href="order_view.php?id=<?= (int)$notice['order_id'] ?>"><?= e($notice['order_number'] ?: 'View order') ?></a><?php else: ?>—<?php endif; ?></td>
       <td><?= e(date('M j, Y g:i A', strtotime($notice['created_at']))) ?></td>
       <td><?= $notice['is_read'] ? 'Read' : 'Unread' ?></td>
-      <td><?php if (!$notice['is_read']): ?><form method="post"><?= csrf_field() ?><input type="hidden" name="notification_id" value="<?= (int)$notice['id'] ?>"><button class="btn btn-outline btn-sm" name="mark_read" value="1">Mark read</button></form><?php endif; ?></td>
+      <td><div class="row" style="gap:6px;justify-content:flex-end"><?php if (!$notice['is_read']): ?><form method="post"><?= csrf_field() ?><input type="hidden" name="notification_id" value="<?= (int)$notice['id'] ?>"><button class="btn btn-outline btn-sm" name="mark_read" value="1">Mark read</button></form><?php endif; ?><form method="post" onsubmit="return confirm('Delete this notification?');"><?= csrf_field() ?><input type="hidden" name="notification_id" value="<?= (int)$notice['id'] ?>"><button class="btn btn-outline btn-sm" name="delete_notification" value="1" aria-label="Delete notification" title="Delete notification">×</button></form></div></td>
     </tr>
   <?php endforeach; ?>
   </tbody></table></div>
