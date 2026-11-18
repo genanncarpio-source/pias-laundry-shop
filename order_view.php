@@ -249,8 +249,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['update_status']) || 
                          VALUES (?, NULL, 1, NOW())
                          ON DUPLICATE KEY UPDATE driver_code_hash = NULL, is_active = 1,
                              latitude = NULL, longitude = NULL, accuracy = NULL, heading = NULL, speed = NULL,
-                             customer_location_shared = 0, customer_latitude = NULL, customer_longitude = NULL,
-                             customer_accuracy = NULL, customer_location_updated_at = NULL, customer_shared_at = NULL,
                              started_at = NOW(), updated_at = NULL, stopped_at = NULL'
                     )->execute([$id]);
                 } elseif ($status === 'completed') {
@@ -274,6 +272,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['update_status']) || 
             flash_set('error', $e->getMessage());
         } catch (Throwable $e) {
             if ($pdo->inTransaction()) $pdo->rollBack();
+            error_log('Order update failed for order ' . $id . ': ' . $e->getMessage());
             flash_set('error', 'Unable to save this order update. Refresh the page and try again.');
         }
     }
