@@ -17,6 +17,7 @@ import LiveTrackingMap from './src/components/LiveTrackingMap';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Dimensions,
   Image,
   Linking,
@@ -781,7 +782,7 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
     : pathname === '/profile' ? 'profile'
     : 'home';
   const { services, tickets, notifications, notificationsLoaded, unreadNotifications, shop, loading, refreshing,
-    error, setError, refresh: loadShopData, refreshNotifications, markNotificationRead, notificationsError } = useOnlineShop({ apiBase, customer, token, onSessionExpired });
+    error, setError, refresh: loadShopData, refreshNotifications, markNotificationRead, deleteNotification, notificationsError } = useOnlineShop({ apiBase, customer, token, onSessionExpired });
   const bookingBusy = useRef(false);
   const [bookingError, setBookingError] = useState('');
   const [reviewPrompt, setReviewPrompt] = useState(null);
@@ -1429,12 +1430,12 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
         <ScrollView contentContainerStyle={styles.homeScroll}>
           <View style={styles.pageWidth}>
             <HeroBanner compact />
-            <View style={styles.notificationHeader}><View style={styles.flexOne}><Text style={styles.greeting}>Notifications</Text><Text style={styles.welcomeCopy}>Updates about your laundry orders.</Text></View><Pressable accessibilityRole="button" disabled={!unreadNotifications} onPress={() => { void markNotificationRead(); }} style={[styles.clearTicketsButton, !unreadNotifications && styles.disabledButton]}><Text style={styles.clearTicketsText}>Mark all read</Text></Pressable></View>
+            <View style={styles.notificationHeader}><View style={styles.flexOne}><Text style={styles.greeting}>Notifications</Text><Text style={styles.welcomeCopy}>Updates about your laundry orders.</Text></View>{notifications.length ? <View style={styles.notificationHeaderActions}><Pressable accessibilityRole="button" disabled={!unreadNotifications} onPress={() => { void markNotificationRead(); }} style={[styles.clearTicketsButton, !unreadNotifications && styles.disabledButton]}><Text style={styles.clearTicketsText}>Mark all read</Text></Pressable><Pressable accessibilityRole="button" onPress={() => { const clear = () => { void deleteNotification().catch((problem) => setError(problem.message || 'Could not delete Alerts.')); }; if (Platform.OS === 'web') { if (globalThis.confirm('Delete all notifications? This cannot be undone.')) clear(); } else { Alert.alert('Delete all notifications?', 'This cannot be undone.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Delete all', style: 'destructive', onPress: clear }]); } }} style={styles.clearTicketsButton}><Text style={styles.clearTicketsText}>Clear all</Text></Pressable></View> : null}</View>
             <View style={styles.notificationPushCard}><Text style={styles.trackingTitle}>Phone notifications</Text><Text style={styles.ticketDetail}>Get an alert when the shop updates your order, even when this app is closed.</Text><Pressable accessibilityRole="button" disabled={pushBusy} onPress={() => { void enablePushNotifications(); }} style={[styles.primaryButton, pushBusy && styles.disabledButton]}>{pushBusy ? <ActivityIndicator color={COLORS.white} /> : <Text style={styles.primaryButtonText}>{pushToken ? 'Phone notifications enabled' : 'Enable phone notifications'}</Text>}</Pressable>{pushStatus ? <Text style={styles.ticketDetail}>{pushStatus}</Text> : null}{/Notifications are off/i.test(pushStatus) ? <Pressable onPress={()=>{void Linking.openSettings();}} style={styles.secondaryButton}><Text style={styles.secondaryButtonText}>Open phone settings</Text></Pressable> : null}</View>
 {!notificationsLoaded && !notificationsError && notifications.length === 0 ? <View style={styles.inlineLoading}><ActivityIndicator color={COLORS.purple} /><Text style={styles.mutedText}>Loading notifications...</Text></View> : null}
 {notificationsError ? <View style={styles.emptyCard}><Text style={styles.mutedText}>{notificationsError}</Text><Pressable accessibilityRole="button" onPress={() => { void refreshNotifications(); }} style={styles.secondaryButton}><Text style={styles.secondaryButtonText}>Try again</Text></Pressable></View> : null}
             {notificationsLoaded && !notificationsError && notifications.length === 0 ? <View style={styles.emptyCard}><Text style={styles.emptyEmoji}>{String.fromCodePoint(0x1f514)}</Text><Text style={styles.emptyTitle}>No notifications yet</Text><Text style={styles.mutedText}>Laundry order updates will show up here.</Text></View> : null}
-            {notifications.map((item) => <Pressable key={String(item.id)} onPress={() => { if (!Number(item.is_read)) void markNotificationRead(item.id); if (item.order_number) navigateTo('track', item.order_number); }} style={[styles.notificationCard, !Number(item.is_read) && styles.notificationUnread]}><View style={styles.notificationTitleRow}><Text style={styles.notificationTitle}>{item.title}</Text>{!Number(item.is_read) ? <View style={styles.notificationDot} /> : null}</View><Text style={styles.ticketDetail}>{item.message}</Text>{item.order_number ? <Text style={styles.notificationOrder}>Ticket {item.order_number} - Tap to track</Text> : null}<Text style={styles.notificationDate}>{formatDate(item.created_at)}</Text></Pressable>)}
+            {notifications.map((item) => <View key={String(item.id)} style={[styles.notificationCard, !Number(item.is_read) && styles.notificationUnread]}><Pressable accessibilityRole="button" accessibilityLabel={`Open ${item.title}`} onPress={() => { if (!Number(item.is_read)) void markNotificationRead(item.id); if (item.order_number) navigateTo('track', item.order_number); }}><View style={styles.notificationTitleRow}><Text style={styles.notificationTitle}>{item.title}</Text>{!Number(item.is_read) ? <View style={styles.notificationDot} /> : null}</View><Text style={styles.ticketDetail}>{item.message}</Text>{item.order_number ? <Text style={styles.notificationOrder}>Ticket {item.order_number} - Tap to track</Text> : null}<Text style={styles.notificationDate}>{formatDate(item.created_at)}</Text></Pressable><Pressable accessibilityRole="button" accessibilityLabel={`Delete ${item.title}`} onPress={() => { const remove = () => { void deleteNotification(item.id).catch((problem) => setError(problem.message || 'Could not delete this notification.')); }; if (Platform.OS === 'web') { if (globalThis.confirm('Delete this notification?')) remove(); } else { Alert.alert('Delete notification?', 'This message will be removed from your Alerts.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Delete', style: 'destructive', onPress: remove }]); } }} style={styles.notificationDeleteButton}><Text style={styles.notificationDeleteText}>Delete</Text></Pressable></View>)}
           </View>
         </ScrollView>
       ) : tab === 'about' ? (
@@ -2154,6 +2155,9 @@ const styles = StyleSheet.create({
   navLabelActive: { color: COLORS.plum },
   navBell: { fontSize: 20, height: 22 }, navBellActive: { color: COLORS.plum },
   notificationHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
+  notificationHeaderActions: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  notificationDeleteButton: { alignSelf: 'flex-end', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: '#f3e8ec', marginTop: 4 },
+  notificationDeleteText: { color: COLORS.red, fontSize: 12, fontWeight: '700' },
   notificationPushCard: { backgroundColor: COLORS.cream, borderRadius: 16, borderColor: COLORS.line, borderWidth: 1, padding: 16, gap: 8, marginBottom: 12 },
   notificationCard: { backgroundColor: COLORS.cream, borderRadius: 15, borderColor: COLORS.line, borderWidth: 1, padding: 15, marginBottom: 10, gap: 6 },
   notificationUnread: { borderColor: COLORS.purple, borderWidth: 1.5, backgroundColor: '#fff7ff' },

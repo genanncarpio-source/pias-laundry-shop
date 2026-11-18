@@ -33,6 +33,11 @@ export function useOnlineShop({ apiBase, customer, token, onSessionExpired }) {
     await refreshNotifications();
   }, [apiBase, refreshNotifications, token]);
 
+  const deleteNotification = useCallback(async (id = null) => {
+    await apiRequest(apiBase, 'customer_notifications.php', { method: 'POST', token, body: id == null ? { action: 'delete_all' } : { action: 'delete', id } });
+    await refreshNotifications();
+  }, [apiBase, refreshNotifications, token]);
+
   const refresh = useCallback((quiet = false) => {
     if (inFlight.current) return inFlight.current;
     const operation = (async () => {
@@ -125,5 +130,5 @@ export function useOnlineShop({ apiBase, customer, token, onSessionExpired }) {
     return () => subscription.remove();
   }, [refresh, refreshNotifications]);
 
-  return { ...snapshot, loading, refreshing, error, setError, refresh, refreshNotifications, markNotificationRead, notificationsLoaded, notificationsError };
+  return { ...snapshot, loading, refreshing, error, setError, refresh, refreshNotifications, markNotificationRead, deleteNotification, notificationsLoaded, notificationsError };
 }

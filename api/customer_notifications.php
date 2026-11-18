@@ -19,7 +19,15 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'GET') {
 }
 api_require_method('POST');
 $data = api_input();
-if (!empty($data['mark_all_read'])) {
+if (($data['action'] ?? '') === 'delete_all') {
+    $stmt = $pdo->prepare("DELETE FROM notifications WHERE audience = 'customer' AND audience_id = ?");
+    $stmt->execute([$customerId]);
+} elseif (($data['action'] ?? '') === 'delete') {
+    $id = filter_var($data['id'] ?? null, FILTER_VALIDATE_INT);
+    if (!$id || $id < 1) api_json(422, ['success' => false, 'error' => 'Choose a valid notification.']);
+    $stmt = $pdo->prepare("DELETE FROM notifications WHERE id = ? AND audience = 'customer' AND audience_id = ?");
+    $stmt->execute([$id, $customerId]);
+} elseif (!empty($data['mark_all_read'])) {
     $stmt = $pdo->prepare("UPDATE notifications SET is_read = 1 WHERE audience = 'customer' AND audience_id = ? AND is_read = 0");
     $stmt->execute([$customerId]);
 } else {
