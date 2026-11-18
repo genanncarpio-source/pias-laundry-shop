@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 require_once __DIR__ . '/bootstrap.php';
 $customer = api_current_customer();
 $pdo = db();
@@ -8,7 +8,14 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'GET') {
     $stmt->execute([$customerId]);
     $unread = $pdo->prepare("SELECT COUNT(*) FROM notifications WHERE audience = 'customer' AND audience_id = ? AND is_read = 0");
     $unread->execute([$customerId]);
-    api_json(200, ['success' => true, 'notifications' => $stmt->fetchAll(), 'unread_count' => (int)$unread->fetchColumn()]);
+    $notifications = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    foreach ($notifications as &$notification) {
+        $notification['id'] = (int)$notification['id'];
+        $notification['order_id'] = $notification['order_id'] === null ? null : (int)$notification['order_id'];
+        $notification['is_read'] = (int)$notification['is_read'];
+    }
+    unset($notification);
+    api_json(200, ['success' => true, 'notifications' => $notifications, 'unread_count' => (int)$unread->fetchColumn()]);
 }
 api_require_method('POST');
 $data = api_input();

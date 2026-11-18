@@ -1,4 +1,6 @@
 <?php
+// Keep incidental output from included files out of JSON API responses.
+if (!ob_get_level()) ob_start();
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/feature_schema.php';
@@ -21,6 +23,8 @@ ensure_workflow_schema();
 
 function api_json(int $status, array $payload): void
 {
+    while (ob_get_level() > 0) { ob_end_clean(); }
+    header('Content-Type: application/json; charset=utf-8');
     http_response_code($status);
     echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
     exit;
