@@ -781,7 +781,7 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
     : pathname === '/profile' ? 'profile'
     : 'home';
   const { services, tickets, notifications, notificationsLoaded, unreadNotifications, shop, loading, refreshing,
-    error, setError, refresh: loadShopData, refreshNotifications, markNotificationRead } = useOnlineShop({ apiBase, customer, token, onSessionExpired });
+    error, setError, refresh: loadShopData, refreshNotifications, markNotificationRead, notificationsError } = useOnlineShop({ apiBase, customer, token, onSessionExpired });
   const bookingBusy = useRef(false);
   const [bookingError, setBookingError] = useState('');
   const [reviewPrompt, setReviewPrompt] = useState(null);
@@ -860,9 +860,13 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
 
   useEffect(() => {
     const received = Notifications.addNotificationReceivedListener(() => { void refreshNotifications(); });
-    const response = Notifications.addNotificationResponseReceivedListener(() => router.replace('/notifications'));
+    const response = Notifications.addNotificationResponseReceivedListener(() => { void refreshNotifications().finally(() => router.replace('/notifications')); });
     return () => { received.remove(); response.remove(); };
   }, [refreshNotifications, router]);
+
+  useEffect(() => {
+    if (tab === 'notifications') void refreshNotifications();
+  }, [tab, refreshNotifications]);
 
   useEffect(() => {
     if (!notificationToast) return undefined;
@@ -1427,8 +1431,9 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
             <HeroBanner compact />
             <View style={styles.notificationHeader}><View style={styles.flexOne}><Text style={styles.greeting}>Notifications</Text><Text style={styles.welcomeCopy}>Updates about your laundry orders.</Text></View><Pressable accessibilityRole="button" disabled={!unreadNotifications} onPress={() => { void markNotificationRead(); }} style={[styles.clearTicketsButton, !unreadNotifications && styles.disabledButton]}><Text style={styles.clearTicketsText}>Mark all read</Text></Pressable></View>
             <View style={styles.notificationPushCard}><Text style={styles.trackingTitle}>Phone notifications</Text><Text style={styles.ticketDetail}>Get an alert when the shop updates your order, even when this app is closed.</Text><Pressable accessibilityRole="button" disabled={pushBusy} onPress={() => { void enablePushNotifications(); }} style={[styles.primaryButton, pushBusy && styles.disabledButton]}>{pushBusy ? <ActivityIndicator color={COLORS.white} /> : <Text style={styles.primaryButtonText}>{pushToken ? 'Phone notifications enabled' : 'Enable phone notifications'}</Text>}</Pressable>{pushStatus ? <Text style={styles.ticketDetail}>{pushStatus}</Text> : null}{/Notifications are off/i.test(pushStatus) ? <Pressable onPress={()=>{void Linking.openSettings();}} style={styles.secondaryButton}><Text style={styles.secondaryButtonText}>Open phone settings</Text></Pressable> : null}</View>
-            {loading && notifications.length === 0 ? <View style={styles.inlineLoading}><ActivityIndicator color={COLORS.purple} /><Text style={styles.mutedText}>Loading notifications...</Text></View> : null}
-            {!loading && notifications.length === 0 ? <View style={styles.emptyCard}><Text style={styles.emptyEmoji}>{String.fromCodePoint(0x1f514)}</Text><Text style={styles.emptyTitle}>No notifications yet</Text><Text style={styles.mutedText}>Laundry order updates will show up here.</Text></View> : null}
+{!notificationsLoaded && !notificationsError && notifications.length === 0 ? <View style={styles.inlineLoading}><ActivityIndicator color={COLORS.purple} /><Text style={styles.mutedText}>Loading notifications...</Text></View> : null}
+{notificationsError ? <View style={styles.emptyCard}><Text style={styles.mutedText}>{notificationsError}</Text><Pressable accessibilityRole="button" onPress={() => { void refreshNotifications(); }} style={styles.secondaryButton}><Text style={styles.secondaryButtonText}>Try again</Text></Pressable></View> : null}
+            {notificationsLoaded && !notificationsError && notifications.length === 0 ? <View style={styles.emptyCard}><Text style={styles.emptyEmoji}>{String.fromCodePoint(0x1f514)}</Text><Text style={styles.emptyTitle}>No notifications yet</Text><Text style={styles.mutedText}>Laundry order updates will show up here.</Text></View> : null}
             {notifications.map((item) => <Pressable key={String(item.id)} onPress={() => { if (!Number(item.is_read)) void markNotificationRead(item.id); if (item.order_number) navigateTo('track', item.order_number); }} style={[styles.notificationCard, !Number(item.is_read) && styles.notificationUnread]}><View style={styles.notificationTitleRow}><Text style={styles.notificationTitle}>{item.title}</Text>{!Number(item.is_read) ? <View style={styles.notificationDot} /> : null}</View><Text style={styles.ticketDetail}>{item.message}</Text>{item.order_number ? <Text style={styles.notificationOrder}>Ticket {item.order_number} - Tap to track</Text> : null}<Text style={styles.notificationDate}>{formatDate(item.created_at)}</Text></Pressable>)}
           </View>
         </ScrollView>

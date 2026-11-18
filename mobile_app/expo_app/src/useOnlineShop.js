@@ -10,6 +10,7 @@ export function useOnlineShop({ apiBase, customer, token, onSessionExpired }) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
+  const [notificationsError, setNotificationsError] = useState('');
   const [notificationsLoaded, setNotificationsLoaded] = useState(false);
   const active = useRef(false);
   const inFlight = useRef(null);
@@ -18,9 +19,10 @@ export function useOnlineShop({ apiBase, customer, token, onSessionExpired }) {
   const refreshNotifications = useCallback(() => {
     if (notificationRequest.current) return notificationRequest.current;
     const operation = apiRequest(apiBase, 'customer_notifications.php', { token, timeoutMs: 10000 }).then((data) => {
-      if (active.current) { setSnapshot((current) => ({ ...current, notifications: data.notifications || [], unreadNotifications: Number(data.unread_count) || 0 })); setNotificationsLoaded(true); }
+      if (active.current) { setSnapshot((current) => ({ ...current, notifications: data.notifications || [], unreadNotifications: Number(data.unread_count) || 0 })); setNotificationsLoaded(true); setNotificationsError(''); }
     }).catch(async (problem) => {
       if (problem.status === 401 || problem.status === 403) await onSessionExpired();
+      else if (active.current) setNotificationsError(problem.message || 'Could not load Alerts. Check your connection and try again.');
     }).finally(() => { if (notificationRequest.current === operation) notificationRequest.current = null; });
     notificationRequest.current = operation;
     return operation;
@@ -123,5 +125,5 @@ export function useOnlineShop({ apiBase, customer, token, onSessionExpired }) {
     return () => subscription.remove();
   }, [refresh, refreshNotifications]);
 
-  return { ...snapshot, loading, refreshing, error, setError, refresh, refreshNotifications, markNotificationRead, notificationsLoaded };
+  return { ...snapshot, loading, refreshing, error, setError, refresh, refreshNotifications, markNotificationRead, notificationsLoaded, notificationsError };
 }
