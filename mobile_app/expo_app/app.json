@@ -3,7 +3,7 @@
     "name": "Pia's Laundry Shop",
     "slug": "pias-laundry-shop-customer",
     "scheme": "piaslaundry",
-    "version": "1.1.1",
+    "version": "1.1.2",
     "orientation": "default",
     "icon": "./assets/pias-logo-app-icon.png",
     "userInterfaceStyle": "dark",
@@ -14,7 +14,7 @@
     "android": {
       "package": "com.piaslaundry.customer",
       "softwareKeyboardLayoutMode": "resize",
-      "versionCode": 13,
+      "versionCode": 14,
       "adaptiveIcon": {
         "backgroundColor": "#FFFFFF",
         "foregroundImage": "./assets/pias-logo-app-icon.png"
@@ -53,7 +53,14 @@
           "isIosBackgroundLocationEnabled": true
         }
       ],
-      ["expo-image-picker", {"photosPermission": "Pia's Laundry Shop uses your photos only when you choose a profile picture.", "cameraPermission": "Pia's Laundry Shop uses your camera only when you take a profile picture.", "microphonePermission": false}],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Pia's Laundry Shop uses your photos only when you choose a profile picture.",
+          "cameraPermission": "Pia's Laundry Shop uses your camera only when you take a profile picture.",
+          "microphonePermission": false
+        }
+      ],
       "expo-router"
     ],
     "extra": {
