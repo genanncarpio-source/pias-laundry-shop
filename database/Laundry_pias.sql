@@ -79,6 +79,7 @@ CREATE TABLE services (
   name        VARCHAR(120) NOT NULL,
   category    VARCHAR(60)  NOT NULL DEFAULT 'Wash & Fold',
   unit        ENUM('kg','piece') NOT NULL DEFAULT 'kg',
+  kg_per_load DECIMAL(5,2) DEFAULT NULL,
   price       DECIMAL(10,2) NOT NULL DEFAULT 0.00,
   description VARCHAR(255) DEFAULT NULL,
   is_active   TINYINT(1)   NOT NULL DEFAULT 1,

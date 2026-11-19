@@ -3,6 +3,7 @@ require_once __DIR__ . '/bootstrap.php';
 require_once __DIR__ . '/../includes/mobile_booking.php';
 require_once __DIR__ . '/../includes/service_pricing.php';
 api_require_method('POST');
+ensure_service_load_capacity_schema();
 $customer = api_current_customer();
 $data = api_input();
 
@@ -43,7 +44,7 @@ $dbIds = array_values(array_filter($ids, static fn ($id) => (int)$id > 0));
 $serviceMap = [];
 if ($dbIds) {
     $marks = implode(',', array_fill(0, count($dbIds), '?'));
-    $stmt = db()->prepare("SELECT id, name, category, unit, price FROM services WHERE is_active = 1 AND id IN ($marks)");
+    $stmt = db()->prepare("SELECT id, name, category, unit, kg_per_load, price FROM services WHERE is_active = 1 AND id IN ($marks)");
     $stmt->execute($dbIds);
     foreach ($stmt->fetchAll() as $service) {
         $serviceMap[(int)$service['id']] = $service;
@@ -60,26 +61,27 @@ foreach ($quantities as $serviceId => $quantity) {
     $service = $serviceMap[$serviceId];
     $category = strtolower(trim((string)($service['category'] ?? '')));
     $name = strtolower(trim((string)($service['name'] ?? '')));
-    $isMainService = in_array($category, ['wash', 'dry', 'full service', 'wash & fold'], true)
+    $isMainService = service_uses_weighted_load($service)
+        || in_array($category, ['wash', 'dry', 'full service', 'wash & fold'], true)
         || in_array($name, ['wash', 'dry', 'full service'], true);
     if ($isMainService) {
         $coreServices[] = $service['name'];
         if (array_key_exists($serviceId, $weights)) {
-            $expectedAddonLoads = service_weight_load_count((float)$weights[$serviceId], (string)$service['category']);
+            $expectedAddonLoads = service_weight_load_count((float)$weights[$serviceId], (string)$service['category'], $service['kg_per_load'] !== null ? (float)$service['kg_per_load'] : null);
         } elseif (strtolower((string)$service['unit']) === 'load') {
             $expectedAddonLoads = (int)$quantity;
         } elseif (strtolower((string)$service['unit']) === 'kg') {
-            $expectedAddonLoads = service_weight_load_count((float)$quantity, (string)$service['category']);
+            $expectedAddonLoads = service_weight_load_count((float)$quantity, (string)$service['category'], $service['kg_per_load'] !== null ? (float)$service['kg_per_load'] : null);
         }
     }
 }
 if (count($coreServices) > 1) {
-    mobile_booking_json(422, ['success' => false, 'error' => 'Choose only one main laundry service: Wash, Dry, or Full Service. Add-ons may still be included.']);
+    mobile_booking_json(422, ['success' => false, 'error' => 'Choose only one main laundry service. Add-ons may still be included.']);
 }
 
 $hasAddons = count(array_filter($ids, static fn ($id) => stripos((string)($serviceMap[$id]['category'] ?? ''), 'add') === 0 || (int)$id < 0)) > 0;
 if ($hasAddons && (count($coreServices) !== 1 || $expectedAddonLoads < 1)) {
-    mobile_booking_json(422, ['success' => false, 'error' => 'Choose one main laundry service before adding Fabcon or Detergent.']);
+    mobile_booking_json(422, ['success' => false, 'error' => 'Choose one main laundry service before adding add-ons.']);
 }
 
 $lines = [];
@@ -88,11 +90,12 @@ foreach ($quantities as $serviceId => $quantity) {
     $service = $serviceMap[$serviceId];
     $category = strtolower(trim((string)($service['category'] ?? '')));
     $name = strtolower(trim((string)($service['name'] ?? '')));
-    $isMainService = in_array($category, ['wash', 'dry', 'full service', 'wash & fold'], true)
+    $isMainService = service_uses_weighted_load($service)
+        || in_array($category, ['wash', 'dry', 'full service', 'wash & fold'], true)
         || in_array($name, ['wash', 'dry', 'full service'], true);
     if (stripos((string)$service['category'], 'add') === 0 || (int)$serviceId < 0) {
         if (array_key_exists($serviceId, $weights) || (float)$quantity !== (float)$expectedAddonLoads) {
-            mobile_booking_json(422, ['success' => false, 'error' => 'Fabcon and Detergent quantities must match the number of laundry loads. Refresh the estimate and try again.']);
+            mobile_booking_json(422, ['success' => false, 'error' => 'Add-on quantities must match the number of laundry loads. Refresh the estimate and try again.']);
         }
         $lineTotal = round((float)$service['price'] * $quantity, 2);
         $subtotal += $lineTotal;
@@ -108,16 +111,16 @@ foreach ($quantities as $serviceId => $quantity) {
         continue;
     }
     $hasEstimatedWeight = array_key_exists($serviceId, $weights);
-    $isWeightLoadService = strtolower((string)$service['unit']) === 'load' && $isMainService;
+    $isWeightLoadService = service_uses_weighted_load($service);
     if ($hasEstimatedWeight && !$isWeightLoadService) {
-        mobile_booking_json(422, ['success' => false, 'error' => 'Laundry weight can only be entered for Wash, Dry, or Full Service loads.']);
+        mobile_booking_json(422, ['success' => false, 'error' => 'Laundry weight can only be entered for services charged by the load.']);
     }
-    if ($hasEstimatedWeight) $quantity = service_weight_load_count((float)$weights[$serviceId], (string)$service['category']);
+    if ($hasEstimatedWeight) $quantity = service_weight_load_count((float)$weights[$serviceId], (string)$service['category'], $service['kg_per_load'] !== null ? (float)$service['kg_per_load'] : null);
     if (in_array($service['unit'], ['piece', 'load'], true) && floor((float)$quantity) !== (float)$quantity) {
         mobile_booking_json(422, ['success' => false, 'error' => 'Piece- and load-based services require whole-number quantities.']);
     }
     $lineTotal = $hasEstimatedWeight
-        ? service_weight_load_price((float)$weights[$serviceId], (float)$service['price'], (string)$service['category'])
+        ? service_weight_load_price((float)$weights[$serviceId], (float)$service['price'], (string)$service['category'], $service['kg_per_load'] !== null ? (float)$service['kg_per_load'] : null)
         : round((float)$service['price'] * $quantity, 2);
     $subtotal += $lineTotal;
     $lines[] = [

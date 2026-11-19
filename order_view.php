@@ -5,6 +5,7 @@ require_once __DIR__ . '/includes/feature_schema.php';
 require_once __DIR__ . '/includes/service_pricing.php';
 ensure_feature_schema();
 ensure_workflow_schema();
+ensure_service_load_capacity_schema();
 
 $pdo = db();
 $id = (int)($_GET['id'] ?? 0);
@@ -126,7 +127,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['update_status']) || 
                 if (in_array($currentOrder['status'], ['cancelled', 'rejected', 'completed', 'picked_up'], true)) throw new InvalidArgumentException('Actual weight cannot be changed for this order.');
                 $weight = round((float)($_POST['actual_weight'] ?? 0), 2);
                 if ($weight <= 0 || $weight > 1000) throw new InvalidArgumentException('Enter an actual weight between 0.01 and 1,000 kg.');
-                $itemStmt = $pdo->prepare('SELECT i.*, s.category FROM order_items i LEFT JOIN services s ON s.id = i.service_id WHERE i.order_id = ? ORDER BY i.id');
+                $itemStmt = $pdo->prepare('SELECT i.*, s.category, s.kg_per_load FROM order_items i LEFT JOIN services s ON s.id = i.service_id WHERE i.order_id = ? ORDER BY i.id');
                 $itemStmt->execute([$id]);
                 $orderLines = $itemStmt->fetchAll();
                 $hasKg = false;
@@ -148,8 +149,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['update_status']) || 
                         $actualQty = $estimatedKgTotal > 0 ? $weight * $estimatedQty / $estimatedKgTotal : $weight;
                         $unitPrice = (float)$line['unit_price'];
                         $category = (string)($line['category'] ?? 'Wash');
-                        $lineTotal = service_weight_load_price($actualQty, $unitPrice, $category);
-                        $loadCount = service_weight_load_count($actualQty, $category);
+                        $kgPerLoad = $line['kg_per_load'] !== null ? (float)$line['kg_per_load'] : null;
+                        $lineTotal = service_weight_load_price($actualQty, $unitPrice, $category, $kgPerLoad);
+                        $loadCount = service_weight_load_count($actualQty, $category, $kgPerLoad);
                         $updates[] = [$loadCount, $unitPrice, $lineTotal, $line['id'], $estimatedQty, $actualQty];
                         $newSubtotal += $lineTotal;
                     } elseif ($line['unit'] === 'kg') {

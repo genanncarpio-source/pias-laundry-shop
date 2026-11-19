@@ -4,6 +4,7 @@ require_once __DIR__ . '/includes/service_pricing.php';
 require_admin();
 require_once __DIR__ . '/includes/feature_schema.php';
 ensure_workflow_schema();
+ensure_service_load_capacity_schema();
 
 $pdo = db();
 // Preserve the two add-ons previously supplied directly by the mobile API.
@@ -58,28 +59,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save'])) {
     $name        = trim($_POST['name'] ?? '');
     $category    = trim($_POST['category'] ?? '');
     $unit        = trim((string)($_POST['unit'] ?? 'kg'));
+    $rawKgPerLoad = trim((string)($_POST['kg_per_load'] ?? ''));
+    $kgPerLoad = $unit === 'load' ? filter_var($rawKgPerLoad, FILTER_VALIDATE_FLOAT) : null;
     $rawPrice    = trim((string)($_POST['price'] ?? ''));
     $price       = filter_var($rawPrice, FILTER_VALIDATE_FLOAT);
     $description = trim($_POST['description'] ?? '');
     $is_active   = isset($_POST['is_active']) ? 1 : 0;
 
-    if ($name === '' || $category === '' || mb_strlen($category) > 60 || $unit === '' || mb_strlen($unit) > 30 || !preg_match('/^[\p{L}\p{N}][\p{L}\p{N} ._\/-]{0,29}$/u', $unit) || $price === false || $price <= 0) {
-        flash_set('error', 'Enter a service name, category, unit, and a valid price greater than 0.');
+    if ($name === '' || $category === '' || mb_strlen($category) > 60 || $unit === '' || mb_strlen($unit) > 30 || !preg_match('/^[\p{L}\p{N}][\p{L}\p{N} ._\/-]{0,29}$/u', $unit) || $price === false || $price <= 0 || ($unit === 'load' && ($kgPerLoad === false || $kgPerLoad <= 0 || $kgPerLoad > 99))) {
+        flash_set('error', 'Enter a valid service name, category, unit, price, and load capacity (up to 99 kg).');
         redirect('services.php' . ($id ? "?id=$id" : ''));
     }
 
     if ($id > 0) {
-        $beforeStmt = $pdo->prepare('SELECT name, category, unit, price, is_active FROM services WHERE id = ?');
+        $beforeStmt = $pdo->prepare('SELECT name, category, unit, kg_per_load, price, is_active FROM services WHERE id = ?');
         $beforeStmt->execute([$id]);
         $before = $beforeStmt->fetch();
-        $stmt = $pdo->prepare("UPDATE services SET name = ?, category = ?, unit = ?, price = ?, description = ?, is_active = ? WHERE id = ?");
-        $stmt->execute([$name, $category, $unit, $price, $description, $is_active, $id]);
-        add_audit_log('Service updated', 'services', $id, $before, ['name' => $name, 'category' => $category, 'unit' => $unit, 'price' => $price, 'is_active' => $is_active]);
+        $stmt = $pdo->prepare("UPDATE services SET name = ?, category = ?, unit = ?, kg_per_load = ?, price = ?, description = ?, is_active = ? WHERE id = ?");
+        $stmt->execute([$name, $category, $unit, $kgPerLoad, $price, $description, $is_active, $id]);
+        add_audit_log('Service updated', 'services', $id, $before, ['name' => $name, 'category' => $category, 'unit' => $unit, 'kg_per_load' => $kgPerLoad, 'price' => $price, 'is_active' => $is_active]);
         flash_set('success', 'Service updated.');
     } else {
-        $stmt = $pdo->prepare("INSERT INTO services (name, category, unit, price, description, is_active) VALUES (?, ?, ?, ?, ?, ?)");
-        $stmt->execute([$name, $category, $unit, $price, $description, $is_active]);
-        add_audit_log('Service added', 'services', (int)$pdo->lastInsertId(), null, ['name' => $name, 'category' => $category, 'unit' => $unit, 'price' => $price]);
+        $stmt = $pdo->prepare("INSERT INTO services (name, category, unit, kg_per_load, price, description, is_active) VALUES (?, ?, ?, ?, ?, ?, ?)");
+        $stmt->execute([$name, $category, $unit, $kgPerLoad, $price, $description, $is_active]);
+        add_audit_log('Service added', 'services', (int)$pdo->lastInsertId(), null, ['name' => $name, 'category' => $category, 'unit' => $unit, 'kg_per_load' => $kgPerLoad, 'price' => $price]);
         flash_set('success', 'Service added.');
     }
     redirect('services.php');
@@ -163,7 +166,13 @@ include __DIR__ . '/includes/header.php';
         </div>
       </div>
 
-      <label id="price-label" for="price">Price (&#8369; per <?= ($editing['unit'] ?? 'kg') === 'load' ? 'load, up to 7 kg' : e($editing['unit'] ?? 'kg') ?>) *</label>
+      <div id="kg-capacity-field" <?= ($editing['unit'] ?? 'kg') === 'load' ? '' : 'hidden' ?> style="margin-bottom:12px;">
+        <label for="kg_per_load">Kg per load *</label>
+        <input type="number" id="kg_per_load" name="kg_per_load" min="0.01" max="99" step="0.01" value="<?= e(service_load_capacity((string)($editing['category'] ?? 'Wash'), isset($editing['kg_per_load']) && $editing['kg_per_load'] !== null ? (float)$editing['kg_per_load'] : null)) ?>">
+        <small class="muted">Maximum weight covered by one load. Use 5 for a 5 kg load.</small>
+      </div>
+
+      <label id="price-label" for="price">Price (&#8369; per <?= ($editing['unit'] ?? 'kg') === 'load' ? 'load, up to ' . e(service_load_capacity((string)($editing['category'] ?? 'Wash'), isset($editing['kg_per_load']) && $editing['kg_per_load'] !== null ? (float)$editing['kg_per_load'] : null)) . ' kg' : e($editing['unit'] ?? 'kg') ?>) *</label>
       <input type="number" id="price" name="price" min="0" step="0.01" required
              value="<?= e($editing['price'] ?? '') ?>">
 
@@ -194,7 +203,7 @@ include __DIR__ . '/includes/header.php';
             <td><?= e($s['name']) ?></td>
             <td class="muted"><?= e($s['category']) ?></td>
             <td><?= e($s['unit']) ?></td>
-            <td class="num"><?= money($s['price']) ?> <span class="muted">/ <?= $s['unit'] === 'load' ? 'load (up to 7 kg)' : e($s['unit']) ?></span></td>
+            <td class="num"><?= money($s['price']) ?> <span class="muted">/ <?= $s['unit'] === 'load' ? 'load (up to ' . e(service_load_capacity((string)$s['category'], isset($s['kg_per_load']) && $s['kg_per_load'] !== null ? (float)$s['kg_per_load'] : null)) . ' kg)' : e($s['unit']) ?></span></td>
             <td><span class="badge badge-<?= $s['is_active'] ? 'active' : 'inactive' ?>"><?= $s['is_active'] ? 'Active' : 'Inactive' ?></span></td>
             <td class="right" style="white-space:nowrap;">
               <a class="btn btn-outline btn-sm" href="services.php?id=<?= (int)$s['id'] ?>">Edit</a>
@@ -229,13 +238,25 @@ include __DIR__ . '/includes/header.php';
 <script>
 (function () {
   var unit = document.getElementById("unit");
+  var category = document.getElementById("category");
+  var capacity = document.getElementById("kg_per_load");
+  var capacityField = document.getElementById("kg-capacity-field");
   var label = document.getElementById("price-label");
-  if (!unit || !label) return;
-  unit.addEventListener("input", function () {
-    var value = unit.value.trim();
-    var basis = value.toLowerCase() === "load" ? "load, up to 7 kg" : (value || "unit");
+  if (!unit || !label || !capacity || !capacityField) return;
+  var defaultCapacity = function (value) { return /full service|wash & fold/i.test(value || "") ? 8 : 7; };
+  var capacityTouched = Math.abs(Number(capacity.value) - defaultCapacity(category ? category.value : "")) > 0.001;
+  capacity.addEventListener("input", function () { capacityTouched = true; updateCapacityControls(); });
+  function updateCapacityControls() {
+    var isLoad = unit.value.trim().toLowerCase() === "load";
+    capacityField.hidden = !isLoad;
+    capacity.required = isLoad;
+    if (isLoad && !capacityTouched) capacity.value = defaultCapacity(category ? category.value : "");
+    var basis = isLoad ? "load, up to " + (capacity.value || defaultCapacity(category ? category.value : "")) + " kg" : (unit.value.trim() || "unit");
     label.textContent = "Price (" + String.fromCharCode(8369) + " per " + basis + ") *";
-  });
+  }
+  unit.addEventListener("input", updateCapacityControls);
+  if (category) category.addEventListener("input", updateCapacityControls);
+  updateCapacityControls();
 })();
 </script>
 

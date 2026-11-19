@@ -135,34 +135,44 @@ function serviceCategory(service) {
 }
 
 function isCoreLoadService(service) {
-  return service?.unit === 'load' && ['Wash', 'Dry', 'Full service'].includes(serviceCategory(service));
+  return service?.unit === 'load' && serviceCategory(service) !== 'Add-ons';
 }
 
-function billableLoadCount(weightKg, category) {
+function serviceKgPerLoad(service) {
+  const capacity = Number(service?.kg_per_load);
+  if (Number.isFinite(capacity) && capacity > 0) return capacity;
+  return String(serviceCategory(service)).toLowerCase() === 'full service' ? 8 : 7;
+}
+
+function formatKg(value) {
+  return Number.isInteger(value) ? String(value) : String(Number(value.toFixed(2)));
+}
+
+function billableLoadCount(weightKg, category, kgPerLoad) {
   const normalized = String(category || '').toLowerCase();
   if (!['wash', 'full service'].includes(normalized)) return 0;
   const weight = Number(weightKg);
-  if (!Number.isFinite(weight) || weight < 7) return 0;
-  const capacity = normalized === 'full service' ? 8 : 7;
+  const capacity = Number(kgPerLoad) > 0 ? Number(kgPerLoad) : (normalized === 'full service' ? 8 : 7);
+  if (!Number.isFinite(weight) || weight < Math.min(7, capacity)) return 0;
   return Math.ceil(weight / capacity);
 }
 
-function loadPriceForWeight(weightKg, basePrice, category) {
+function loadPriceForWeight(weightKg, basePrice, category, kgPerLoad) {
   const requestedWeight = Number(weightKg);
   if (!Number.isFinite(requestedWeight) || requestedWeight <= 0 || requestedWeight > 500) return 0;
   const isFullService = String(category || '').toLowerCase() === 'full service';
-  if (isFullService && requestedWeight > 8) return Math.ceil(requestedWeight / 8) * (Number(basePrice) || 0);
-  const loadCapacity = isFullService ? 8 : 7;
+  const loadCapacity = Number(kgPerLoad) > 0 ? Number(kgPerLoad) : (isFullService ? 8 : 7);
+  if (!isFullService || Math.abs(loadCapacity - 8) > 0.001) return Math.ceil(requestedWeight / loadCapacity) * (Number(basePrice) || 0);
+  if (requestedWeight > loadCapacity) return Math.ceil(requestedWeight / loadCapacity) * (Number(basePrice) || 0);
   let remaining = requestedWeight;
   let total = 0;
   while (remaining > 0.0001) {
     const loadWeight = Math.min(loadCapacity, remaining);
-    total += (Number(basePrice) || 0) + (isFullService && loadWeight > 7 ? 39 : 0);
+    total += (Number(basePrice) || 0) + (loadWeight > 7 ? 39 : 0);
     remaining = Math.max(0, Number((remaining - loadWeight).toFixed(2)));
   }
   return total;
 }
-
 function serviceEmoji(service) {
   const name = String(service.name || '').toLowerCase();
   if (name.includes('detergent')) return '🧴';
@@ -1092,11 +1102,11 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
 
   const mainLaundry = services.find((service) => isCoreLoadService(service) && Number(quantities[String(service.id)] || 0) > 0);
   const mainLaundryWeight = mainLaundry ? Number(quantities[String(mainLaundry.id)] || 0) : 0;
-  const mainLoadCount = mainLaundry ? billableLoadCount(mainLaundryWeight, serviceCategory(mainLaundry)) : 0;
+  const mainLoadCount = mainLaundry ? billableLoadCount(mainLaundryWeight, serviceCategory(mainLaundry), serviceKgPerLoad(mainLaundry)) : 0;
   const serviceSubtotal = useMemo(() => services.reduce((total, service) => {
     const quantity = Number(quantities[String(service.id)] || 0);
     if (!Number.isFinite(quantity) || quantity <= 0) return total;
-    if (isCoreLoadService(service)) return total + loadPriceForWeight(quantity, service.price, serviceCategory(service));
+    if (isCoreLoadService(service)) return total + loadPriceForWeight(quantity, service.price, serviceCategory(service), serviceKgPerLoad(service));
     if (serviceCategory(service) === 'Add-ons') return total + (Number(service.price) || 0) * mainLoadCount;
     return total + (Number(service.price) || 0) * quantity;
   }, 0), [quantities, services, mainLoadCount]);
@@ -1105,19 +1115,19 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
   const updateQuantity = (service, value) => {
     const clean = String(value).replace(/[^0-9.]/g, '');
     const id = String(service.id);
-    const isCoreService = ['Wash', 'Dry', 'Full service'].includes(serviceCategory(service));
+    const isCoreService = isCoreLoadService(service) || ['Wash', 'Dry', 'Full service'].includes(serviceCategory(service));
     if (isCoreService && Number(clean || 0) > 99) { setBookingError('Each laundry service is limited to 99 kg.'); return; }
     setQuantities((current) => {
       if (!isCoreService) return { ...current, [id]: clean };
       const next = { ...current, [id]: clean };
       if (Number(clean || 0) > 0) {
         services.forEach((item) => {
-          if (String(item.id) !== id && ['Wash', 'Dry', 'Full service'].includes(serviceCategory(item))) next[String(item.id)] = '';
+          if (String(item.id) !== id && (isCoreLoadService(item) || ['Wash', 'Dry', 'Full service'].includes(serviceCategory(item)))) next[String(item.id)] = '';
         });
       }
       const coreCategory = serviceCategory(service);
       const belowAddonLoad = coreCategory === 'Wash' || coreCategory === 'Full service'
-        ? Number(clean || 0) < 7
+        ? Number(clean || 0) < Math.min(7, serviceKgPerLoad(service))
         : true;
       if (belowAddonLoad) {
         services.forEach((item) => {
@@ -1168,7 +1178,7 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
       const isAddon = serviceCategory(service) === 'Add-ons';
       return {
         service_id: Number(service.id),
-        quantity: isAddon ? (amount > 0 ? mainLoadCount : 0) : (weightBased ? Math.ceil(amount / (serviceCategory(service) === 'Full service' ? 8 : 7)) : amount),
+        quantity: isAddon ? (amount > 0 ? mainLoadCount : 0) : (weightBased ? Math.ceil(amount / serviceKgPerLoad(service)) : amount),
         ...(weightBased ? { weight_kg: Number(amount.toFixed(2)) } : {}),
       };
     }).filter((line) => line.quantity > 0);
@@ -1712,13 +1722,15 @@ function ServiceCard({ service, quantity, onQuantityChange, wide, index, addonSe
   const weightBased = isCoreLoadService(service);
   const category = serviceCategory(service);
   const currentWeight = Number(quantity) || 0;
-  const addonLoadCount = billableLoadCount(currentWeight, category);
+  const kgPerLoad = serviceKgPerLoad(service);
+  const addonMinimumKg = Math.min(7, kgPerLoad);
+  const addonLoadCount = billableLoadCount(currentWeight, category, kgPerLoad);
   const basePrice = Number(service.price) || 0;
   const description = weightBased
-    ? (category === 'Full service'
+    ? (category === 'Full service' && Math.abs(kgPerLoad - 8) < 0.001
       ? `${money(basePrice)} covers up to 7 kg; 8 kg is ${money(basePrice + 39)}. Over 8 kg uses separate ${money(basePrice)} loads.`
-      : `${money(basePrice)} per load covers up to 7 kg. Every additional load starts another charge.`)
-    : service.description || 'Laundry service Â· ' + (service.unit || 'unit');
+      : `${money(basePrice)} per load covers up to ${formatKg(kgPerLoad)} kg. Every additional load starts another charge.`)
+    : service.description || 'Laundry service - ' + (service.unit || 'unit');
   return (
     <View style={[styles.serviceCard, wide ? styles.serviceCardWide : styles.serviceCardNarrow]}>
       <LinearGradient colors={colors} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0.8 }} style={styles.serviceImageBand}>
@@ -1731,7 +1743,7 @@ function ServiceCard({ service, quantity, onQuantityChange, wide, index, addonSe
           <View style={styles.serviceTextBlock}>
             <Text style={styles.serviceTitle}>{service.name || 'Laundry service'}</Text>
             <Text style={styles.serviceDescription} numberOfLines={2}>{description}</Text>
-            <Text style={styles.servicePrice}>{money(service.price)} <Text style={styles.serviceUnit}>/ {weightBased ? 'up to 7 kg' : (service.unit || 'unit')}</Text></Text>
+            <Text style={styles.servicePrice}>{money(service.price)} <Text style={styles.serviceUnit}>/ {weightBased ? `up to ${formatKg(kgPerLoad)} kg` : (service.unit || 'unit')}</Text></Text>
           </View>
           <View style={styles.quantityControl}>
             <Pressable accessibilityLabel={weightBased ? 'Remove 1 kg of ' + service.name : 'Remove one ' + service.name} onPress={() => onQuantityChange(String(Math.max(0, (Number(quantity) || 0) - 1)))} style={styles.quantityButton}><Text style={styles.quantityButtonText}>−</Text></Pressable>
@@ -1743,8 +1755,8 @@ function ServiceCard({ service, quantity, onQuantityChange, wide, index, addonSe
           </View>
         </View>
         {addonServices.length ? <View style={styles.inlineAddons}>
-          <Text style={styles.inlineAddonsTitle}>Add-ons <Text style={styles.inlineAddonsHint}>({category === 'Full service' ? '7 kg minimum · up to 8 kg per load' : '7 kg per load'})</Text></Text>
-          {addonLoadCount < 1 ? <Text style={styles.inlineAddonsHint}>Reach 7 kg to add extras, charged per load.</Text> : null}
+          <Text style={styles.inlineAddonsTitle}>Add-ons <Text style={styles.inlineAddonsHint}>({category === 'Full service' ? `${formatKg(addonMinimumKg)} kg minimum - up to ${formatKg(kgPerLoad)} kg per load` : `${formatKg(kgPerLoad)} kg per load`})</Text></Text>
+          {addonLoadCount < 1 ? <Text style={styles.inlineAddonsHint}>Reach {formatKg(addonMinimumKg)} kg to add extras, charged per load.</Text> : null}
           {addonServices.map((addon) => <AddonCard key={addon.id} service={addon} selected={Number(addonQuantities[String(addon.id)] || 0) > 0} loadCount={addonLoadCount} onToggle={(selected) => onAddonToggle?.(addon, selected)} />)}
         </View> : null}
       </View>
