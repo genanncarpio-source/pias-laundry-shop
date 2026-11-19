@@ -82,24 +82,24 @@ function service_load_price(string $category): ?float
 /** Count billable loads using the service capacity or its historical category default. */
 function service_weight_load_count(float $weightKg, string $category = 'Wash', ?float $kgPerLoad = null): int
 {
-    $capacity = service_load_capacity($category, $kgPerLoad);
+    $isFullService = in_array(strtolower(trim($category)), ['full service', 'wash & fold'], true);
+    $capacity = $isFullService ? 8.0 : service_load_capacity($category, $kgPerLoad);
     return $weightKg > 0 ? (int)ceil($weightKg / $capacity) : 0;
 }
 
-/** Price by the configured capacity while preserving the existing Full Service 8 kg surcharge. */
+/** Full Service has a 7 kg regular rate, one 8 kg maximum load with a ₱39 surcharge, then additional loads. */
 function service_weight_load_price(float $weightKg, float $basePrice, string $category = 'Wash', ?float $kgPerLoad = null): float
 {
     $remaining = max(0, round($weightKg, 2));
     $isFullService = in_array(strtolower(trim($category)), ['full service', 'wash & fold'], true);
-    $capacity = service_load_capacity($category, $kgPerLoad);
-    if (!$isFullService || abs($capacity - 8.0) > 0.001) {
+    if (!$isFullService) {
+        $capacity = service_load_capacity($category, $kgPerLoad);
         return round(service_weight_load_count($remaining, $category, $capacity) * $basePrice, 2);
     }
     $total = 0.0;
-    if ($remaining > $capacity) return round(service_weight_load_count($remaining, $category, $capacity) * $basePrice, 2);
     while ($remaining > 0.0001) {
-        $loadWeight = min($capacity, $remaining);
-        $total += $basePrice + ($isFullService && $loadWeight > 7 ? 39 : 0);
+        $loadWeight = min(8.0, $remaining);
+        $total += $basePrice + ($loadWeight > 7 ? 39 : 0);
         $remaining = max(0, round($remaining - $loadWeight, 2));
     }
     return round($total, 2);

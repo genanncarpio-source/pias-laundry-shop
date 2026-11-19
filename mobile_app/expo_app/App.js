@@ -152,7 +152,7 @@ function formatKg(value) {
 function billableLoadCount(weightKg, category, kgPerLoad) {
   const normalized = String(category || '').toLowerCase();
   const weight = Number(weightKg);
-  const capacity = Number(kgPerLoad) > 0 ? Number(kgPerLoad) : (normalized === 'full service' ? 8 : 7);
+  const capacity = normalized === 'full service' ? 8 : (Number(kgPerLoad) > 0 ? Number(kgPerLoad) : 7);
   if (!Number.isFinite(weight) || weight <= 0) return 0;
   if (['wash', 'full service'].includes(normalized) && weight < Math.min(7, capacity)) return 0;
   return Math.ceil(weight / capacity);
@@ -162,9 +162,8 @@ function loadPriceForWeight(weightKg, basePrice, category, kgPerLoad) {
   const requestedWeight = Number(weightKg);
   if (!Number.isFinite(requestedWeight) || requestedWeight <= 0 || requestedWeight > 500) return 0;
   const isFullService = String(category || '').toLowerCase() === 'full service';
-  const loadCapacity = Number(kgPerLoad) > 0 ? Number(kgPerLoad) : (isFullService ? 8 : 7);
-  if (!isFullService || Math.abs(loadCapacity - 8) > 0.001) return Math.ceil(requestedWeight / loadCapacity) * (Number(basePrice) || 0);
-  if (requestedWeight > loadCapacity) return Math.ceil(requestedWeight / loadCapacity) * (Number(basePrice) || 0);
+  const loadCapacity = isFullService ? 8 : (Number(kgPerLoad) > 0 ? Number(kgPerLoad) : 7);
+  if (!isFullService) return Math.ceil(requestedWeight / loadCapacity) * (Number(basePrice) || 0);
   let remaining = requestedWeight;
   let total = 0;
   while (remaining > 0.0001) {
@@ -1179,7 +1178,7 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
       if (isAddon) return null;
       return {
         service_id: Number(service.id),
-        quantity: isAddon ? (amount > 0 ? mainLoadCount : 0) : (weightBased ? Math.ceil(amount / serviceKgPerLoad(service)) : amount),
+        quantity: isAddon ? (amount > 0 ? mainLoadCount : 0) : (weightBased ? (amount > 0 ? Math.ceil(amount / (serviceCategory(service) === 'Full service' ? 8 : serviceKgPerLoad(service))) : 0) : amount),
         ...(weightBased ? { weight_kg: Number(amount.toFixed(2)) } : {}),
       };
     }).filter((line) => line && line.quantity > 0);
@@ -1727,13 +1726,13 @@ function ServiceCard({ service, quantity, onQuantityChange, wide, index, addonSe
   const category = serviceCategory(service);
   const currentWeight = Number(quantity) || 0;
   const kgPerLoad = serviceKgPerLoad(service);
-  const addonMinimumKg = category === 'Full service' ? Math.min(7, kgPerLoad) : kgPerLoad;
+  const addonMinimumKg = category === 'Full service' ? 7 : kgPerLoad;
 
   const addonLoadCount = currentWeight + 0.0001 >= addonMinimumKg ? billableLoadCount(currentWeight, category, kgPerLoad) : 0;
   const basePrice = Number(service.price) || 0;
   const description = weightBased
-    ? (category === 'Full service' && Math.abs(kgPerLoad - 8) < 0.001
-      ? `${money(basePrice)} covers up to 7 kg; 8 kg is ${money(basePrice + 39)}. Over 8 kg uses separate ${money(basePrice)} loads.`
+    ? (category === 'Full service'
+      ? `${money(basePrice)} covers up to 7 kg; 8 kg maximum is ${money(basePrice + 39)}. Each additional load starts at ${money(basePrice)}.`
       : `${money(basePrice)} per load covers up to ${formatKg(kgPerLoad)} kg. Every additional load starts another charge.`)
     : service.description || 'Laundry service - ' + (service.unit || 'unit');
   return (
@@ -1748,8 +1747,7 @@ function ServiceCard({ service, quantity, onQuantityChange, wide, index, addonSe
           <View style={styles.serviceTextBlock}>
             <Text style={styles.serviceTitle}>{service.name || 'Laundry service'}</Text>
             <Text style={styles.serviceDescription} numberOfLines={2}>{description}</Text>
-            <Text style={styles.servicePrice}>{money(service.price)} <Text style={styles.serviceUnit}>/ {weightBased ? `up to ${formatKg(kgPerLoad)} kg` : (service.unit || 'unit')}</Text></Text>
-            {weightBased && category === 'Full service' && currentWeight > 0 ? <Text style={styles.serviceEstimate}>Estimated for {formatKg(currentWeight)} kg: {money(loadPriceForWeight(currentWeight, basePrice, category, kgPerLoad))}</Text> : null}
+            <Text style={styles.servicePrice}>{money(service.price)} <Text style={styles.serviceUnit}>/ {weightBased ? `up to ${formatKg(category === 'Full service' ? 7 : kgPerLoad)} kg` : (service.unit || 'unit')}</Text></Text>
           </View>
           <View style={styles.quantityControl}>
             <Pressable accessibilityLabel={weightBased ? 'Remove 1 kg of ' + service.name : 'Remove one ' + service.name} onPress={() => onQuantityChange(String(Math.max(0, (Number(quantity) || 0) - 1)))} style={styles.quantityButton}><Text style={styles.quantityButtonText}>−</Text></Pressable>
@@ -1761,7 +1759,7 @@ function ServiceCard({ service, quantity, onQuantityChange, wide, index, addonSe
           </View>
         </View>
         {addonServices.length ? <View style={styles.inlineAddons}>
-          <Text style={styles.inlineAddonsTitle}>Add-ons <Text style={styles.inlineAddonsHint}>({category === 'Full service' ? `${formatKg(addonMinimumKg)} kg minimum - up to ${formatKg(kgPerLoad)} kg per load` : `${formatKg(kgPerLoad)} kg per load`})</Text></Text>
+          <Text style={styles.inlineAddonsTitle}>Add-ons <Text style={styles.inlineAddonsHint}>({category === 'Full service' ? `${formatKg(addonMinimumKg)} kg minimum - up to 8 kg per load` : `${formatKg(kgPerLoad)} kg per load`})</Text></Text>
           {addonLoadCount < 1 ? <Text style={styles.inlineAddonsHint}>Reach {formatKg(addonMinimumKg)} kg to add extras, charged per load.</Text> : null}
           {addonServices.map((addon) => <AddonCard key={addon.id} service={addon} selected={Boolean(addonQuantities[String(service.id)+':'+String(addon.id)])} loadCount={addonLoadCount} onToggle={(selected) => onAddonToggle?.(addon, selected)} />)}
         </View> : null}
@@ -2104,7 +2102,6 @@ const styles = StyleSheet.create({
   serviceDescription: { color: '#716974', fontSize: 12, minHeight: 17, lineHeight: 16 },
   servicePrice: { color: COLORS.copper, fontSize: 15, fontWeight: '900', marginTop: 4 },
   serviceUnit: { color: '#786f78', fontSize: 12, fontWeight: '600' },
-  serviceEstimate: { color: COLORS.plum, fontSize: 13, fontWeight: '800', marginTop: 4 },
   quantityControl: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   quantityButton: { width: 40, height: 42, borderRadius: 11, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.purpleLight, borderColor: '#d5c8d7', borderWidth: 1 },
   quantityButtonText: { color: COLORS.plum, fontSize: 22, fontWeight: '800', lineHeight: 24 },
