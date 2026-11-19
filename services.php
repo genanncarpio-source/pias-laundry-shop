@@ -6,6 +6,14 @@ require_once __DIR__ . '/includes/feature_schema.php';
 ensure_workflow_schema();
 
 $pdo = db();
+// Preserve the two add-ons previously supplied directly by the mobile API.
+foreach ([['Fabcon (Downy)', 'Downy fabric conditioner'], ['Detergent (Surf)', 'Surf detergent']] as [$legacyName, $legacyDescription]) {
+    $check = $pdo->prepare("SELECT id FROM services WHERE name = ? AND category LIKE 'Add%' LIMIT 1");
+    $check->execute([$legacyName]);
+    if (!$check->fetchColumn()) {
+        $pdo->prepare("INSERT INTO services (name, category, unit, price, description, is_active) VALUES (?, 'Add-ons', 'load', 10.00, ?, 1)")->execute([$legacyName, $legacyDescription]);
+    }
+}
 $processes = ['Wash', 'Dry', 'Full Service'];
 $unitColumn = $pdo->query("SHOW COLUMNS FROM services LIKE 'unit'")->fetch(PDO::FETCH_ASSOC);
 if ($unitColumn && stripos((string)$unitColumn['Type'], 'enum(') === 0) {
@@ -77,6 +85,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save'])) {
     redirect('services.php');
 }
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_addon'])) {
+    if (!csrf_verify($_POST['csrf'] ?? null)) {
+        flash_set('error', 'This form has expired. Refresh the page and try again.');
+        redirect('services.php#addons');
+    }
+    $addonId = (int)($_POST['addon_id'] ?? 0);
+    $addonName = trim($_POST['addon_name'] ?? '');
+    $addonPrice = filter_var(trim((string)($_POST['addon_price'] ?? '')), FILTER_VALIDATE_FLOAT);
+    if ($addonName === '' || mb_strlen($addonName) > 120 || $addonPrice === false || $addonPrice <= 0) {
+        flash_set('error', 'Enter an add-on name and a valid price greater than 0.');
+        redirect('services.php#addons');
+    }
+    if ($addonId > 0) {
+        $beforeStmt = $pdo->prepare("SELECT name, category, unit, price, is_active FROM services WHERE id = ? AND category LIKE 'Add%'");
+        $beforeStmt->execute([$addonId]);
+        $before = $beforeStmt->fetch();
+        if (!$before) { flash_set('error', 'Add-on not found.'); redirect('services.php#addons'); }
+        $pdo->prepare("UPDATE services SET name = ?, category = 'Add-ons', unit = 'load', price = ?, description = '', is_active = 1 WHERE id = ?")->execute([$addonName, $addonPrice, $addonId]);
+        add_audit_log('Add-on updated', 'services', $addonId, $before, ['name' => $addonName, 'category' => 'Add-ons', 'unit' => 'load', 'price' => $addonPrice, 'is_active' => 1]);
+        flash_set('success', 'Add-on updated.');
+    } else {
+        $pdo->prepare("INSERT INTO services (name, category, unit, price, description, is_active) VALUES (?, 'Add-ons', 'load', ?, '', 1)")->execute([$addonName, $addonPrice]);
+        $addonId = (int)$pdo->lastInsertId();
+        add_audit_log('Add-on added', 'services', $addonId, null, ['name' => $addonName, 'category' => 'Add-ons', 'unit' => 'load', 'price' => $addonPrice]);
+        flash_set('success', 'Add-on added.');
+    }
+    redirect('services.php#addons');
+}
+
 $editing = null;
 if (isset($_GET['id'])) {
     $stmt = $pdo->prepare("SELECT * FROM services WHERE id = ?");
@@ -84,7 +121,14 @@ if (isset($_GET['id'])) {
     $editing = $stmt->fetch() ?: null;
 }
 
-$services = $pdo->query("SELECT * FROM services WHERE is_active = 1 ORDER BY category, name")->fetchAll();
+$services = $pdo->query("SELECT * FROM services WHERE is_active = 1 AND category NOT LIKE 'Add%' ORDER BY category, name")->fetchAll();
+$addons = $pdo->query("SELECT * FROM services WHERE category LIKE 'Add%' ORDER BY name")->fetchAll();
+$editingAddon = null;
+if (isset($_GET['addon_id'])) {
+    $stmt = $pdo->prepare("SELECT * FROM services WHERE id = ? AND category LIKE 'Add%'");
+    $stmt->execute([(int)$_GET['addon_id']]);
+    $editingAddon = $stmt->fetch() ?: null;
+}
 $categorySuggestions = $pdo->query("SELECT DISTINCT category FROM services WHERE category IS NOT NULL AND category <> '' ORDER BY category")->fetchAll(PDO::FETCH_COLUMN);
 
 $pageTitle = 'Edit Services';
@@ -167,6 +211,20 @@ include __DIR__ . '/includes/header.php';
       </table>
     </div>
   </div>
+</div>
+<div class="card" id="addons" style="margin-top:20px;">
+  <h2><?= $editingAddon ? 'Edit Add-on' : 'Manage Add-ons' ?></h2>
+  <p class="muted">Add-ons are charged per laundry load and appear in the customer booking screen.</p>
+  <form method="post" action="services.php#addons" class="form-row" style="align-items:end;">
+    <?= csrf_field() ?><input type="hidden" name="save_addon" value="1"><input type="hidden" name="addon_id" value="<?= (int)($editingAddon['id'] ?? 0) ?>">
+    <div><label for="addon-name">Add-on Name *</label><input id="addon-name" name="addon_name" maxlength="120" required value="<?= e($editingAddon['name'] ?? '') ?>" placeholder="e.g. Fabric conditioner"></div>
+    <div><label for="addon-price">Price (&#8369; per load) *</label><input id="addon-price" type="number" name="addon_price" min="0.01" step="0.01" required value="<?= e($editingAddon['price'] ?? '') ?>"></div>
+    <div class="form-actions"><button class="btn btn-primary" type="submit"><?= $editingAddon ? 'Update' : 'Add' ?> Add-on</button><?php if ($editingAddon): ?><a class="btn btn-outline" href="services.php#addons">Cancel</a><?php endif; ?></div>
+  </form>
+  <div class="table-wrap"><table><thead><tr><th>Add-on</th><th>Unit</th><th class="num">Price</th><th>Status</th><th></th></tr></thead><tbody>
+    <?php foreach ($addons as $addon): ?><tr><td><?= e($addon['name']) ?></td><td>per load</td><td class="num"><?= money($addon['price']) ?></td><td><span class="badge badge-<?= $addon['is_active'] ? 'active' : 'inactive' ?>"><?= $addon['is_active'] ? 'Active' : 'Inactive' ?></span></td><td><a class="btn btn-outline btn-sm" href="services.php?addon_id=<?= (int)$addon['id'] ?>#addons">Edit</a></td></tr><?php endforeach; ?>
+    <?php if (!$addons): ?><tr><td colspan="5" class="muted">No add-ons yet.</td></tr><?php endif; ?>
+  </tbody></table></div>
 </div>
 <script>
 (function () {

@@ -1173,7 +1173,7 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
       };
     }).filter((line) => line.quantity > 0);
     if (!chosen.length) return setBookingError('Choose a laundry service before booking.');
-    if (chosen.some((line) => line.service_id < 0) && mainLoadCount < 1) return setBookingError('Choose Wash, Dry, or Full Service first so Fabcon and Detergent can be priced per load.');
+    if (chosen.some((line) => serviceCategory(services.find((service) => Number(service.id) === line.service_id) || {}) === 'Add-ons') && mainLoadCount < 1) return setBookingError('Choose Wash, Dry, or Full Service first so add-ons can be priced per load.');
     if (chosen.some((line) => !Number.isFinite(line.quantity) || line.quantity > 500 || line.weight_kg > 99 ||
       (['piece', 'load'].includes(services.find((service) => Number(service.id) === line.service_id)?.unit) && !Number.isInteger(line.quantity)))) {
       return setBookingError('Each laundry service is limited to 99 kg. Load and piece quantities must be whole numbers.');
