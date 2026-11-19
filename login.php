@@ -130,7 +130,7 @@ $loginScript = basename($_SERVER['SCRIPT_NAME'] ?? 'login.php');
     toggle.addEventListener('click', function () {
       var show = field.type === 'password';
       field.type = show ? 'text' : 'password';
-      toggle.querySelectorAll('.eye-open').forEach(function (part) { part.style.display = show ? '' : 'none'; });
+      toggle.querySelectorAll('.eye-open').forEach(function (part) { part.style.display = show ? 'inline' : 'none'; });
       toggle.querySelectorAll('.eye-closed').forEach(function (part) { part.style.display = show ? 'none' : ''; });
       toggle.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
       toggle.setAttribute('title', show ? 'Hide password' : 'Show password');

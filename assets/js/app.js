@@ -22,7 +22,7 @@ document.addEventListener('DOMContentLoaded', function () {
     toggle.addEventListener('click', () => {
       const show = input.type === 'password';
       input.type = show ? 'text' : 'password';
-      toggle.querySelectorAll('.eye-open').forEach((part) => { part.style.display = show ? '' : 'none'; });
+      toggle.querySelectorAll('.eye-open').forEach((part) => { part.style.display = show ? 'inline' : 'none'; });
       toggle.querySelectorAll('.eye-closed').forEach((part) => { part.style.display = show ? 'none' : ''; });
       toggle.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
       toggle.setAttribute('title', show ? 'Hide password' : 'Show password');

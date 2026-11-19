@@ -151,10 +151,10 @@ function formatKg(value) {
 
 function billableLoadCount(weightKg, category, kgPerLoad) {
   const normalized = String(category || '').toLowerCase();
-  if (!['wash', 'full service'].includes(normalized)) return 0;
   const weight = Number(weightKg);
   const capacity = Number(kgPerLoad) > 0 ? Number(kgPerLoad) : (normalized === 'full service' ? 8 : 7);
-  if (!Number.isFinite(weight) || weight < Math.min(7, capacity)) return 0;
+  if (!Number.isFinite(weight) || weight <= 0) return 0;
+  if (['wash', 'full service'].includes(normalized) && weight < Math.min(7, capacity)) return 0;
   return Math.ceil(weight / capacity);
 }
 
@@ -1127,9 +1127,8 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
         });
       }
       const coreCategory = serviceCategory(service);
-      const belowAddonLoad = coreCategory === 'Wash' || coreCategory === 'Full service'
-        ? Number(clean || 0) < Math.min(7, serviceKgPerLoad(service))
-        : true;
+      const belowAddonLoad = Number(clean || 0) <= 0
+        || (['Wash', 'Full service'].includes(coreCategory) && Number(clean || 0) < Math.min(7, serviceKgPerLoad(service)));
       if (belowAddonLoad) {
         services.forEach((item) => {
           if (serviceCategory(item) === 'Add-ons') next[String(item.id)] = '';
@@ -1184,7 +1183,7 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
       };
     }).filter((line) => line.quantity > 0);
     if (!chosen.length) return setBookingError('Choose a laundry service before booking.');
-    if (chosen.some((line) => serviceCategory(services.find((service) => Number(service.id) === line.service_id) || {}) === 'Add-ons') && mainLoadCount < 1) return setBookingError('Choose Wash, Dry, or Full Service first so add-ons can be priced per load.');
+    if (chosen.some((line) => serviceCategory(services.find((service) => Number(service.id) === line.service_id) || {}) === 'Add-ons') && mainLoadCount < 1) return setBookingError('Choose a main laundry service first so add-ons can be priced per load.');
     if (chosen.some((line) => !Number.isFinite(line.quantity) || line.quantity > 500 || line.weight_kg > 99 ||
       (['piece', 'load'].includes(services.find((service) => Number(service.id) === line.service_id)?.unit) && !Number.isInteger(line.quantity)))) {
       return setBookingError('Each laundry service is limited to 99 kg. Load and piece quantities must be whole numbers.');
@@ -1348,7 +1347,7 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
               <View style={styles.serviceGrid}>
                 {visibleServices.map((service, index) => (
                   <ServiceCard key={service.id} service={service} quantity={quantities[String(service.id)] || ''} onQuantityChange={(value) => updateQuantity(service, value)} wide={wide} index={index}
-                    addonServices={['Wash', 'Full service'].includes(serviceCategory(service)) ? services.filter((item) => serviceCategory(item) === 'Add-ons') : []}
+                    addonServices={isCoreLoadService(service) ? services.filter((item) => serviceCategory(item) === 'Add-ons') : []}
                     addonQuantities={quantities} onAddonToggle={(addon, selected) => updateQuantity(addon, selected ? '1' : '')} />
                 ))}
               </View>
@@ -1725,6 +1724,7 @@ function ServiceCard({ service, quantity, onQuantityChange, wide, index, addonSe
   const currentWeight = Number(quantity) || 0;
   const kgPerLoad = serviceKgPerLoad(service);
   const addonMinimumKg = Math.min(7, kgPerLoad);
+  const hasAddonMinimum = category === 'Wash' || category === 'Full service';
   const addonLoadCount = billableLoadCount(currentWeight, category, kgPerLoad);
   const basePrice = Number(service.price) || 0;
   const description = weightBased
@@ -1757,7 +1757,7 @@ function ServiceCard({ service, quantity, onQuantityChange, wide, index, addonSe
         </View>
         {addonServices.length ? <View style={styles.inlineAddons}>
           <Text style={styles.inlineAddonsTitle}>Add-ons <Text style={styles.inlineAddonsHint}>({category === 'Full service' ? `${formatKg(addonMinimumKg)} kg minimum - up to ${formatKg(kgPerLoad)} kg per load` : `${formatKg(kgPerLoad)} kg per load`})</Text></Text>
-          {addonLoadCount < 1 ? <Text style={styles.inlineAddonsHint}>Reach {formatKg(addonMinimumKg)} kg to add extras, charged per load.</Text> : null}
+          {addonLoadCount < 1 ? <Text style={styles.inlineAddonsHint}>{hasAddonMinimum ? 'Reach ' + formatKg(addonMinimumKg) + ' kg to add extras, charged per load.' : 'Enter a kg total to add extras, charged per load.'}</Text> : null}
           {addonServices.map((addon) => <AddonCard key={addon.id} service={addon} selected={Number(addonQuantities[String(addon.id)] || 0) > 0} loadCount={addonLoadCount} onToggle={(selected) => onAddonToggle?.(addon, selected)} />)}
         </View> : null}
       </View>
