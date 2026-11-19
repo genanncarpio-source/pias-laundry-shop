@@ -212,7 +212,6 @@ if (!empty($data['expected_pickup'])) {
         $manilaPickup = (clone $pickup)->setTimezone(new DateTimeZone('Asia/Manila'));
         if ($manilaPickup <= $manilaNow) mobile_booking_json(422, ['success' => false, 'error' => 'The selected schedule is already past.']);
         if ($manilaPickup->format('Y-m') !== $manilaNow->format('Y-m')) mobile_booking_json(422, ['success' => false, 'error' => 'Choose a schedule before the end of this month.']);
-        if ((int)$manilaPickup->format('N') >= 6) mobile_booking_json(422, ['success' => false, 'error' => 'Schedules are available on weekdays only.']);
         $allowedStarts = ['08:00', '10:00', '12:00', '14:00', '16:00'];
         if (!in_array($manilaPickup->format('H:i'), $allowedStarts, true) || $manilaPickup->format('s') !== '00') mobile_booking_json(422, ['success' => false, 'error' => 'Choose one of the available two-hour time slots.']);
         $expectedPickup = $manilaPickup->format('Y-m-d H:i:s');

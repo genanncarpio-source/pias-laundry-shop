@@ -1154,10 +1154,6 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
       setPickupError('Choose a schedule before the end of this month.');
       return;
     }
-    if ([0, 6].includes(selected.getDay())) {
-      setPickupError('Schedules are available on weekdays only.');
-      return;
-    }
     const hour = selected.getHours();
     if (hour < 8 || hour >= 18) {
       setPickupError('Choose a time within shop hours: 8:00 AM to 6:00 PM.');
@@ -1265,7 +1261,6 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
         value: [year, String(month + 1).padStart(2, '0'), String(day).padStart(2, '0')].join('-'),
         day,
         isPast: date < todayForSchedule,
-        isWeekend: date.getDay() === 0 || date.getDay() === 6,
       };
     });
   })();
@@ -1664,10 +1659,10 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
                 {scheduleCalendarDays.map((date, index) => date ? (
                   <Pressable
                     key={date.value}
-                    disabled={date.isPast || date.isWeekend}
+                    disabled={date.isPast}
                     onPress={() => { setPickupDate(date.value); setPickupError(''); }}
-                    style={[styles.calendarDay, pickupDate === date.value && styles.calendarDaySelected, (date.isPast || date.isWeekend) && styles.calendarDayDisabled]}
-                  ><Text style={[styles.calendarDayText, pickupDate === date.value && styles.calendarDaySelectedText, (date.isPast || date.isWeekend) && styles.calendarDayDisabledText]}>{date.day}</Text></Pressable>
+                    style={[styles.calendarDay, pickupDate === date.value && styles.calendarDaySelected, date.isPast && styles.calendarDayDisabled]}
+                  ><Text style={[styles.calendarDayText, pickupDate === date.value && styles.calendarDaySelectedText, date.isPast && styles.calendarDayDisabledText]}>{date.day}</Text></Pressable>
                 ) : <View key={'blank-' + index} style={styles.calendarDay} />)}
               </View>
             </View>
