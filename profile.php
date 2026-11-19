@@ -13,14 +13,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if (isset($_POST['update_profile'])) {
         $fullName = trim($_POST['full_name'] ?? '');
-        $email    = trim($_POST['email'] ?? '');
+        $email    = strtolower(trim($_POST['email'] ?? ''));
         $phone    = trim($_POST['phone'] ?? '');
         if ($fullName === '') {
             flash_set('error', 'Name is required.');
+        } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL) || strlen($email) > 120) {
+            flash_set('error', 'Enter a valid email address.');
+        } elseif (strlen($phone) > 30) {
+            flash_set('error', 'Phone number must be 30 characters or fewer.');
         } else {
-            $stmt = $pdo->prepare("UPDATE users SET full_name = ?, email = ?, phone = ? WHERE id = ?");
-            $stmt->execute([$fullName, $email, $phone, $user['id']]);
-            flash_set('success', 'Profile updated.');
+            $duplicate = $pdo->prepare('SELECT id FROM users WHERE LOWER(email) = ? AND id <> ? LIMIT 1');
+            $duplicate->execute([$email, $user['id']]);
+            if ($duplicate->fetch()) {
+                flash_set('error', 'That email address is already used by another account.');
+            } else {
+                try {
+                    $stmt = $pdo->prepare('UPDATE users SET full_name = ?, email = ?, phone = ? WHERE id = ?');
+                    $stmt->execute([$fullName, $email, $phone, $user['id']]);
+                    // current_user() caches the row for the request; refresh session-backed reads too.
+                    $_SESSION['user_email'] = $email;
+                    flash_set('success', 'Profile updated.');
+                } catch (PDOException $exception) {
+                    if ($exception->getCode() === '23000') {
+                        flash_set('error', 'That email address is already used by another account.');
+                    } else {
+                        throw $exception;
+                    }
+                }
+            }
         }
         redirect('profile.php');
     }
