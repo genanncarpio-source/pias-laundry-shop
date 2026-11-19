@@ -1727,7 +1727,7 @@ function ServiceCard({ service, quantity, onQuantityChange, wide, index, addonSe
   const category = serviceCategory(service);
   const currentWeight = Number(quantity) || 0;
   const kgPerLoad = serviceKgPerLoad(service);
-  const addonMinimumKg = kgPerLoad;
+  const addonMinimumKg = category === 'Full service' ? Math.min(7, kgPerLoad) : kgPerLoad;
 
   const addonLoadCount = currentWeight + 0.0001 >= addonMinimumKg ? billableLoadCount(currentWeight, category, kgPerLoad) : 0;
   const basePrice = Number(service.price) || 0;
@@ -1749,6 +1749,7 @@ function ServiceCard({ service, quantity, onQuantityChange, wide, index, addonSe
             <Text style={styles.serviceTitle}>{service.name || 'Laundry service'}</Text>
             <Text style={styles.serviceDescription} numberOfLines={2}>{description}</Text>
             <Text style={styles.servicePrice}>{money(service.price)} <Text style={styles.serviceUnit}>/ {weightBased ? `up to ${formatKg(kgPerLoad)} kg` : (service.unit || 'unit')}</Text></Text>
+            {weightBased && category === 'Full service' && currentWeight > 0 ? <Text style={styles.serviceEstimate}>Estimated for {formatKg(currentWeight)} kg: {money(loadPriceForWeight(currentWeight, basePrice, category, kgPerLoad))}</Text> : null}
           </View>
           <View style={styles.quantityControl}>
             <Pressable accessibilityLabel={weightBased ? 'Remove 1 kg of ' + service.name : 'Remove one ' + service.name} onPress={() => onQuantityChange(String(Math.max(0, (Number(quantity) || 0) - 1)))} style={styles.quantityButton}><Text style={styles.quantityButtonText}>−</Text></Pressable>
@@ -2103,6 +2104,7 @@ const styles = StyleSheet.create({
   serviceDescription: { color: '#716974', fontSize: 12, minHeight: 17, lineHeight: 16 },
   servicePrice: { color: COLORS.copper, fontSize: 15, fontWeight: '900', marginTop: 4 },
   serviceUnit: { color: '#786f78', fontSize: 12, fontWeight: '600' },
+  serviceEstimate: { color: COLORS.plum, fontSize: 13, fontWeight: '800', marginTop: 4 },
   quantityControl: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   quantityButton: { width: 40, height: 42, borderRadius: 11, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.purpleLight, borderColor: '#d5c8d7', borderWidth: 1 },
   quantityButtonText: { color: COLORS.plum, fontSize: 22, fontWeight: '800', lineHeight: 24 },
