@@ -15,6 +15,7 @@ foreach ([['Fabcon (Downy)', 'Downy fabric conditioner'], ['Detergent (Surf)', '
         $pdo->prepare("INSERT INTO services (name, category, unit, price, description, is_active) VALUES (?, 'Add-ons', 'load', 10.00, ?, 1)")->execute([$legacyName, $legacyDescription]);
     }
 }
+ensure_service_addons_schema();
 $processes = ['Wash', 'Dry', 'Full Service'];
 $unitColumn = $pdo->query("SHOW COLUMNS FROM services LIKE 'unit'")->fetch(PDO::FETCH_ASSOC);
 if ($unitColumn && stripos((string)$unitColumn['Type'], 'enum(') === 0) {
@@ -65,6 +66,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save'])) {
     $price       = filter_var($rawPrice, FILTER_VALIDATE_FLOAT);
     $description = trim($_POST['description'] ?? '');
     $is_active   = isset($_POST['is_active']) ? 1 : 0;
+    $addonIds = array_values(array_unique(array_filter(array_map('intval', (array)($_POST['addon_ids'] ?? [])), static fn ($value) => $value > 0)));
 
     if ($name === '' || $category === '' || mb_strlen($category) > 60 || $unit === '' || mb_strlen($unit) > 30 || !preg_match('/^[\p{L}\p{N}][\p{L}\p{N} ._\/-]{0,29}$/u', $unit) || $price === false || $price <= 0 || ($unit === 'load' && ($kgPerLoad === false || $kgPerLoad <= 0 || $kgPerLoad > 99))) {
         flash_set('error', 'Enter a valid service name, category, unit, price, and load capacity (up to 99 kg).');
@@ -77,11 +79,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save'])) {
         $before = $beforeStmt->fetch();
         $stmt = $pdo->prepare("UPDATE services SET name = ?, category = ?, unit = ?, kg_per_load = ?, price = ?, description = ?, is_active = ? WHERE id = ?");
         $stmt->execute([$name, $category, $unit, $kgPerLoad, $price, $description, $is_active, $id]);
+        $pdo->prepare('DELETE FROM service_addons WHERE service_id = ?')->execute([$id]);
+        $insertAddon = $pdo->prepare("INSERT IGNORE INTO service_addons (service_id, addon_id) SELECT ?, id FROM services WHERE id = ? AND category LIKE 'Add%' AND is_active = 1");
+        if (strtolower($category) !== 'dry') foreach ($addonIds as $addonId) $insertAddon->execute([$id, $addonId]);
         add_audit_log('Service updated', 'services', $id, $before, ['name' => $name, 'category' => $category, 'unit' => $unit, 'kg_per_load' => $kgPerLoad, 'price' => $price, 'is_active' => $is_active]);
         flash_set('success', 'Service updated.');
     } else {
         $stmt = $pdo->prepare("INSERT INTO services (name, category, unit, kg_per_load, price, description, is_active) VALUES (?, ?, ?, ?, ?, ?, ?)");
         $stmt->execute([$name, $category, $unit, $kgPerLoad, $price, $description, $is_active]);
+        $newServiceId = (int)$pdo->lastInsertId();
+        $insertAddon = $pdo->prepare("INSERT IGNORE INTO service_addons (service_id, addon_id) SELECT ?, id FROM services WHERE id = ? AND category LIKE 'Add%' AND is_active = 1");
+        if (strtolower($category) !== 'dry') foreach ($addonIds as $addonId) $insertAddon->execute([$newServiceId, $addonId]);
         add_audit_log('Service added', 'services', (int)$pdo->lastInsertId(), null, ['name' => $name, 'category' => $category, 'unit' => $unit, 'kg_per_load' => $kgPerLoad, 'price' => $price]);
         flash_set('success', 'Service added.');
     }
@@ -126,6 +134,7 @@ if (isset($_GET['id'])) {
 
 $services = $pdo->query("SELECT * FROM services WHERE is_active = 1 AND category NOT LIKE 'Add%' ORDER BY category, name")->fetchAll();
 $addons = $pdo->query("SELECT * FROM services WHERE category LIKE 'Add%' ORDER BY name")->fetchAll();
+$editingAddonIds = $editing ? service_assigned_addon_ids((int)$editing['id']) : [];
 $editingAddon = null;
 if (isset($_GET['addon_id'])) {
     $stmt = $pdo->prepare("SELECT * FROM services WHERE id = ? AND category LIKE 'Add%'");
@@ -178,6 +187,18 @@ include __DIR__ . '/includes/header.php';
 
       <label for="description">Description</label>
       <input type="text" id="description" name="description" value="<?= e($editing['description'] ?? '') ?>">
+
+      <fieldset style="margin-top:14px;border:1px solid var(--line);border-radius:10px;padding:12px;">
+        <legend>Available add-ons</legend>
+        <small class="muted">Choose which add-ons customers can use with this service. Dry has none assigned by default.</small>
+        <?php foreach ($addons as $addon): if (!$addon['is_active']) continue; ?>
+          <label style="display:flex;align-items:center;gap:8px;margin-top:8px;">
+            <input type="checkbox" name="addon_ids[]" value="<?= (int)$addon['id'] ?>" style="width:auto;" <?= in_array((int)$addon['id'], $editingAddonIds, true) ? 'checked' : '' ?>>
+            <?= e($addon['name']) ?>
+          </label>
+        <?php endforeach; ?>
+        <?php if (!$addons): ?><small class="muted">Add-ons can be created in Manage Add-ons below.</small><?php endif; ?>
+      </fieldset>
 
       <label style="display:flex;align-items:center;gap:8px;margin-top:12px;">
         <input type="checkbox" name="is_active" value="1" style="width:auto;"

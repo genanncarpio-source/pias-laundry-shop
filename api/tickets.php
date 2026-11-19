@@ -4,6 +4,7 @@ require_once __DIR__ . '/../includes/mobile_booking.php';
 require_once __DIR__ . '/../includes/service_pricing.php';
 api_require_method('POST');
 ensure_service_load_capacity_schema();
+ensure_service_addons_schema();
 $customer = api_current_customer();
 $data = api_input();
 
@@ -21,6 +22,7 @@ if (!is_array($items) || count($items) < 1 || count($items) > 30) {
 
 $quantities = [];
 $weights = [];
+$addonParents = [];
 foreach ($items as $item) {
     if (!is_array($item)) mobile_booking_json(422, ['success' => false, 'error' => 'Each service must include a service ID and quantity.']);
     $serviceId = is_scalar($item['service_id'] ?? null) ? filter_var($item['service_id'], FILTER_VALIDATE_INT) : false;
@@ -29,6 +31,7 @@ foreach ($items as $item) {
         mobile_booking_json(422, ['success' => false, 'error' => 'Enter a valid service and quantity.']);
     }
     $quantities[$serviceId] = ($quantities[$serviceId] ?? 0) + (float)$quantity;
+    if (isset($item['parent_service_id'])) $addonParents[$serviceId] = (int)$item['parent_service_id'];
     if (array_key_exists('weight_kg', $item)) {
         $weight = is_scalar($item['weight_kg']) ? filter_var($item['weight_kg'], FILTER_VALIDATE_FLOAT) : false;
         if ($weight === false || !is_finite((float)$weight) || round((float)$weight, 2) <= 0 || $weight > 99) {
@@ -84,6 +87,26 @@ if ($hasAddons && (count($coreServices) !== 1 || $expectedAddonLoads < 1)) {
     mobile_booking_json(422, ['success' => false, 'error' => 'Choose one main laundry service before adding add-ons.']);
 }
 
+$selectedCoreId = null;
+foreach ($quantities as $candidateId => $_quantity) {
+    $candidate = $serviceMap[$candidateId];
+    if (stripos((string)$candidate['category'], 'add') !== 0 && (int)$candidateId > 0) $selectedCoreId = (int)$candidateId;
+}
+if ($hasAddons) {
+    $coreService = $selectedCoreId ? $serviceMap[$selectedCoreId] : null;
+    $capacity = $coreService ? service_load_capacity((string)$coreService['category'], $coreService['kg_per_load'] !== null ? (float)$coreService['kg_per_load'] : null) : 99;
+    if (!$coreService || !array_key_exists($selectedCoreId, $weights) || (float)$weights[$selectedCoreId] + 0.0001 < $capacity) {
+        mobile_booking_json(422, ['success' => false, 'error' => 'Enter at least one full load of laundry before adding add-ons.']);
+    }
+    foreach ($quantities as $addonId => $_quantity) {
+        $addon = $serviceMap[$addonId];
+        if (stripos((string)$addon['category'], 'add') === 0 && ((int)$addonId < 1
+            || ($addonParents[$addonId] ?? null) !== $selectedCoreId
+            || !in_array((int)$addonId, service_assigned_addon_ids($selectedCoreId), true))) {
+            mobile_booking_json(422, ['success' => false, 'error' => 'That add-on is not available for the selected service. Refresh the offers and try again.']);
+        }
+    }
+}
 $lines = [];
 $subtotal = 0.0;
 foreach ($quantities as $serviceId => $quantity) {

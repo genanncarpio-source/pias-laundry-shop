@@ -813,6 +813,7 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
   const [notificationPromptVisible, setNotificationPromptVisible] = useState(false);
   const [notificationPromptChecked, setNotificationPromptChecked] = useState(false);
   const [quantities, setQuantities] = useState({});
+  const [addonSelections, setAddonSelections] = useState({});
   const [filter, setFilter] = useState('All');
   const [search, setSearch] = useState('');
   const [notes, setNotes] = useState('');
@@ -1108,9 +1109,9 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
     const quantity = Number(quantities[String(service.id)] || 0);
     if (!Number.isFinite(quantity) || quantity <= 0) return total;
     if (isCoreLoadService(service)) return total + loadPriceForWeight(quantity, service.price, serviceCategory(service), serviceKgPerLoad(service));
-    if (serviceCategory(service) === 'Add-ons') return total + (Number(service.price) || 0) * mainLoadCount;
+    if (serviceCategory(service) === 'Add-ons') return total;
     return total + (Number(service.price) || 0) * quantity;
-  }, 0), [quantities, services, mainLoadCount]);
+  }, 0) + (mainLaundry ? services.filter((service) => serviceCategory(service) === 'Add-ons' && (mainLaundry.addon_ids || []).map(Number).includes(Number(service.id)) && addonSelections[String(mainLaundry.id)+':'+String(service.id)]).reduce((total, service) => total + (Number(service.price) || 0) * mainLoadCount, 0) : 0), [quantities, services, mainLoadCount, mainLaundry, addonSelections]);
   const estimate = serviceSubtotal + deliveryFee;
 
   const updateQuantity = (service, value) => {
@@ -1118,6 +1119,7 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
     const id = String(service.id);
     const isCoreService = isCoreLoadService(service) || ['Wash', 'Dry', 'Full service'].includes(serviceCategory(service));
     if (isCoreService && Number(clean || 0) > 99) { setBookingError('Each laundry service is limited to 99 kg.'); return; }
+    if (isCoreService && mainLaundry && String(mainLaundry.id) !== id) setAddonSelections({});
     setQuantities((current) => {
       if (!isCoreService) return { ...current, [id]: clean };
       const next = { ...current, [id]: clean };
@@ -1126,19 +1128,17 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
           if (String(item.id) !== id && (isCoreLoadService(item) || ['Wash', 'Dry', 'Full service'].includes(serviceCategory(item)))) next[String(item.id)] = '';
         });
       }
-      const coreCategory = serviceCategory(service);
-      const belowAddonLoad = Number(clean || 0) <= 0
-        || (['Wash', 'Full service'].includes(coreCategory) && Number(clean || 0) < Math.min(7, serviceKgPerLoad(service)));
-      if (belowAddonLoad) {
-        services.forEach((item) => {
-          if (serviceCategory(item) === 'Add-ons') next[String(item.id)] = '';
-        });
-      }
       return next;
     });
+    if (isCoreService && (Number(clean || 0) <= 0 || Number(clean || 0) < serviceKgPerLoad(service))) setAddonSelections({});
     if (isCoreService && Number(clean || 0) > 0) {
       setError('');
     }
+  };
+
+  const toggleServiceAddon = (coreService, addon, selected) => {
+    const key = String(coreService.id)+':'+String(addon.id);
+    setAddonSelections((current) => ({ ...current, [key]: selected }));
   };
 
   const confirmPickup = () => {
@@ -1176,12 +1176,15 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
       const amount = Number(quantities[String(service.id)] || 0);
       const weightBased = isCoreLoadService(service);
       const isAddon = serviceCategory(service) === 'Add-ons';
+      if (isAddon) return null;
       return {
         service_id: Number(service.id),
         quantity: isAddon ? (amount > 0 ? mainLoadCount : 0) : (weightBased ? Math.ceil(amount / serviceKgPerLoad(service)) : amount),
         ...(weightBased ? { weight_kg: Number(amount.toFixed(2)) } : {}),
       };
-    }).filter((line) => line.quantity > 0);
+    }).filter((line) => line && line.quantity > 0);
+    const addonLines = mainLaundry ? services.filter((service) => serviceCategory(service) === 'Add-ons' && (mainLaundry.addon_ids || []).map(Number).includes(Number(service.id)) && addonSelections[String(mainLaundry.id)+':'+String(service.id)]).map((service) => ({ service_id: Number(service.id), quantity: mainLoadCount, parent_service_id: Number(mainLaundry.id) })) : [];
+    chosen.push(...addonLines);
     if (!chosen.length) return setBookingError('Choose a laundry service before booking.');
     if (chosen.some((line) => serviceCategory(services.find((service) => Number(service.id) === line.service_id) || {}) === 'Add-ons') && mainLoadCount < 1) return setBookingError('Choose a main laundry service first so add-ons can be priced per load.');
     if (chosen.some((line) => !Number.isFinite(line.quantity) || line.quantity > 500 || line.weight_kg > 99 ||
@@ -1208,6 +1211,7 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
         },
       });
       setQuantities({});
+      setAddonSelections({});
       setNotes('');
       setPickupAt(null);
       void loadShopData(true);
@@ -1347,8 +1351,8 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
               <View style={styles.serviceGrid}>
                 {visibleServices.map((service, index) => (
                   <ServiceCard key={service.id} service={service} quantity={quantities[String(service.id)] || ''} onQuantityChange={(value) => updateQuantity(service, value)} wide={wide} index={index}
-                    addonServices={isCoreLoadService(service) ? services.filter((item) => serviceCategory(item) === 'Add-ons') : []}
-                    addonQuantities={quantities} onAddonToggle={(addon, selected) => updateQuantity(addon, selected ? '1' : '')} />
+                    addonServices={isCoreLoadService(service) ? services.filter((item) => serviceCategory(item) === 'Add-ons' && (service.addon_ids || []).map(Number).includes(Number(item.id))) : []}
+                    addonQuantities={addonSelections} onAddonToggle={(addon, selected) => toggleServiceAddon(service, addon, selected)} />
                 ))}
               </View>
             ) : (
@@ -1705,7 +1709,7 @@ function AddonCard({ service, selected, loadCount, onToggle }) {
         <Text style={styles.serviceDescription}>Added per load Â· {money(service.price)} each</Text>
         {selected ? <Text style={styles.addonTotal}>{count} {count === 1 ? 'load' : 'loads'} Â· {money(Number(service.price) * count)}</Text> : null}
       </View>
-      <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: selected, disabled }} disabled={disabled && !selected} onPress={() => onToggle(!selected)} style={[styles.addonToggle, selected && styles.addonToggleActive, disabled && styles.disabledButton]}>
+      <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: selected, disabled }} disabled={disabled} onPress={() => onToggle(!selected)} style={[styles.addonToggle, selected && styles.addonToggleActive, disabled && styles.disabledButton]}>
         <Text style={[styles.addonToggleText, selected && styles.addonToggleTextActive]}>{selected ? 'Added' : 'Add'}</Text>
       </Pressable>
     </View>
@@ -1723,9 +1727,9 @@ function ServiceCard({ service, quantity, onQuantityChange, wide, index, addonSe
   const category = serviceCategory(service);
   const currentWeight = Number(quantity) || 0;
   const kgPerLoad = serviceKgPerLoad(service);
-  const addonMinimumKg = Math.min(7, kgPerLoad);
-  const hasAddonMinimum = category === 'Wash' || category === 'Full service';
-  const addonLoadCount = billableLoadCount(currentWeight, category, kgPerLoad);
+  const addonMinimumKg = kgPerLoad;
+
+  const addonLoadCount = currentWeight + 0.0001 >= addonMinimumKg ? billableLoadCount(currentWeight, category, kgPerLoad) : 0;
   const basePrice = Number(service.price) || 0;
   const description = weightBased
     ? (category === 'Full service' && Math.abs(kgPerLoad - 8) < 0.001
@@ -1757,8 +1761,8 @@ function ServiceCard({ service, quantity, onQuantityChange, wide, index, addonSe
         </View>
         {addonServices.length ? <View style={styles.inlineAddons}>
           <Text style={styles.inlineAddonsTitle}>Add-ons <Text style={styles.inlineAddonsHint}>({category === 'Full service' ? `${formatKg(addonMinimumKg)} kg minimum - up to ${formatKg(kgPerLoad)} kg per load` : `${formatKg(kgPerLoad)} kg per load`})</Text></Text>
-          {addonLoadCount < 1 ? <Text style={styles.inlineAddonsHint}>{hasAddonMinimum ? 'Reach ' + formatKg(addonMinimumKg) + ' kg to add extras, charged per load.' : 'Enter a kg total to add extras, charged per load.'}</Text> : null}
-          {addonServices.map((addon) => <AddonCard key={addon.id} service={addon} selected={Number(addonQuantities[String(addon.id)] || 0) > 0} loadCount={addonLoadCount} onToggle={(selected) => onAddonToggle?.(addon, selected)} />)}
+          {addonLoadCount < 1 ? <Text style={styles.inlineAddonsHint}>Reach {formatKg(addonMinimumKg)} kg to add extras, charged per load.</Text> : null}
+          {addonServices.map((addon) => <AddonCard key={addon.id} service={addon} selected={Boolean(addonQuantities[String(service.id)+':'+String(addon.id)])} loadCount={addonLoadCount} onToggle={(selected) => onAddonToggle?.(addon, selected)} />)}
         </View> : null}
       </View>
     </View>

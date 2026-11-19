@@ -18,6 +18,43 @@ function ensure_service_load_capacity_schema(): void
     $ready = true;
 }
 
+/** Store the add-ons that are available for each laundry service. */
+function ensure_service_addons_schema(): void
+{
+    static $ready = false;
+    if ($ready) return;
+    db()->exec("CREATE TABLE IF NOT EXISTS service_addons (
+        service_id INT UNSIGNED NOT NULL,
+        addon_id INT UNSIGNED NOT NULL,
+        PRIMARY KEY (service_id, addon_id),
+        KEY idx_service_addons_addon (addon_id),
+        CONSTRAINT fk_service_addons_service FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE CASCADE,
+        CONSTRAINT fk_service_addons_addon FOREIGN KEY (addon_id) REFERENCES services(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    db()->exec("CREATE TABLE IF NOT EXISTS service_addon_config (
+        config_key VARCHAR(40) NOT NULL PRIMARY KEY,
+        initialized_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    $initialized = (int)db()->query("SELECT COUNT(*) FROM service_addon_config WHERE config_key = 'defaults_seeded'")->fetchColumn() > 0;
+    $hasAddons = (int)db()->query("SELECT COUNT(*) FROM services WHERE is_active = 1 AND category LIKE 'Add%'")->fetchColumn() > 0;
+    if (!$initialized && $hasAddons) {
+        db()->exec("INSERT IGNORE INTO service_addons (service_id, addon_id)
+            SELECT s.id, a.id FROM services s CROSS JOIN services a
+            WHERE s.is_active = 1 AND s.category NOT LIKE 'Add%' AND LOWER(s.category) <> 'dry'
+              AND a.is_active = 1 AND a.category LIKE 'Add%'");
+        db()->exec("INSERT IGNORE INTO service_addon_config (config_key) VALUES ('defaults_seeded')");
+    }
+    $ready = true;
+}
+
+function service_assigned_addon_ids(int $serviceId): array
+{
+    ensure_service_addons_schema();
+    $stmt = db()->prepare('SELECT addon_id FROM service_addons WHERE service_id = ? ORDER BY addon_id');
+    $stmt->execute([$serviceId]);
+    return array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+}
+
 function service_default_load_capacity(string $category): float
 {
     return in_array(strtolower(trim($category)), ['full service', 'wash & fold'], true) ? 8.0 : 7.0;
