@@ -135,7 +135,8 @@ function serviceCategory(service) {
 }
 
 function isCoreLoadService(service) {
-  return service?.unit === 'load' && serviceCategory(service) !== 'Add-ons';
+  return String(service?.unit || '').trim().toLowerCase() === 'load'
+    && serviceCategory(service) !== 'Add-ons';
 }
 
 function serviceKgPerLoad(service) {
