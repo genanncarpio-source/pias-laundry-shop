@@ -16,6 +16,7 @@ $appDownloadUrl = 'https://github.com/genanncarpio-source/pias-laundry-shop/rele
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" type="image/png" href="assets/img/pias-favicon.png?v=2">
 <meta name="theme-color" content="#58265f">
 <meta name="description" content="Discover <?= e($shopName) ?> laundry services and download our customer app.">
 <title><?= e($shopName) ?> · Laundry made simple</title>

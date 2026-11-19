@@ -29,6 +29,7 @@ $nav = [
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/png" href="<?= e(asset('assets/img/pias-favicon.png')) ?>?v=2">
 <title><?= isset($pageTitle) ? e($pageTitle) . ' Â· ' . e($shopName) : e($shopName) ?></title>
 <link rel="stylesheet" href="<?= e(asset('assets/css/style.css')) ?>?v=booking-history-20261117">
 </head>
