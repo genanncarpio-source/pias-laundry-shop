@@ -18,6 +18,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save'])) {
     $phone   = trim($_POST['phone'] ?? '');
     $email   = trim($_POST['email'] ?? '');
     $address = trim($_POST['address'] ?? '');
+    $password = is_string($_POST['password'] ?? null) ? $_POST['password'] : '';
     $isActive = isset($_POST['is_active']) ? 1 : 0;
 
     if ($name === '') {
@@ -43,6 +44,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save'])) {
         flash_set('success', 'Customer updated.');
     } else {
         /* Validate and keep new customer emails unique. Existing customer emails are immutable. */
+        if ($password !== '' && $email === '') {
+            flash_set('error', 'Enter an email address to create a customer app login.');
+            redirect('customers.php');
+        }
+        if ($password !== '' && (strlen($password) < 10 || strlen($password) > 72 || preg_match('/\s/u', $password))) {
+            flash_set('error', 'Use a temporary password with 10-72 characters and no spaces.');
+            redirect('customers.php');
+        }
         if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
             flash_set('error', 'That email address is not valid.');
             redirect('customers.php');
@@ -61,14 +70,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save'])) {
                 redirect('customers.php');
             }
         }
-        $stmt = $pdo->prepare(
-            "INSERT INTO customers
-                (name, phone, email, address, is_active)
-             VALUES (?, ?, ?, ?, ?)"
-        );
-        $stmt->execute([$name, $phone, $email !== '' ? $email : null, $address, $isActive]);
-        add_audit_log('Customer created', 'customers', (int)$pdo->lastInsertId(), null, ['name' => $name, 'email' => $email, 'is_active' => $isActive]);
-        flash_set('success', 'Customer added.');
+        try {
+            $pdo->beginTransaction();
+            $stmt = $pdo->prepare(
+                "INSERT INTO customers
+                    (name, phone, email, address, is_active)
+                 VALUES (?, ?, ?, ?, ?)"
+            );
+            $stmt->execute([$name, $phone, $email !== '' ? $email : null, $address, $isActive]);
+            $customerId = (int)$pdo->lastInsertId();
+            if ($password !== '') {
+                $account = $pdo->prepare('INSERT INTO customer_accounts (customer_id, email, password_hash, email_verified_at) VALUES (?, ?, ?, NOW())');
+                $account->execute([$customerId, $email, password_hash($password, PASSWORD_DEFAULT)]);
+            }
+            $pdo->commit();
+        } catch (Throwable $exception) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            error_log('Customer creation failed: ' . $exception->getMessage());
+            flash_set('error', 'Could not add the customer. Check the email address and try again.');
+            redirect('customers.php');
+        }
+        add_audit_log('Customer created', 'customers', $customerId, null, ['name' => $name, 'email' => $email, 'is_active' => $isActive, 'app_login_created' => $password !== '']);
+        flash_set('success', $password !== '' ? 'Customer added with an app login. Give the temporary password directly to the customer.' : 'Customer added.');
     }
     redirect('customers.php');
 }
@@ -162,6 +185,12 @@ include __DIR__ . '/includes/header.php';
       <label for="email">Email</label>
       <input type="email" id="email" name="email" value="<?= e($editing['email'] ?? '') ?>" <?= $editing ? 'readonly aria-readonly="true"' : '' ?>>
       <?php if ($editing): ?><small class="muted">Customer email cannot be changed here.</small><?php endif; ?>
+
+      <?php if (!$editing): ?>
+      <label for="customerPassword">Temporary password</label>
+      <input type="password" id="customerPassword" name="password" minlength="10" maxlength="72" autocomplete="new-password">
+      <small class="muted">Optional. Enter an email to create a customer app login. Use at least 10 characters with no spaces, and give the password directly to the customer.</small>
+      <?php endif; ?>
 
       <label for="address">Address</label>
       <input type="text" id="address" name="address" value="<?= e($editing['address'] ?? '') ?>">
