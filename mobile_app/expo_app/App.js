@@ -1133,7 +1133,7 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
     const clean = String(value).replace(/[^0-9.]/g, '');
     const id = String(service.id);
     const isCoreService = isCoreLoadService(service) || ['Wash', 'Dry', 'Full service'].includes(serviceCategory(service));
-    if (isCoreService && Number(clean || 0) > 99) { setBookingError('Each laundry service is limited to 99 kg.'); return; }
+    if (isCoreService && Number(clean || 0) > 15) { setBookingError('The maximum laundry weight per order is 15 kg.'); return; }
     if (isCoreService && mainLaundry && String(mainLaundry.id) !== id) setAddonSelections({});
     setQuantities((current) => {
       if (!isCoreService) return { ...current, [id]: clean };
@@ -1198,9 +1198,9 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
     chosen.push(...addonLines);
     if (!chosen.length) return setBookingError('Choose a laundry service before booking.');
     if (chosen.some((line) => serviceCategory(services.find((service) => Number(service.id) === line.service_id) || {}) === 'Add-ons') && mainLoadCount < 1) return setBookingError('Choose a main laundry service first so add-ons can be priced per load.');
-    if (chosen.some((line) => !Number.isFinite(line.quantity) || line.quantity > 500 || line.weight_kg > 99 ||
+    if (chosen.some((line) => !Number.isFinite(line.quantity) || line.quantity > 500 || line.weight_kg > 15 ||
       (['piece', 'load'].includes(services.find((service) => Number(service.id) === line.service_id)?.unit) && !Number.isInteger(line.quantity)))) {
-      return setBookingError('Each laundry service is limited to 99 kg. Load and piece quantities must be whole numbers.');
+      return setBookingError('The maximum laundry weight per order is 15 kg. Load and piece quantities must be whole numbers.');
     }
     if (pickupAt && new Date(pickupAt) <= new Date()) return setBookingError('Choose a future schedule or remove the suggested time.');
     if (!deliveryAvailable) return setBookingError('Laundry services are available only within the service area covering San Jose, San Manuel, and Balingcanaway, Tarlac.');
@@ -1352,7 +1352,7 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
             </ScrollView>
             <View style={styles.serviceRuleNote}>
               <Text style={styles.serviceRuleTitle}>Choose one main laundry service</Text>
-              <Text style={styles.serviceRuleCopy}>Prices and units reflect the current shop price list. Choose one main laundry service; add-ons are priced per load. Each service is limited to 99 kg.</Text>
+              <Text style={styles.serviceRuleCopy}>Prices and units reflect the current shop price list. Choose one main laundry service; add-ons are priced per load. Maximum laundry weight per order: 15 kg.</Text>
             </View>
 
             {loading && !services.length ? (

@@ -22,6 +22,7 @@ if (!is_array($items) || count($items) < 1 || count($items) > 30) {
 
 $quantities = [];
 $weights = [];
+$totalLaundryWeight = 0.0;
 $addonParents = [];
 foreach ($items as $item) {
     if (!is_array($item)) mobile_booking_json(422, ['success' => false, 'error' => 'Each service must include a service ID and quantity.']);
@@ -34,11 +35,13 @@ foreach ($items as $item) {
     if (isset($item['parent_service_id'])) $addonParents[$serviceId] = (int)$item['parent_service_id'];
     if (array_key_exists('weight_kg', $item)) {
         $weight = is_scalar($item['weight_kg']) ? filter_var($item['weight_kg'], FILTER_VALIDATE_FLOAT) : false;
-        if ($weight === false || !is_finite((float)$weight) || round((float)$weight, 2) <= 0 || $weight > 99) {
-            mobile_booking_json(422, ['success' => false, 'error' => 'Enter a laundry weight between 0.01 and 99 kg.']);
+        if ($weight === false || !is_finite((float)$weight) || round((float)$weight, 2) <= 0 || $weight > 15) {
+            mobile_booking_json(422, ['success' => false, 'error' => 'Enter a laundry weight between 0.01 and 15 kg.']);
         }
+        $totalLaundryWeight += (float)$weight;
+        if ($totalLaundryWeight > 15) mobile_booking_json(422, ['success' => false, 'error' => 'The maximum laundry weight per order is 15 kg.']);
         $weights[$serviceId] = ($weights[$serviceId] ?? 0) + (float)$weight;
-        if ($weights[$serviceId] > 99) mobile_booking_json(422, ['success' => false, 'error' => 'Each laundry service is limited to 99 kg.']);
+        if ($weights[$serviceId] > 15) mobile_booking_json(422, ['success' => false, 'error' => 'The maximum laundry weight per order is 15 kg.']);
     }
 }
 
