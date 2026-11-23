@@ -1,0 +1,54 @@
+name: Deploy Pia's Laundry Expo Web
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  web-preview:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Check out project
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile_app/expo_app/package-lock.json
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Install Expo app dependencies
+        working-directory: mobile_app/expo_app
+        run: npm ci
+
+      - name: Build static Expo web preview
+        working-directory: mobile_app/expo_app
+        env:
+          EXPO_BASE_URL: /${{ github.event.repository.name }}
+          EXPO_PUBLIC_API_BASE_URL: https://pias-laundry-shop.up.railway.app/api
+        run: npm run build:web
+
+      - name: Upload web build to Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: mobile_app/expo_app/dist
+
+      - name: Deploy web preview
+        id: deployment
+        uses: actions/deploy-pages@v4

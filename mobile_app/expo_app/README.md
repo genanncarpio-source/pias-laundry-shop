@@ -94,5 +94,4 @@ The `preview` EAS profile is configured to produce an installable APK and points
 to the current local XAMPP API. This works only while the phone is on the same
 network as the computer. A production build needs `EXPO_PUBLIC_API_BASE_URL` set
 to the shop's publicly reachable HTTPS API; GitHub Pages hosts only the web app,
-not this PHP API. The existing GitHub Actions workflow still builds the Flutter
-app, while this EAS profile builds the Expo version.
+not this PHP API. The GitHub Actions workflow publishes this Expo web preview to GitHub Pages on pushes to main, using the production Railway API URL. This does not build an APK or deploy the PHP API. The EAS profile is separate and builds APKs only when explicitly requested.
