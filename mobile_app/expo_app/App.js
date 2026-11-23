@@ -810,6 +810,11 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
     error, setError, refresh: loadShopData, refreshNotifications, markNotificationRead, deleteNotification, notificationsError } = useOnlineShop({ apiBase, customer, token, onSessionExpired });
   const bookingBusy = useRef(false);
   const [bookingError, setBookingError] = useState('');
+  useEffect(() => {
+    if (!bookingError || !/maximum laundry weight per service is 15 kg|each service has a maximum laundry weight of 15 kg/i.test(bookingError)) return undefined;
+    const timeout = setTimeout(() => setBookingError((current) => current === bookingError ? '' : current), 5000);
+    return () => clearTimeout(timeout);
+  }, [bookingError]);
   const [reviewPrompt, setReviewPrompt] = useState(null);
   const [reviewComment, setReviewComment] = useState('');
   const [reviewRating, setReviewRating] = useState(0);
