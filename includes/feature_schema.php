@@ -166,6 +166,9 @@ function ensure_workflow_schema(): void
     if ($driverPaymentColumnAdded) $pdo->exec("UPDATE payments p JOIN delivery_drivers d ON p.reference_number = CONCAT('Collected by driver ', d.full_name) SET p.received_by_driver_id = d.id WHERE p.received_by_driver_id IS NULL AND p.payment_method = 'cash'");
 
     $columns = [
+        'booking_group_id' => "ALTER TABLE orders ADD COLUMN booking_group_id CHAR(36) DEFAULT NULL AFTER order_number",
+        'booking_group_primary' => "ALTER TABLE orders ADD COLUMN booking_group_primary TINYINT(1) NOT NULL DEFAULT 1 AFTER booking_group_id",
+        'booking_group_total' => "ALTER TABLE orders ADD COLUMN booking_group_total DECIMAL(10,2) DEFAULT NULL AFTER total",
         'actual_weight' => "ALTER TABLE orders ADD COLUMN actual_weight DECIMAL(10,2) DEFAULT NULL AFTER total",
         'pickup_address' => "ALTER TABLE orders ADD COLUMN pickup_address VARCHAR(255) DEFAULT NULL AFTER customer_name",
         'delivery_address' => "ALTER TABLE orders ADD COLUMN delivery_address VARCHAR(255) DEFAULT NULL AFTER pickup_address",
@@ -184,6 +187,8 @@ function ensure_workflow_schema(): void
     foreach ($columns as $column => $sql) {
         if (!isset($existingColumns[$column])) $pdo->exec($sql);
     }
+    $bookingGroupIndex = $pdo->query("SHOW INDEX FROM orders WHERE Key_name = 'idx_orders_booking_group'")->fetch(PDO::FETCH_ASSOC);
+    if (!$bookingGroupIndex) $pdo->exec('ALTER TABLE orders ADD KEY idx_orders_booking_group (booking_group_id, booking_group_primary)');
     $archivedOrdersIndex = $pdo->query("SHOW INDEX FROM orders WHERE Key_name = 'idx_orders_archived'")->fetch(PDO::FETCH_ASSOC);
     if (!$archivedOrdersIndex) $pdo->exec('ALTER TABLE orders ADD KEY idx_orders_archived (archived_at)');
     $estimatedWeightColumn = $pdo->query("SHOW COLUMNS FROM order_items LIKE 'estimated_weight_kg'")->fetch(PDO::FETCH_ASSOC);

@@ -81,10 +81,6 @@ foreach ($quantities as $serviceId => $quantity) {
         }
     }
 }
-if (count($coreServices) > 1) {
-    mobile_booking_json(422, ['success' => false, 'error' => 'Choose only one main laundry service. Add-ons may still be included.']);
-}
-
 $hasAddons = count(array_filter($ids, static fn ($id) => stripos((string)($serviceMap[$id]['category'] ?? ''), 'add') === 0 || (int)$id < 0)) > 0;
 if ($hasAddons && (count($coreServices) !== 1 || $expectedAddonLoads < 1)) {
     mobile_booking_json(422, ['success' => false, 'error' => 'Choose one main laundry service before adding add-ons.']);
@@ -127,6 +123,7 @@ foreach ($quantities as $serviceId => $quantity) {
         $subtotal += $lineTotal;
         $lines[] = [
             'service_id' => (int)$serviceId > 0 ? (int)$serviceId : null,
+            'parent_service_id' => $addonParents[$serviceId] ?? $selectedCoreId,
             'service_name' => $service['name'],
             'unit' => 'load',
             'quantity' => $quantity,
@@ -160,6 +157,17 @@ foreach ($quantities as $serviceId => $quantity) {
     ];
 }
 $subtotal = round($subtotal, 2);
+$serviceLines = [];
+foreach ($lines as $line) {
+    $ownerServiceId = $line['parent_service_id'] ?? $line['service_id'];
+    if (!$ownerServiceId || (int)$ownerServiceId < 1) mobile_booking_json(422, ['success' => false, 'error' => 'Every add-on must belong to a main laundry service.']);
+    $ownerService = $serviceMap[(int)$ownerServiceId] ?? null;
+    $serviceCategory = trim((string)($ownerService['category'] ?? ''));
+    $groupKey = $serviceCategory !== '' ? 'category:' . strtolower($serviceCategory) : 'service:' . (int)$ownerServiceId;
+    $serviceLines[$groupKey]['name'] = $serviceCategory !== '' ? $serviceCategory : (string)($ownerService['name'] ?? $line['service_name']);
+    $serviceLines[$groupKey]['lines'][] = $line;
+}
+if (count($serviceLines) < 1) mobile_booking_json(422, ['success' => false, 'error' => 'Choose at least one main laundry service.']);
 if ($subtotal > 99999999.99) mobile_booking_json(422, ['success' => false, 'error' => 'The selected services exceed the maximum ticket amount.']);
 
 if (array_key_exists('quoted_total', $data)) {
@@ -225,45 +233,61 @@ if (!empty($data['expected_pickup'])) {
 }
 
 $pdo = db();
-$ticketNumber = 'TKT-' . date('Ymd') . '-' . strtoupper(bin2hex(random_bytes(3)));
+$bookingGroupId = bin2hex(random_bytes(16));
+$ticketIds = [];
+$ticketSummaries = [];
+$primaryTicketId = 0;
 if (!$pdo->inTransaction()) $pdo->beginTransaction();
 try {
     $insert = $pdo->prepare(
         "INSERT INTO orders
-            (order_number, customer_id, customer_name, pickup_address, delivery_address, delivery_latitude, delivery_longitude,
+            (order_number, booking_group_id, booking_group_primary, booking_group_total, customer_id, customer_name, pickup_address, delivery_address, delivery_latitude, delivery_longitude,
              order_type, handoff_type, status, subtotal, delivery_fee, discount, total, amount_paid, change_due, payment_method,
              expected_pickup, notes, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, 0, ?, 0, 0, ?, ?, ?, NULL)"
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, 0, 0, ?, 0, 0, ?, ?, ?, NULL)"
     );
-    $insert->execute([$ticketNumber, (int)$customer['id'], $customer['name'], $pickupAddress, $deliveryAddressValue,
-        $hasDelivery ? $customerLatitude : null, $hasDelivery ? $customerLongitude : null,
-        $orderType, $fulfillment, $subtotal, $deliveryFee, $grandTotal, $orderPaymentMethod, $expectedPickup, $notes ?: null]);
-    $ticketId = (int)$pdo->lastInsertId();
-    if ($paymentMethod === 'gcash') {
-        $pdo->prepare('INSERT INTO gcash_payment_submissions (order_id, amount, reference_number) VALUES (?, ?, ?)')->execute([$ticketId, $grandTotal, $paymentReference]);
-    }
     $insertLine = $pdo->prepare('INSERT INTO order_items (order_id, service_id, service_name, unit, quantity, unit_price, subtotal, estimated_weight_kg) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
-    foreach ($lines as $line) {
-        $insertLine->execute([$ticketId, $line['service_id'], $line['service_name'], $line['unit'], $line['quantity'], $line['unit_price'], $line['subtotal'], $line['estimated_weight_kg']]);
-    }
-    $historyNote = $paymentMethod === 'gcash'
-        ? 'Mobile app request submitted; GCash payment is awaiting shop verification'
-        : 'Service request submitted through the mobile app';
     $history = $pdo->prepare("INSERT INTO order_history (order_id, status, note, changed_by) VALUES (?, 'pending', ?, NULL)");
-    $history->execute([$ticketId, $historyNote]);
+    $primary = true;
+    foreach ($serviceLines as $serviceGroup) {
+        $ticketLines = $serviceGroup['lines'];
+        $ticketSubtotal = round(array_sum(array_column($ticketLines, 'subtotal')), 2);
+        $ticketNumber = 'TKT-' . date('Ymd') . '-' . strtoupper(bin2hex(random_bytes(3)));
+        $ticketTotal = $ticketSubtotal;
+        $insert->execute([$ticketNumber, $bookingGroupId, $primary ? 1 : 0, $grandTotal, (int)$customer['id'], $customer['name'], $pickupAddress, $deliveryAddressValue,
+            $hasDelivery ? $customerLatitude : null, $hasDelivery ? $customerLongitude : null, $orderType, $fulfillment, $ticketSubtotal, $ticketTotal,
+            $orderPaymentMethod, $expectedPickup, $notes ?: null]);
+        $ticketId = (int)$pdo->lastInsertId();
+        if ($primary) $primaryTicketId = $ticketId;
+        $ticketIds[] = $ticketId;
+        foreach ($ticketLines as $line) {
+            $insertLine->execute([$ticketId, $line['service_id'], $line['service_name'], $line['unit'], $line['quantity'], $line['unit_price'], $line['subtotal'], $line['estimated_weight_kg']]);
+        }
+        $historyNote = $paymentMethod === 'gcash'
+            ? 'Mobile app service ticket submitted in booking group ' . $bookingGroupId . '; shared GCash payment is awaiting shop verification'
+            : 'Service ticket submitted through the mobile app in booking group ' . $bookingGroupId;
+        $history->execute([$ticketId, $historyNote]);
+        $ticketSummaries[] = ['id' => $ticketId, 'ticket_number' => $ticketNumber, 'service_name' => $serviceGroup['name'], 'status' => 'pending', 'estimated_total' => $ticketTotal];
+        $primary = false;
+    }
+    if ($paymentMethod === 'gcash') {
+        $pdo->prepare('INSERT INTO gcash_payment_submissions (order_id, amount, reference_number) VALUES (?, ?, ?)')->execute([$primaryTicketId, $grandTotal, $paymentReference]);
+    }
     $staffIds = $pdo->query('SELECT id FROM users WHERE is_active = 1')->fetchAll(PDO::FETCH_COLUMN);
     foreach ($staffIds as $staffId) {
         $requestLabel = $fulfillment === 'pickup_delivery' ? 'pickup and delivery' : ($fulfillment === 'dropoff_delivery' ? 'drop-off and delivery' : 'drop-off and pickup');
-        if ($paymentMethod === 'gcash') {
-            add_notification('staff', (int)$staffId, $ticketId, 'GCash payment needs verification', 'GCash reference ' . $paymentReference . ' was submitted for ' . $ticketNumber . ' (' . money($grandTotal) . ').');
-        } else {
-            add_notification('staff', (int)$staffId, $ticketId, 'New ' . $requestLabel . ' request', 'Mobile app ' . $requestLabel . ' request ' . $ticketNumber . ' from ' . $customer['name'] . '.');
-        }
+        $title = $paymentMethod === 'gcash' ? 'GCash payment needs verification' : 'New ' . $requestLabel . ' request';
+        $body = $paymentMethod === 'gcash'
+            ? 'GCash reference ' . $paymentReference . ' was submitted for booking ' . $bookingGroupId . ' (' . money($grandTotal) . ').'
+            : 'Mobile app ' . $requestLabel . ' booking ' . $bookingGroupId . ' from ' . $customer['name'] . ' (' . count($ticketIds) . ' service tickets).';
+        add_notification('staff', (int)$staffId, $primaryTicketId, $title, $body);
     }
 $response = [
     'success' => true,
     'message' => $paymentMethod === 'gcash' ? 'Your booking and GCash reference were submitted. The shop will verify the transfer before processing.' : 'Your laundry service request was submitted. The shop will confirm it.',
-    'ticket' => ['id' => $ticketId, 'ticket_number' => $ticketNumber, 'status' => 'pending', 'estimated_total' => $grandTotal, 'service_subtotal' => $subtotal, 'delivery_fee' => $deliveryFee, 'delivery_distance_km' => 0, 'payment_status' => $paymentMethod === 'gcash' ? 'pending_verification' : 'pay_during_handoff'],
+    'booking_group_id' => $bookingGroupId,
+    'tickets' => $ticketSummaries,
+    'ticket' => ['id' => $primaryTicketId, 'ticket_number' => $ticketSummaries[0]['ticket_number'], 'status' => 'pending', 'estimated_total' => $grandTotal, 'service_subtotal' => $subtotal, 'delivery_fee' => $deliveryFee, 'delivery_distance_km' => 0, 'payment_status' => $paymentMethod === 'gcash' ? 'pending_verification' : 'pay_during_handoff'],
 ];
 
     if ($requestId !== null) {

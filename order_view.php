@@ -25,8 +25,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['update_status']) || 
             $currentOrder = $current->fetch();
             if (!$currentOrder) throw new InvalidArgumentException('Order not found.');
             if ($currentOrder['payment_method'] === 'gcash_pending' && (isset($_POST['update_status']) || isset($_POST['record_payment']) || isset($_POST['record_weight']) || isset($_POST['assign_delivery_driver']))) {
-                $paymentCheck = $pdo->prepare('SELECT status FROM gcash_payment_submissions WHERE order_id = ? ORDER BY id DESC LIMIT 1');
-                $paymentCheck->execute([$id]);
+                $paymentCheck = $pdo->prepare('SELECT status FROM gcash_payment_submissions WHERE order_id = COALESCE((SELECT id FROM orders WHERE booking_group_id = ? AND booking_group_primary = 1 LIMIT 1), ?) ORDER BY id DESC LIMIT 1');
+                $paymentCheck->execute([$currentOrder['booking_group_id'], $id]);
                 if ($paymentCheck->fetchColumn() !== 'verified') throw new InvalidArgumentException('Verify the customer GCash transfer before processing this order.');
             }
             $processStmt = $pdo->prepare('SELECT oi.service_name, s.category FROM order_items oi LEFT JOIN services s ON s.id = oi.service_id WHERE oi.order_id = ?');
@@ -48,15 +48,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['update_status']) || 
                 $lockedOrderStmt = $pdo->prepare('SELECT * FROM orders WHERE id = ? FOR UPDATE');
                 $lockedOrderStmt->execute([$id]);
                 $lockedOrder = $lockedOrderStmt->fetch();
-                $submissionStmt = $pdo->prepare('SELECT * FROM gcash_payment_submissions WHERE order_id = ? ORDER BY id DESC LIMIT 1 FOR UPDATE');
-                $submissionStmt->execute([$id]);
+                $submissionStmt = $pdo->prepare('SELECT * FROM gcash_payment_submissions WHERE order_id = COALESCE((SELECT id FROM orders WHERE booking_group_id = ? AND booking_group_primary = 1 LIMIT 1), ?) ORDER BY id DESC LIMIT 1 FOR UPDATE');
+                $submissionStmt->execute([$lockedOrder['booking_group_id'] ?? null, $id]);
                 $submission = $submissionStmt->fetch();
-                if (!$lockedOrder || !$submission || $lockedOrder['payment_method'] !== 'gcash_pending' || $submission['status'] !== 'pending' || (float)$lockedOrder['amount_paid'] > 0 || round((float)$submission['amount'], 2) !== round((float)$lockedOrder['total'], 2) || in_array($lockedOrder['status'], ['cancelled', 'rejected', 'completed', 'picked_up'], true)) {
+                $groupTotal = (float)($lockedOrder['booking_group_total'] ?? $lockedOrder['total'] ?? 0);
+                if (!$lockedOrder || !$submission || !$lockedOrder['booking_group_primary'] || $lockedOrder['payment_method'] !== 'gcash_pending' || $submission['status'] !== 'pending' || (float)$lockedOrder['amount_paid'] > 0 || round((float)$submission['amount'], 2) !== round($groupTotal, 2) || in_array($lockedOrder['status'], ['cancelled', 'rejected', 'completed', 'picked_up'], true)) {
                     throw new InvalidArgumentException('This GCash transfer is no longer eligible for verification. Refresh the order and check its payment status.');
                 }
                 $paid = round((float)$submission['amount'], 2);
                 $pdo->prepare("INSERT INTO payments (order_id, amount, payment_method, reference_number, received_by) VALUES (?, ?, 'gcash', ?, ?)")->execute([$id, $paid, $submission['reference_number'], $_SESSION['user_id']]);
-                $pdo->prepare("UPDATE orders SET amount_paid = ?, change_due = 0, payment_method = 'gcash' WHERE id = ?")->execute([$paid, $id]);
+                if (!empty($lockedOrder['booking_group_id'])) {
+                    $pdo->prepare("UPDATE orders SET amount_paid = total, change_due = 0, payment_method = 'gcash' WHERE booking_group_id = ?")->execute([$lockedOrder['booking_group_id']]);
+                } else {
+                    $pdo->prepare("UPDATE orders SET amount_paid = ?, change_due = 0, payment_method = 'gcash' WHERE id = ?")->execute([$paid, $id]);
+                }
                 $pdo->prepare("UPDATE gcash_payment_submissions SET status = 'verified', reviewed_at = NOW(), reviewed_by = ?, review_note = NULL WHERE id = ?")->execute([$_SESSION['user_id'], $submission['id']]);
                 add_order_history($id, (string)$lockedOrder['status'], 'GCash transfer verified by shop', (int)$_SESSION['user_id']);
                 if ($lockedOrder['customer_id']) add_notification('customer', (int)$lockedOrder['customer_id'], $id, 'GCash payment verified', 'The shop verified your GCash payment for ' . $lockedOrder['order_number'] . '. Your order can now be processed.');
@@ -71,8 +76,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['update_status']) || 
                 $lockedOrderStmt = $pdo->prepare('SELECT * FROM orders WHERE id = ? FOR UPDATE');
                 $lockedOrderStmt->execute([$id]);
                 $lockedOrder = $lockedOrderStmt->fetch();
-                $submissionStmt = $pdo->prepare('SELECT * FROM gcash_payment_submissions WHERE order_id = ? ORDER BY id DESC LIMIT 1 FOR UPDATE');
-                $submissionStmt->execute([$id]);
+                $submissionStmt = $pdo->prepare('SELECT * FROM gcash_payment_submissions WHERE order_id = COALESCE((SELECT id FROM orders WHERE booking_group_id = ? AND booking_group_primary = 1 LIMIT 1), ?) ORDER BY id DESC LIMIT 1 FOR UPDATE');
+                $submissionStmt->execute([$lockedOrder['booking_group_id'] ?? null, $id]);
                 $submission = $submissionStmt->fetch();
                 if (!$lockedOrder || !$submission || $lockedOrder['payment_method'] !== 'gcash_pending' || $submission['status'] !== 'pending' || (float)$lockedOrder['amount_paid'] > 0) {
                     throw new InvalidArgumentException('This GCash submission has already been reviewed or cannot be rejected.');
@@ -90,19 +95,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['update_status']) || 
                 }
                 $driverId = filter_var($_POST['driver_id'] ?? null, FILTER_VALIDATE_INT);
                 if ($driverId === false || $driverId < 0) throw new InvalidArgumentException('Choose a valid driver.');
+                $assignmentWhere = !empty($currentOrder['booking_group_id']) ? 'booking_group_id = ?' : 'id = ?';
+                $assignmentKey = !empty($currentOrder['booking_group_id']) ? $currentOrder['booking_group_id'] : $id;
                 if ($driverId > 0) {
                     $driverCheck = $pdo->prepare('SELECT id FROM delivery_drivers WHERE id = ? AND is_active = 1 LIMIT 1');
                     $driverCheck->execute([(int)$driverId]);
                     if (!$driverCheck->fetchColumn()) throw new InvalidArgumentException('That driver account is inactive or unavailable.');
-                    $pdo->prepare('UPDATE orders SET assigned_driver_id = ? WHERE id = ?')->execute([(int)$driverId, $id]);
+                    $pdo->prepare("UPDATE orders SET assigned_driver_id = ? WHERE $assignmentWhere")->execute([(int)$driverId, $assignmentKey]);
                 } else {
-                    $pdo->prepare('UPDATE orders SET assigned_driver_id = NULL WHERE id = ?')->execute([$id]);
+                    $pdo->prepare("UPDATE orders SET assigned_driver_id = NULL WHERE $assignmentWhere")->execute([$assignmentKey]);
                 }
                 add_order_history($id, (string)$currentOrder['status'], $driverId > 0 ? 'Delivery driver assigned' : 'Delivery driver assignment removed', (int)$_SESSION['user_id']);
                 add_audit_log('Delivery driver assignment changed', 'orders', $id, $currentOrder['assigned_driver_id'] ?? null, $driverId > 0 ? (int)$driverId : null);
                 flash_set('success', $driverId > 0 ? 'Delivery driver assigned.' : 'Delivery driver unassigned.');
             } elseif (isset($_POST['record_payment'])) {
                 if (in_array($currentOrder['status'], ['cancelled', 'rejected'], true)) throw new InvalidArgumentException('Payments cannot be recorded for a cancelled or rejected order.');
+                $pdo->beginTransaction();
+                $paymentAnchorId = $id;
+                $paymentTotal = (float)($currentOrder['booking_group_total'] ?? $currentOrder['total']);
+                if (!empty($currentOrder['booking_group_id'])) {
+                    $anchorStmt = $pdo->prepare('SELECT id, amount_paid, change_due FROM orders WHERE booking_group_id = ? AND booking_group_primary = 1 LIMIT 1 FOR UPDATE');
+                    $anchorStmt->execute([$currentOrder['booking_group_id']]);
+                    $paymentAnchor = $anchorStmt->fetch();
+                    if (!$paymentAnchor) throw new InvalidArgumentException('The shared booking payment record could not be found.');
+                    $paymentAnchorId = (int)$paymentAnchor['id'];
+                } else {
+                    $anchorStmt = $pdo->prepare('SELECT id, amount_paid, change_due FROM orders WHERE id = ? FOR UPDATE');
+                    $anchorStmt->execute([$id]);
+                    $paymentAnchor = $anchorStmt->fetch();
+                }
                 $amountInput = trim((string)($_POST['payment_amount'] ?? ''));
                 if (!preg_match('/^\d+(?:\.\d{1,2})?$/', $amountInput)) throw new InvalidArgumentException('Enter a valid positive payment amount.');
                 $amount = round((float)$amountInput, 2);
@@ -110,19 +131,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['update_status']) || 
                 $method = $_POST['payment_method'] ?? '';
                 $reference = $method === 'gcash' ? trim((string)($_POST['reference_number'] ?? '')) : '';
                 $validMethods = ['cash', 'gcash'];
-                $alreadyPaid = max(0, (float)$currentOrder['amount_paid'] - (float)$currentOrder['change_due']);
-                $balance = max(0, (float)$currentOrder['total'] - $alreadyPaid);
+                if (!empty($currentOrder['booking_group_id'])) {
+                    $groupPaidQuery = $pdo->prepare("SELECT COALESCE(SUM(amount), 0) FROM payments WHERE order_id = ? AND status = 'paid'");
+                    $groupPaidQuery->execute([$paymentAnchorId]);
+                    $alreadyPaid = (float)$groupPaidQuery->fetchColumn();
+                    if ($alreadyPaid <= 0) $alreadyPaid = max(0, (float)$paymentAnchor['amount_paid'] - (float)$paymentAnchor['change_due']);
+                } else {
+                    $alreadyPaid = max(0, (float)$paymentAnchor['amount_paid'] - (float)$paymentAnchor['change_due']);
+                }
+                $balance = max(0, $paymentTotal - $alreadyPaid);
                 if (!in_array($method, $validMethods, true) || $amount <= 0 || ($method === 'gcash' && $amount > $balance) || strlen($reference) > 120) throw new InvalidArgumentException('Enter a valid payment amount. GCash payments cannot exceed the remaining balance.');
                 $appliedAmount = min($amount, $balance);
                 $change = $method === 'cash' ? max(0, round($amount - $balance, 2)) : 0.0;
-                $pdo->beginTransaction();
-                $pdo->prepare("INSERT INTO payments (order_id, amount, payment_method, reference_number, received_by) VALUES (?, ?, ?, ?, ?)")->execute([$id, $appliedAmount, $method, $reference !== '' ? $reference : null, $_SESSION['user_id']]);
+                $pdo->prepare("INSERT INTO payments (order_id, amount, payment_method, reference_number, received_by) VALUES (?, ?, ?, ?, ?)")->execute([$paymentAnchorId, $appliedAmount, $method, $reference !== '' ? $reference : null, $_SESSION['user_id']]);
                 $newPaid = round($alreadyPaid + $amount, 2);
-                $pdo->prepare('UPDATE orders SET amount_paid = ?, change_due = ?, payment_method = ? WHERE id = ?')->execute([$newPaid, $change, $method, $id]);
+                if (!empty($currentOrder['booking_group_id'])) {
+                    $remainingToAllocate = max(0, $newPaid - $change);
+                    $groupTicketsStmt = $pdo->prepare('SELECT id, total FROM orders WHERE booking_group_id = ? ORDER BY booking_group_primary DESC, id FOR UPDATE');
+                    $groupTicketsStmt->execute([$currentOrder['booking_group_id']]);
+                    $allocateStmt = $pdo->prepare('UPDATE orders SET amount_paid = ?, change_due = ?, payment_method = ? WHERE id = ?');
+                    foreach ($groupTicketsStmt->fetchAll() as $groupTicket) {
+                        $allocated = min((float)$groupTicket['total'], $remainingToAllocate);
+                        $remainingToAllocate = max(0, $remainingToAllocate - $allocated);
+                        $allocateStmt->execute([$allocated, (int)$groupTicket['id'] === $paymentAnchorId ? $change : 0, $method, (int)$groupTicket['id']]);
+                    }
+                } else {
+                    $pdo->prepare('UPDATE orders SET amount_paid = ?, change_due = ?, payment_method = ? WHERE id = ?')->execute([$newPaid, $change, $method, $id]);
+                }
                 $pdo->commit();
                 if ($currentOrder['customer_id']) add_notification('customer', (int)$currentOrder['customer_id'], $id, 'Payment recorded', money($appliedAmount) . ' payment received for ' . $currentOrder['order_number'] . '.');
                 add_audit_log('Payment recorded', 'payments', $id, $alreadyPaid, $newPaid - $change);
-                flash_set('success', 'Payment recorded.' . ($change > 0 ? ' Change: ' . money($change) . '.' : '') . ' Remaining balance: ' . money(max(0, (float)$currentOrder['total'] - ($newPaid - $change))));
+                flash_set('success', 'Payment recorded for booking.' . ($change > 0 ? ' Change: ' . money($change) . '.' : '') . ' Remaining balance: ' . money(max(0, $paymentTotal - ($newPaid - $change))));
             } elseif (isset($_POST['record_weight'])) {
                 if (in_array($currentOrder['status'], ['cancelled', 'rejected', 'completed', 'picked_up'], true)) throw new InvalidArgumentException('Actual weight cannot be changed for this order.');
                 $weight = round((float)($_POST['actual_weight'] ?? 0), 2);
@@ -170,11 +209,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['update_status']) || 
                 $alreadyPaid = max(0, (float)$currentOrder['amount_paid'] - (float)$currentOrder['change_due']);
                 if (!$hasKg) throw new InvalidArgumentException('This order has no weight-based service.');
                 if ($alreadyPaid > $newTotal) throw new InvalidArgumentException('The new total is below the amount already paid. The recorded weight was not changed.');
+                if (!empty($currentOrder['booking_group_id'])) {
+                    $groupPaidCheck = $pdo->prepare("SELECT COALESCE(SUM(amount), 0) FROM payments WHERE order_id = (SELECT id FROM orders WHERE booking_group_id = ? AND booking_group_primary = 1 LIMIT 1) AND status = 'paid'");
+                    $groupPaidCheck->execute([$currentOrder['booking_group_id']]);
+                    $groupOtherTotals = $pdo->prepare('SELECT COALESCE(SUM(total), 0) FROM orders WHERE booking_group_id = ? AND id <> ?');
+                    $groupOtherTotals->execute([$currentOrder['booking_group_id'], $id]);
+                    if ((float)$groupPaidCheck->fetchColumn() > (float)$groupOtherTotals->fetchColumn() + $newTotal) throw new InvalidArgumentException('The new booking total is below the amount already paid. The recorded weight was not changed.');
+                }
                 $pdo->beginTransaction();
                 foreach ($updates as [$qty, $unitPrice, $lineTotal, $lineId, $estimatedQty, $actualQty]) {
                     $pdo->prepare('UPDATE order_items SET quantity = ?, unit_price = ?, subtotal = ?, estimated_weight_kg = COALESCE(estimated_weight_kg, ?), actual_weight_kg = ? WHERE id = ?')->execute([$qty, $unitPrice, $lineTotal, $estimatedQty, $actualQty, $lineId]);
                 }
                 $pdo->prepare('UPDATE orders SET actual_weight = ?, subtotal = ?, total = ? WHERE id = ?')->execute([$weight, $newSubtotal, $newTotal, $id]);
+                if (!empty($currentOrder['booking_group_id'])) {
+                    $groupTotalStmt = $pdo->prepare('SELECT COALESCE(SUM(total), 0) FROM orders WHERE booking_group_id = ?');
+                    $groupTotalStmt->execute([$currentOrder['booking_group_id']]);
+                    $groupTotal = (float)$groupTotalStmt->fetchColumn();
+                    $pdo->prepare('UPDATE orders SET booking_group_total = ? WHERE booking_group_id = ?')->execute([$groupTotal, $currentOrder['booking_group_id']]);
+                    $paidAllocationStmt = $pdo->prepare("SELECT COALESCE(SUM(amount), 0) FROM payments WHERE order_id = (SELECT id FROM orders WHERE booking_group_id = ? AND booking_group_primary = 1 LIMIT 1) AND status = 'paid'");
+                    $paidAllocationStmt->execute([$currentOrder['booking_group_id']]);
+                    $remainingPaid = (float)$paidAllocationStmt->fetchColumn();
+                    $groupTicketStmt = $pdo->prepare('SELECT id, total FROM orders WHERE booking_group_id = ? ORDER BY booking_group_primary DESC, id');
+                    $groupTicketStmt->execute([$currentOrder['booking_group_id']]);
+                    $allocatePaymentStmt = $pdo->prepare('UPDATE orders SET amount_paid = ? WHERE id = ?');
+                    foreach ($groupTicketStmt->fetchAll() as $groupTicket) {
+                        $allocated = min((float)$groupTicket['total'], $remainingPaid);
+                        $remainingPaid = max(0, $remainingPaid - $allocated);
+                        $allocatePaymentStmt->execute([$allocated, (int)$groupTicket['id']]);
+                    }
+                }
                 add_order_history($id, (string)$currentOrder['status'], 'Actual weight recorded: ' . number_format($weight, 2) . ' kg. Total recalculated to ' . money($newTotal), (int)$_SESSION['user_id']);
                 $pdo->commit();
                 if ($currentOrder['customer_id']) add_notification('customer', (int)$currentOrder['customer_id'], $id, 'Order weighed', 'Actual weight for ' . $currentOrder['order_number'] . ' is ' . number_format($weight, 2) . ' kg. Updated total: ' . money($newTotal) . '.');
@@ -186,36 +249,65 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['update_status']) || 
                 $reason = trim($_POST['refund_reason'] ?? '');
                 $refundMethod = $_POST['refund_method'] ?? $currentOrder['payment_method'];
                 if (!in_array($refundMethod, ['cash', 'gcash'], true)) throw new InvalidArgumentException('Choose a valid refund method.');
+                $refundOrderId = $id;
+                if (!empty($currentOrder['booking_group_id'])) {
+                    $refundAnchorStmt = $pdo->prepare('SELECT id FROM orders WHERE booking_group_id = ? AND booking_group_primary = 1 LIMIT 1');
+                    $refundAnchorStmt->execute([$currentOrder['booking_group_id']]);
+                    $refundOrderId = (int)$refundAnchorStmt->fetchColumn();
+                    if (!$refundOrderId) throw new InvalidArgumentException('The shared booking payment could not be found.');
+                }
                 $sum = $pdo->prepare("SELECT COALESCE(SUM(amount),0) FROM order_adjustments WHERE order_id = ? AND adjustment_type = 'refund'");
-                $sum->execute([$id]);
+                $sum->execute([$refundOrderId]);
                 $ledger = $pdo->prepare("SELECT COUNT(*), COALESCE(SUM(CASE WHEN status = 'paid' THEN amount ELSE 0 END),0) FROM payments WHERE order_id = ?");
-                $ledger->execute([$id]);
+                $ledger->execute([$refundOrderId]);
                 [$paymentCount, $ledgerPaid] = $ledger->fetch(PDO::FETCH_NUM);
-                $paidAmount = (int)$paymentCount > 0 ? (float)$ledgerPaid : max(0, (float)$currentOrder['amount_paid'] - (float)$currentOrder['change_due']);
+                $paidAmount = (int)$paymentCount > 0 ? (float)$ledgerPaid : max(0, (float)($currentOrder['booking_group_total'] ?? $currentOrder['total']) - (float)$currentOrder['change_due']);
                 $remaining = max(0, $paidAmount - (float)$sum->fetchColumn());
                 if ($currentOrder['status'] === 'cancelled' || $amount <= 0 || $amount > $remaining || $reason === '') throw new InvalidArgumentException('Enter a refund amount up to the remaining refundable balance and a reason.');
-                $pdo->prepare("INSERT INTO order_adjustments (order_id, adjustment_type, amount, payment_method, reason, created_by) VALUES (?, 'refund', ?, ?, ?, ?)")->execute([$id, $amount, $refundMethod, $reason, $_SESSION['user_id']]);
+                $pdo->prepare("INSERT INTO order_adjustments (order_id, adjustment_type, amount, payment_method, reason, created_by) VALUES (?, 'refund', ?, ?, ?, ?)")->execute([$refundOrderId, $amount, $refundMethod, $reason, $_SESSION['user_id']]);
                 flash_set('success', 'Refund recorded.');
             } elseif (isset($_POST['cancel_order'])) {
                 $reason = trim($_POST['cancel_reason'] ?? '');
                 $refund = round((float)($_POST['cancel_refund'] ?? 0), 2);
                 $cancelRefundMethod = $_POST['cancel_refund_method'] ?? $currentOrder['payment_method'];
                 if (in_array($currentOrder['status'], ['cancelled', 'picked_up', 'completed', 'rejected'], true) || $reason === '') throw new InvalidArgumentException('Enter a reason. Completed, rejected or already cancelled orders cannot be cancelled.');
+                if (!empty($currentOrder['booking_group_id'])) {
+                    $startedGroupStmt = $pdo->prepare("SELECT COUNT(*) FROM orders WHERE booking_group_id = ? AND status NOT IN ('pending', 'confirmed', 'rejected', 'cancelled')");
+                    $startedGroupStmt->execute([$currentOrder['booking_group_id']]);
+                    if ((int)$startedGroupStmt->fetchColumn() > 0) throw new InvalidArgumentException('This shared booking has started processing and can no longer be cancelled as a group.');
+                }
                 if ($refund > 0 && !is_admin()) throw new InvalidArgumentException('An administrator must record a refund.');
                 if (!in_array($cancelRefundMethod, ['cash', 'gcash', 'maya', 'card'], true)) throw new InvalidArgumentException('Choose a valid refund method.');
+                $cancelOrderId = $id;
+                $cancelWhere = 'id = ?';
+                $cancelKey = $id;
+                if (!empty($currentOrder['booking_group_id'])) {
+                    $cancelAnchorStmt = $pdo->prepare('SELECT id FROM orders WHERE booking_group_id = ? AND booking_group_primary = 1 LIMIT 1');
+                    $cancelAnchorStmt->execute([$currentOrder['booking_group_id']]);
+                    $cancelOrderId = (int)$cancelAnchorStmt->fetchColumn();
+                    if (!$cancelOrderId) throw new InvalidArgumentException('The shared booking payment could not be found.');
+                    $cancelWhere = 'booking_group_id = ?';
+                    $cancelKey = $currentOrder['booking_group_id'];
+                }
                 $sum = $pdo->prepare("SELECT COALESCE(SUM(amount),0) FROM order_adjustments WHERE order_id = ? AND adjustment_type = 'refund'");
-                $sum->execute([$id]);
+                $sum->execute([$cancelOrderId]);
                 $ledger = $pdo->prepare("SELECT COUNT(*), COALESCE(SUM(CASE WHEN status = 'paid' THEN amount ELSE 0 END),0) FROM payments WHERE order_id = ?");
-                $ledger->execute([$id]);
+                $ledger->execute([$cancelOrderId]);
                 [$paymentCount, $ledgerPaid] = $ledger->fetch(PDO::FETCH_NUM);
-                $paidAmount = (int)$paymentCount > 0 ? (float)$ledgerPaid : max(0, (float)$currentOrder['amount_paid'] - (float)$currentOrder['change_due']);
+                $paidAmount = (int)$paymentCount > 0 ? (float)$ledgerPaid : max(0, (float)($currentOrder['booking_group_total'] ?? $currentOrder['total']) - (float)$currentOrder['change_due']);
                 if ($refund < 0 || $refund > max(0, $paidAmount - (float)$sum->fetchColumn())) throw new InvalidArgumentException('Refund cannot exceed the amount already paid.');
                 $pdo->beginTransaction();
-                $pdo->prepare("INSERT INTO order_adjustments (order_id, adjustment_type, amount, reason, created_by) VALUES (?, 'cancellation', 0, ?, ?)")->execute([$id, $reason, $_SESSION['user_id']]);
-                if ($refund > 0) $pdo->prepare("INSERT INTO order_adjustments (order_id, adjustment_type, amount, payment_method, reason, created_by) VALUES (?, 'refund', ?, ?, ?, ?)")->execute([$id, $refund, $cancelRefundMethod, 'Refund on cancellation: ' . $reason, $_SESSION['user_id']]);
-                $pdo->prepare("UPDATE orders SET status = 'cancelled' WHERE id = ?")->execute([$id]);
-                $pdo->prepare('UPDATE delivery_tracking SET is_active = 0, latitude = NULL, longitude = NULL, accuracy = NULL, heading = NULL, speed = NULL, customer_location_shared = 0, customer_latitude = NULL, customer_longitude = NULL, customer_accuracy = NULL, customer_location_updated_at = NULL, customer_shared_at = NULL, stopped_at = NOW() WHERE order_id = ?')->execute([$id]);
-                add_order_history($id, 'cancelled', 'Cancelled: ' . $reason, (int)$_SESSION['user_id']);
+                $pdo->prepare("INSERT INTO order_adjustments (order_id, adjustment_type, amount, reason, created_by) VALUES (?, 'cancellation', 0, ?, ?)")->execute([$cancelOrderId, $reason, $_SESSION['user_id']]);
+                if ($refund > 0) $pdo->prepare("INSERT INTO order_adjustments (order_id, adjustment_type, amount, payment_method, reason, created_by) VALUES (?, 'refund', ?, ?, ?, ?)")->execute([$cancelOrderId, $refund, $cancelRefundMethod, 'Refund on cancellation: ' . $reason, $_SESSION['user_id']]);
+                $pdo->prepare("UPDATE orders SET status = 'cancelled' WHERE $cancelWhere")->execute([$cancelKey]);
+                $pdo->prepare('UPDATE delivery_tracking SET is_active = 0, latitude = NULL, longitude = NULL, accuracy = NULL, heading = NULL, speed = NULL, customer_location_shared = 0, customer_latitude = NULL, customer_longitude = NULL, customer_accuracy = NULL, customer_location_updated_at = NULL, customer_shared_at = NULL, stopped_at = NOW() WHERE order_id = ?')->execute([$cancelOrderId]);
+                if (!empty($currentOrder['booking_group_id'])) {
+                    $cancelTicketsStmt = $pdo->prepare('SELECT id FROM orders WHERE booking_group_id = ?');
+                    $cancelTicketsStmt->execute([$currentOrder['booking_group_id']]);
+                    foreach ($cancelTicketsStmt->fetchAll(PDO::FETCH_COLUMN) as $ticketId) add_order_history((int)$ticketId, 'cancelled', 'Booking cancelled: ' . $reason, (int)$_SESSION['user_id']);
+                } else {
+                    add_order_history($id, 'cancelled', 'Cancelled: ' . $reason, (int)$_SESSION['user_id']);
+                }
                 $pdo->commit();
                 if ($currentOrder['customer_id']) add_notification('customer', (int)$currentOrder['customer_id'], $id, 'Order cancelled', $currentOrder['order_number'] . ' was cancelled.');
                 add_audit_log('Order cancelled', 'orders', $id, $currentOrder['status'], 'cancelled');
@@ -225,6 +317,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['update_status']) || 
                 if (!in_array($status, order_next_statuses($currentOrder['status'], $processItems), true)) throw new InvalidArgumentException('That status change is not allowed from the current stage.');
                 $isDeliveryOrder = $currentOrder['order_type'] === 'delivery_request';
                 if ($status === 'out_for_delivery' && !$isDeliveryOrder) throw new InvalidArgumentException('Only delivery requests can be sent out for delivery.');
+                if ($status === 'out_for_delivery' && !empty($currentOrder['booking_group_id'])) {
+                    $unfinishedTickets = $pdo->prepare("SELECT COUNT(*) FROM orders WHERE booking_group_id = ? AND status <> 'ready_for_pickup'");
+                    $unfinishedTickets->execute([$currentOrder['booking_group_id']]);
+                    if ((int)$unfinishedTickets->fetchColumn() > 0) throw new InvalidArgumentException('All service tickets in this booking must be ready before the shared delivery starts.');
+                }
                 if ($isDeliveryOrder && $currentOrder['status'] === 'ready_for_pickup' && $status !== 'out_for_delivery') throw new InvalidArgumentException('Delivery requests must be sent out for delivery before completion.');
                 if ($isDeliveryOrder && $status === 'completed' && $currentOrder['status'] !== 'out_for_delivery') throw new InvalidArgumentException('Mark this delivery as Out for Delivery before completing it.');
                 if ($status === 'out_for_delivery' && trim((string)($currentOrder['delivery_address'] ?? '')) === '') throw new InvalidArgumentException('Add a delivery address before sending this order out.');
@@ -294,6 +391,12 @@ if (!$order) {
     flash_set('error', 'Order not found.');
     redirect('orders.php');
 }
+$bookingTickets = [];
+if (!empty($order['booking_group_id'])) {
+    $bookingTicketsStmt = $pdo->prepare('SELECT id, order_number, status, total FROM orders WHERE booking_group_id = ? ORDER BY booking_group_primary DESC, id');
+    $bookingTicketsStmt->execute([$order['booking_group_id']]);
+    $bookingTickets = $bookingTicketsStmt->fetchAll();
+}
 
 $availableDrivers = $pdo->query('SELECT id, full_name, username FROM delivery_drivers WHERE is_active = 1 ORDER BY full_name')->fetchAll();
 $items = $pdo->prepare("SELECT oi.*, s.category FROM order_items oi LEFT JOIN services s ON s.id = oi.service_id WHERE oi.order_id = ?");
@@ -334,17 +437,26 @@ if ($order['order_type'] === 'delivery_request') {
     $statusLabels['ready_for_pickup'] = 'Ready for Delivery';
     $statusActionLabels['ready_for_pickup'] = 'Ready for Delivery';
 }
-$gcashStmt = $pdo->prepare('SELECT g.*, u.full_name AS reviewer_name FROM gcash_payment_submissions g LEFT JOIN users u ON u.id = g.reviewed_by WHERE g.order_id = ? ORDER BY g.id DESC LIMIT 1');
-$gcashStmt->execute([$id]);
+$gcashStmt = $pdo->prepare('SELECT g.*, u.full_name AS reviewer_name FROM gcash_payment_submissions g LEFT JOIN users u ON u.id = g.reviewed_by WHERE g.order_id = COALESCE((SELECT gp.id FROM orders gp WHERE gp.booking_group_id = ? AND gp.booking_group_primary = 1 LIMIT 1), ?) ORDER BY g.id DESC LIMIT 1');
+$gcashStmt->execute([$order['booking_group_id'], $id]);
 $gcashSubmission = $gcashStmt->fetch();
 $gcashUnverified = $order['payment_method'] === 'gcash_pending' && (!$gcashSubmission || $gcashSubmission['status'] !== 'verified');
-$paymentStmt = $pdo->prepare('SELECT p.*, u.full_name AS received_by_name FROM payments p LEFT JOIN users u ON u.id = p.received_by WHERE p.order_id = ? ORDER BY p.paid_at, p.id');
-$paymentStmt->execute([$id]);
+$paymentStmt = $pdo->prepare('SELECT p.*, u.full_name AS received_by_name FROM payments p LEFT JOIN users u ON u.id = p.received_by WHERE p.order_id = COALESCE((SELECT gp.id FROM orders gp WHERE gp.booking_group_id = ? AND gp.booking_group_primary = 1 LIMIT 1), ?) ORDER BY p.paid_at, p.id');
+$paymentStmt->execute([$order['booking_group_id'], $id]);
 $payments = $paymentStmt->fetchAll();
 $paidTotal = 0.0;
 foreach ($payments as $payment) if ($payment['status'] === 'paid') $paidTotal += (float)$payment['amount'];
-if (!$payments) $paidTotal = max(0, (float)$order['amount_paid'] - (float)$order['change_due']);
-$remainingBalance = max(0, (float)$order['total'] - $paidTotal);
+if (!$payments) {
+    if (!empty($order['booking_group_id'])) {
+        $groupPaidStmt = $pdo->prepare('SELECT amount_paid, change_due FROM orders WHERE booking_group_id = ? AND booking_group_primary = 1 LIMIT 1');
+        $groupPaidStmt->execute([$order['booking_group_id']]);
+        $groupPaid = $groupPaidStmt->fetch();
+        $paidTotal = $groupPaid ? max(0, (float)$groupPaid['amount_paid'] - (float)$groupPaid['change_due']) : 0;
+    } else {
+        $paidTotal = max(0, (float)$order['amount_paid'] - (float)$order['change_due']);
+    }
+}
+$remainingBalance = max(0, (float)($order['booking_group_total'] ?? $order['total']) - $paidTotal);
 
 /* ---------- Status timeline for this order ---------- */
 $history = order_history($id);
@@ -374,6 +486,7 @@ include __DIR__ . '/includes/header.php';
     <table>
       <tbody>
         <tr><td class="muted">Order #</td><td><strong><?= e($order['order_number']) ?></strong></td></tr>
+        <?php if ($bookingTickets): ?><tr><td class="muted">Shared booking</td><td><?= count($bookingTickets) ?> separate service tickets · Combined total <?= money($order['booking_group_total']) ?><br><?php foreach ($bookingTickets as $bookingTicket): ?><a href="order_view.php?id=<?= (int)$bookingTicket['id'] ?>"><?= e($bookingTicket['order_number']) ?></a> (<?= e($statusLabels[$bookingTicket['status']] ?? $bookingTicket['status']) ?>)<?= $bookingTicket['id'] === end($bookingTickets)['id'] ? '' : ' · ' ?><?php endforeach; ?></td></tr><?php endif; ?>
         <tr><td class="muted">Date</td><td><?= e(date('M j, Y g:i A', strtotime($order['created_at']))) ?></td></tr>
         <tr><td class="muted">Type</td><td><span class="badge badge-<?= e($order['order_type']) ?>"><?= $order['order_type'] === 'delivery_request' ? (($order['handoff_type'] ?? '') === 'pickup_delivery' ? 'Pickup & Delivery' : 'Drop-off & Delivery') : ($order['order_type'] === 'drop_off' ? 'Drop-off' : 'Walk-in') ?></span></td></tr>
         <tr><td class="muted">Service Status</td><td><span class="badge badge-<?= e($order['status']) ?>"><?= e($statusLabels[$order['status']] ?? $order['status']) ?></span></td></tr>
@@ -478,7 +591,7 @@ include __DIR__ . '/includes/header.php';
       <tfoot><tr><td colspan="4" class="right"><strong>Updated total</strong></td><td class="num"><strong><?= money($order['total']) ?></strong></td></tr></tfoot>
     </table>
   </div>
-  <p>Current total: <strong><?= money($order['total']) ?></strong> · Paid: <strong><?= money($paidTotal) ?></strong> · Balance: <strong><?= money($remainingBalance) ?></strong></p>
+  <p><?= $bookingTickets ? 'This ticket' : 'Current total' ?>: <strong><?= money($order['total']) ?></strong><?php if ($bookingTickets): ?> · Booking total: <strong><?= money($order['booking_group_total']) ?></strong><?php endif; ?> · Booking paid: <strong><?= money($paidTotal) ?></strong> · Booking balance: <strong><?= money($remainingBalance) ?></strong></p>
   <?php if (!in_array($order['status'], ['cancelled', 'rejected', 'completed', 'picked_up'], true)): ?>
   <form method="post" action="order_view.php?id=<?= (int)$id ?>" class="form-row">
     <?= csrf_field() ?><input type="hidden" name="record_weight" value="1">
@@ -519,7 +632,7 @@ include __DIR__ . '/includes/header.php';
       <?php if ($gcashSubmission['review_note']): ?><br>Review note: <?= e($gcashSubmission['review_note']) ?><?php endif; ?>
       <?php if ($gcashSubmission['reviewer_name']): ?><br>Reviewed by: <?= e($gcashSubmission['reviewer_name']) ?><?php endif; ?>
     </div>
-    <?php if ($gcashSubmission['status'] === 'pending' && $order['payment_method'] === 'gcash_pending'): ?>
+      <?php if ($gcashSubmission['status'] === 'pending' && $order['payment_method'] === 'gcash_pending' && (!isset($order['booking_group_id']) || empty($order['booking_group_id']) || !empty($order['booking_group_primary']))): ?>
       <div class="form-actions mt-16">
         <form method="post" action="order_view.php?id=<?= (int)$id ?>" onsubmit="return confirm('Confirm this transfer in the Admin GCash account before verifying it. Continue?');">
           <?= csrf_field() ?><input type="hidden" name="verify_gcash" value="1"><button class="btn btn-primary" type="submit">Verify GCash payment</button>
@@ -596,11 +709,11 @@ include __DIR__ . '/includes/header.php';
     <?php endforeach; ?>
 
     <?php if (!in_array($order['status'], ['picked_up', 'completed', 'rejected'], true)): ?><form method="post" action="order_view.php?id=<?= (int)$id ?>"
-          onsubmit="return confirm('Cancel this order? This cannot be undone.');">
+          onsubmit="return confirm('<?= $bookingTickets ? 'Cancel this entire booking and all service tickets? This cannot be undone.' : 'Cancel this order? This cannot be undone.' ?>');">
       <?= csrf_field() ?><input type="hidden" name="cancel_order" value="1">
       <label for="cancelReason">Cancellation reason</label><input id="cancelReason" name="cancel_reason" maxlength="255" required placeholder="Reason for cancellation">
-      <?php if (is_admin()): ?><label for="cancelRefund">Refund now (optional)</label><input id="cancelRefund" name="cancel_refund" type="number" min="0" max="<?= e($order['total']) ?>" step="0.01" value="0"><label for="cancelRefundMethod">Refund method</label><select id="cancelRefundMethod" name="cancel_refund_method"><?php foreach (['cash' => 'Cash', 'gcash' => 'GCash'] as $method => $methodLabel): ?><option value="<?= e($method) ?>" <?= $method === $order['payment_method'] ? 'selected' : '' ?>><?= e($methodLabel) ?></option><?php endforeach; ?></select><?php endif; ?>
-      <button type="submit" class="btn btn-danger btn-sm">✕ Cancel order</button>
+      <?php if (is_admin()): ?><label for="cancelRefund">Refund now (optional)</label><input id="cancelRefund" name="cancel_refund" type="number" min="0" max="<?= e($order['booking_group_total'] ?? $order['total']) ?>" step="0.01" value="0"><label for="cancelRefundMethod">Refund method</label><select id="cancelRefundMethod" name="cancel_refund_method"><?php foreach (['cash' => 'Cash', 'gcash' => 'GCash'] as $method => $methodLabel): ?><option value="<?= e($method) ?>" <?= $method === $order['payment_method'] ? 'selected' : '' ?>><?= e($methodLabel) ?></option><?php endforeach; ?></select><?php endif; ?>
+      <button type="submit" class="btn btn-danger btn-sm"><?= $bookingTickets ? 'Cancel entire booking' : 'Cancel order' ?></button>
     </form><?php endif; ?>
   </div>
 </div>

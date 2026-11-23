@@ -18,18 +18,29 @@ try {
     $orderStmt->execute([(int)$orderId, (int)$driver['id']]);
     $order = $orderStmt->fetch();
     if (!$order) throw new InvalidArgumentException('Choose one of your active delivery orders.');
+    $groupOrderWhere = !empty($order['booking_group_id']) ? 'booking_group_id = ?' : 'id = ?';
+    $groupOrderKey = !empty($order['booking_group_id']) ? $order['booking_group_id'] : (int)$orderId;
+    $groupTotal = (float)($order['booking_group_total'] ?? $order['total']);
     $duplicateStmt = $pdo->prepare("SELECT id FROM payments WHERE payment_method = 'gcash' AND reference_number = ? LIMIT 1");
     $duplicateStmt->execute([$reference]);
     if ($duplicateStmt->fetchColumn()) throw new InvalidArgumentException('That GCash reference has already been recorded.');
     $paidStmt = $pdo->prepare("SELECT COALESCE(SUM(amount), 0) FROM payments WHERE order_id = ? AND status = 'paid'");
     $paidStmt->execute([(int)$orderId]);
     $paid = round((float)$paidStmt->fetchColumn(), 2);
-    $balance = max(0, round((float)$order['total'] - $paid, 2));
+    $balance = max(0, round($groupTotal - $paid, 2));
     if ($balance <= 0.009) throw new InvalidArgumentException('This delivery has no remaining balance.');
     if ($amount > $balance) throw new InvalidArgumentException('The GCash amount cannot be more than the remaining balance of ₱' . number_format($balance, 2) . '.');
     $pdo->prepare("INSERT INTO payments (order_id, amount, payment_method, reference_number, received_by, received_by_driver_id) VALUES (?, ?, 'gcash', ?, NULL, ?)")->execute([(int)$orderId, $amount, $reference, (int)$driver['id']]);
     $newPaid = round($paid + $amount, 2);
-    $pdo->prepare('UPDATE orders SET amount_paid = ?, change_due = 0 WHERE id = ?')->execute([$newPaid, (int)$orderId]);
+    $remainingToAllocate = $newPaid;
+    $ticketsStmt = $pdo->prepare("SELECT id, total FROM orders WHERE $groupOrderWhere ORDER BY booking_group_primary DESC, id FOR UPDATE");
+    $ticketsStmt->execute([$groupOrderKey]);
+    $allocateStmt = $pdo->prepare('UPDATE orders SET amount_paid = ?, change_due = 0 WHERE id = ?');
+    foreach ($ticketsStmt->fetchAll() as $ticket) {
+        $allocated = min((float)$ticket['total'], $remainingToAllocate);
+        $remainingToAllocate = max(0, $remainingToAllocate - $allocated);
+        $allocateStmt->execute([$allocated, (int)$ticket['id']]);
+    }
     add_order_history((int)$orderId, (string)$order['status'], 'Driver recorded a GCash payment (' . $reference . ')', null);
     if (!empty($order['customer_id'])) add_notification('customer', (int)$order['customer_id'], (int)$orderId, 'GCash payment recorded', 'Your driver recorded a GCash payment of ₱' . number_format($amount, 2) . ' for ' . $order['order_number'] . '.');
     $pdo->commit();

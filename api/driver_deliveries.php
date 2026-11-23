@@ -4,14 +4,14 @@ api_require_method('GET');
 $driver = api_current_driver();
 $pdo = db();
 $stmt = $pdo->prepare(
-    "SELECT o.id, o.order_number, o.customer_name, o.pickup_address, o.delivery_address, o.delivery_latitude, o.delivery_longitude, o.expected_pickup, o.status, o.handoff_type, o.payment_method, o.total,
-            GREATEST(o.total - COALESCE((SELECT SUM(paid.amount) FROM payments paid WHERE paid.order_id = o.id AND paid.status = 'paid'), 0), 0) AS balance_due,
-            o.assigned_driver_id, c.name AS account_name, c.phone AS customer_phone,
+    "SELECT o.id, o.order_number, o.customer_name, o.pickup_address, o.delivery_address, o.delivery_latitude, o.delivery_longitude, o.expected_pickup, o.status, o.handoff_type, o.payment_method, COALESCE(o.booking_group_total, o.total) AS total,
+            GREATEST(COALESCE(o.booking_group_total, o.total) - COALESCE((SELECT SUM(paid.amount) FROM payments paid WHERE paid.order_id = o.id AND paid.status = 'paid'), 0), 0) AS balance_due,
+            o.assigned_driver_id, COALESCE(o.booking_group_total, o.total) AS group_total, c.name AS account_name, c.phone AS customer_phone,
             dt.latitude AS driver_latitude, dt.longitude AS driver_longitude, dt.updated_at AS driver_updated_at, dt.stopped_at
        FROM orders o
        LEFT JOIN customers c ON c.id = o.customer_id
        LEFT JOIN delivery_tracking dt ON dt.order_id = o.id
-      WHERE o.order_type = 'delivery_request' AND o.assigned_driver_id = ?
+      WHERE o.order_type = 'delivery_request' AND o.assigned_driver_id = ? AND o.booking_group_primary = 1
         AND ((o.handoff_type = 'pickup_delivery' AND o.status = 'confirmed') OR o.status IN ('ready_for_pickup','out_for_delivery'))
       ORDER BY o.expected_pickup IS NULL, o.expected_pickup, o.id"
 );
@@ -36,7 +36,7 @@ foreach ($stmt->fetchAll() as $row) {
         'status' => $row['status'],
         'handoff_type' => $row['handoff_type'],
         'payment_method' => $assignedToMe ? $row['payment_method'] : null,
-        'total' => $assignedToMe ? (float)$row['total'] : null,
+        'total' => $assignedToMe ? (float)$row['group_total'] : null,
         'balance_due' => $assignedToMe ? (float)$row['balance_due'] : null,
         'expected_delivery' => $row['expected_pickup'],
         'driver_location' => $driverLocation,
@@ -49,7 +49,7 @@ $historyStmt = $pdo->prepare(
        FROM orders o
        LEFT JOIN customers c ON c.id = o.customer_id
       WHERE o.order_type = 'delivery_request'
-        AND o.assigned_driver_id = ? AND o.status = 'completed'
+        AND o.assigned_driver_id = ? AND o.booking_group_primary = 1 AND o.status = 'completed'
       ORDER BY o.updated_at DESC, o.id DESC LIMIT 200"
 );
 $historyStmt->execute([(int)$driver['id']]);
@@ -68,7 +68,7 @@ foreach ($historyStmt->fetchAll() as $row) {
         'customer_phone' => $assignedToMe ? $row['customer_phone'] : null,
         'delivery_address' => $assignedToMe ? $row['delivery_address'] : null,
         'payment_method' => $assignedToMe ? $row['payment_method'] : null,
-        'total' => $assignedToMe ? (float)$row['total'] : null,
+        'total' => $assignedToMe ? (float)$row['group_total'] : null,
     ];
 }
 $paymentStmt = $pdo->prepare("SELECT p.id, p.order_id, o.order_number, p.amount, p.payment_method, p.reference_number, p.paid_at

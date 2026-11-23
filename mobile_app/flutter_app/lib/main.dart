@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -369,7 +369,7 @@ class _CustomerHomeState extends State<CustomerHome> {
     if (submitted == null || submitted.length < 6) return;
     setState(() { _sending = true; _error = null; });
     try {
-      await ShopApi.request('gcash_payment.php', method: 'POST', authenticated: true, body: {'order_id': id, 'payment_amount': number(ticket['total']), 'reference_number': submitted});
+      await ShopApi.request('gcash_payment.php', method: 'POST', authenticated: true, body: {'order_id': id, 'payment_amount': number(ticket['booking_group_total'] ?? ticket['total']), 'reference_number': submitted});
       controller.clear(); await _load(showLoading: false);
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('New GCash reference sent for shop verification.')));
     } catch (error) { if (mounted) setState(() => _error = _message(error)); }
@@ -538,8 +538,9 @@ class _CustomerHomeState extends State<CustomerHome> {
       if (ticket['expected_pickup'] != null) Padding(padding: const EdgeInsets.only(top: 6), child: Text('Scheduled ${delivery ? 'delivery' : 'pickup'}: ${prettyDate(ticket['expected_pickup'])}')),
       if ((ticket['delivery_address']?.toString() ?? '').isNotEmpty) Padding(padding: const EdgeInsets.only(top: 4), child: Text('Delivery address: ${ticket['delivery_address']}')),
       const SizedBox(height: 8),
-      Text('Estimated total: ${money(ticket['total'])}', style: const TextStyle(fontWeight: FontWeight.bold)),
-      Text('Paid: ${money(ticket['amount_paid'])}    Balance due: ${money(ticket['balance_due'])}'),
+      Text('This ticket: ${money(ticket['total'])}', style: const TextStyle(fontWeight: FontWeight.bold)),
+      if (ticket['booking_group_id'] != null) Text('Combined booking: ${money(ticket['booking_group_total'])}'),
+      Text('Paid: ${money(ticket['booking_amount_paid'] ?? ticket['amount_paid'])}    ${ticket['booking_group_id'] == null ? 'Balance due' : 'Booking balance'}: ${money(ticket['booking_balance_due'] ?? ticket['balance_due'])}'),
       if (ticket['payment_method'] == 'gcash_pending') ...[
         const SizedBox(height: 10),
         Container(padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: const Color(0xfff4edf5), borderRadius: BorderRadius.circular(12)), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

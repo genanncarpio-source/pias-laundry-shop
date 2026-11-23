@@ -3,13 +3,15 @@ require_once __DIR__ . '/bootstrap.php';
 api_require_method('GET');
 $customer = api_current_customer();
 
-$stmt = db()->prepare('SELECT o.id, o.order_number, o.order_type, o.handoff_type, o.pickup_address, o.delivery_address, o.status, o.subtotal, o.discount, o.delivery_fee, o.delivery_latitude, o.delivery_longitude, o.total, o.payment_method,
+$stmt = db()->prepare('SELECT o.id, o.order_number, o.booking_group_id, o.booking_group_total, o.booking_group_primary, (SELECT COUNT(*) FROM orders bg WHERE bg.booking_group_id = o.booking_group_id) AS booking_group_ticket_count, o.order_type, o.handoff_type, o.pickup_address, o.delivery_address, o.status, o.subtotal, o.discount, o.delivery_fee, o.delivery_latitude, o.delivery_longitude, o.total, o.payment_method,
     o.change_due, GREATEST(o.amount_paid - o.change_due, 0) AS amount_paid,
     GREATEST(o.total - GREATEST(o.amount_paid - o.change_due, 0), 0) AS balance_due,
+    COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.order_id = COALESCE((SELECT gp.id FROM orders gp WHERE gp.booking_group_id = o.booking_group_id AND gp.booking_group_primary = 1 LIMIT 1), o.id) AND p.status = \'paid\'), GREATEST(o.amount_paid - o.change_due, 0)) AS booking_amount_paid,
+    GREATEST(COALESCE(o.booking_group_total, o.total) - COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.order_id = COALESCE((SELECT gp.id FROM orders gp WHERE gp.booking_group_id = o.booking_group_id AND gp.booking_group_primary = 1 LIMIT 1), o.id) AND p.status = \'paid\'), 0), 0) AS booking_balance_due,
     o.expected_pickup, o.notes, o.created_at,
-    (SELECT g.status FROM gcash_payment_submissions g WHERE g.order_id = o.id ORDER BY g.id DESC LIMIT 1) AS gcash_payment_status,
-    (SELECT g.reference_number FROM gcash_payment_submissions g WHERE g.order_id = o.id ORDER BY g.id DESC LIMIT 1) AS gcash_reference_number,
-    (SELECT g.review_note FROM gcash_payment_submissions g WHERE g.order_id = o.id ORDER BY g.id DESC LIMIT 1) AS gcash_review_note
+    (SELECT g.status FROM gcash_payment_submissions g WHERE g.order_id = COALESCE((SELECT gp.id FROM orders gp WHERE gp.booking_group_id = o.booking_group_id AND gp.booking_group_primary = 1 LIMIT 1), o.id) ORDER BY g.id DESC LIMIT 1) AS gcash_payment_status,
+    (SELECT g.reference_number FROM gcash_payment_submissions g WHERE g.order_id = COALESCE((SELECT gp.id FROM orders gp WHERE gp.booking_group_id = o.booking_group_id AND gp.booking_group_primary = 1 LIMIT 1), o.id) ORDER BY g.id DESC LIMIT 1) AS gcash_reference_number,
+    (SELECT g.review_note FROM gcash_payment_submissions g WHERE g.order_id = COALESCE((SELECT gp.id FROM orders gp WHERE gp.booking_group_id = o.booking_group_id AND gp.booking_group_primary = 1 LIMIT 1), o.id) ORDER BY g.id DESC LIMIT 1) AS gcash_review_note
     FROM orders o WHERE o.customer_id = ? ORDER BY o.id DESC LIMIT 50');
 $stmt->execute([(int)$customer['id']]);
 $tickets = $stmt->fetchAll();

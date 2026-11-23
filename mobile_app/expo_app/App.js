@@ -1247,7 +1247,7 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
     try {
       await apiRequest(apiBase, 'gcash_payment.php', {
         method: 'POST', token,
-        body: { order_id: Number(ticket.id), payment_amount: Number(ticket.total), reference_number: reference },
+        body: { order_id: Number(ticket.id), payment_amount: Number(ticket.booking_group_total || ticket.total), reference_number: reference },
       });
       setRetryReferences((current) => ({ ...current, [ticketId]: '' }));
       await loadShopData(true);
@@ -1870,6 +1870,7 @@ function TicketCard({ ticket, apiBase, token, retryReference, onRetryReferenceCh
       <View style={styles.ticketBody}>
         <View style={styles.ticketStatusRow}><Text style={styles.ticketDate}>{formatDate(ticket.created_at)}</Text><Text style={[styles.statusPill, statusColors]}>{status}</Text></View>
         {lines ? <Text style={styles.ticketLines}>{lines}</Text> : null}
+        {ticket.booking_group_id ? <Text style={styles.ticketDetail}>Part of one booking · {ticket.booking_group_ticket_count} separate service tickets</Text> : null}
         <Text style={styles.ticketDetail}>{ticket.handoff_type === 'pickup_delivery' ? 'Pickup & Delivery' : ticket.handoff_type === 'dropoff_delivery' ? 'Drop-off & Delivery' : 'Drop-off & Pick-up'}</Text>
         <OrderProgress ticket={ticket} />
         <Pressable accessibilityRole="button" onPress={onViewReceipt} style={styles.transactionViewButton}><Text style={styles.transactionViewButtonText}>View receipt</Text></Pressable>
@@ -1907,8 +1908,8 @@ function TicketCard({ ticket, apiBase, token, retryReference, onRetryReferenceCh
           </View>
         ) : null}
         <View style={styles.ticketTotals}>{Number(ticket.delivery_fee) > 0 ? <Text style={styles.ticketDetail}>Delivery fee: {money(ticket.delivery_fee)}</Text> : null}
-          <View><Text style={styles.ticketTotalLabel}>Estimated total</Text><Text style={styles.ticketTotalValue}>{money(ticket.total)}</Text></View>
-          <View style={styles.ticketBalance}><Text style={styles.ticketTotalLabel}>Balance due</Text><Text style={styles.ticketTotalValue}>{money(ticket.balance_due)}</Text></View>
+          <View><Text style={styles.ticketTotalLabel}>This ticket</Text><Text style={styles.ticketTotalValue}>{money(ticket.total)}</Text>{ticket.booking_group_id ? <Text style={styles.ticketDetail}>Combined booking: {money(ticket.booking_group_total)}</Text> : null}</View>
+          <View style={styles.ticketBalance}><Text style={styles.ticketTotalLabel}>{ticket.booking_group_id ? 'Booking balance' : 'Balance due'}</Text><Text style={styles.ticketTotalValue}>{money(ticket.booking_group_id ? ticket.booking_balance_due : ticket.balance_due)}</Text></View>
         </View>
       </View>
     </View>

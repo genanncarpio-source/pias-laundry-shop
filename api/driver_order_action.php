@@ -13,15 +13,22 @@ try {
     $stmt->execute([$orderId, (int)$driver['id'], 'delivery_request']);
     $order = $stmt->fetch();
     if (!$order) throw new InvalidArgumentException('This order is not assigned to your account.');
+    $groupOrderWhere = !empty($order['booking_group_id']) ? 'booking_group_id = ?' : 'id = ?';
+    $groupOrderKey = !empty($order['booking_group_id']) ? $order['booking_group_id'] : $orderId;
+    $groupTotal = (float)($order['booking_group_total'] ?? $order['total']);
+    $groupTicketsStmt = $pdo->prepare("SELECT id, status FROM orders WHERE $groupOrderWhere FOR UPDATE");
+    $groupTicketsStmt->execute([$groupOrderKey]);
+    $groupTickets = $groupTicketsStmt->fetchAll();
     if ($action === 'collect') {
         if (($order['handoff_type'] ?? '') !== 'pickup_delivery' || $order['status'] !== 'confirmed') throw new InvalidArgumentException('This laundry is not ready for customer pickup.');
-        $pdo->prepare("UPDATE orders SET status = 'picked_up_for_service' WHERE id = ?")->execute([$orderId]);
+        foreach ($groupTickets as $groupTicket) if ($groupTicket['status'] !== 'confirmed') throw new InvalidArgumentException('All service tickets in this booking must be confirmed before the driver collects it.');
+        $pdo->prepare("UPDATE orders SET status = 'picked_up_for_service' WHERE $groupOrderWhere")->execute([$groupOrderKey]);
         if ($order['payment_method'] === 'cash_on_handoff' && (float)$order['amount_paid'] <= 0) {
             $pdo->prepare("INSERT INTO payments (order_id, amount, payment_method, reference_number, received_by, received_by_driver_id) VALUES (?, ?, 'cash', ?, NULL, ?)")
-                ->execute([$orderId, (float)$order['total'], 'Collected by driver ' . $driver['full_name'], (int)$driver['id']]);
-            $pdo->prepare('UPDATE orders SET amount_paid = total, change_due = 0 WHERE id = ?')->execute([$orderId]);
+                ->execute([$orderId, $groupTotal, 'Collected by driver ' . $driver['full_name'], (int)$driver['id']]);
+            $pdo->prepare("UPDATE orders SET amount_paid = total, change_due = 0 WHERE $groupOrderWhere")->execute([$groupOrderKey]);
         }
-        add_order_history($orderId, 'picked_up_for_service', 'Driver collected the laundry from the customer', null);
+        foreach ($groupTickets as $groupTicket) add_order_history((int)$groupTicket['id'], 'picked_up_for_service', 'Driver collected the shared booking from the customer', null);
         if ($order['customer_id']) add_notification('customer', (int)$order['customer_id'], $orderId, 'Laundry picked up', 'Your driver collected ' . $order['order_number'] . ' and is bringing it to the shop.');
         $message = 'Laundry marked as picked up from the customer.';
     } else {
@@ -29,16 +36,16 @@ try {
         if ($order['payment_method'] === 'cash_on_handoff') {
             $paidStmt = $pdo->prepare("SELECT COALESCE(SUM(amount), 0) FROM payments WHERE order_id = ? AND status = 'paid'");
             $paidStmt->execute([$orderId]);
-            $outstanding = max(0, (float)$order['total'] - (float)$paidStmt->fetchColumn());
+            $outstanding = max(0, $groupTotal - (float)$paidStmt->fetchColumn());
             if ($outstanding > 0.009) {
                 $pdo->prepare("INSERT INTO payments (order_id, amount, payment_method, reference_number, received_by, received_by_driver_id) VALUES (?, ?, 'cash', ?, NULL, ?)")
                     ->execute([$orderId, $outstanding, 'Collected by driver ' . $driver['full_name'], (int)$driver['id']]);
-                $pdo->prepare('UPDATE orders SET amount_paid = total, change_due = 0 WHERE id = ?')->execute([$orderId]);
+                $pdo->prepare("UPDATE orders SET amount_paid = total, change_due = 0 WHERE $groupOrderWhere")->execute([$groupOrderKey]);
             }
         }
-        $pdo->prepare("UPDATE orders SET status = 'completed', completed_at = NOW() WHERE id = ?")->execute([$orderId]);
+        $pdo->prepare("UPDATE orders SET status = 'completed', completed_at = NOW() WHERE $groupOrderWhere")->execute([$groupOrderKey]);
         $pdo->prepare('UPDATE delivery_tracking SET is_active = 0, stopped_at = NOW() WHERE order_id = ?')->execute([$orderId]);
-        add_order_history($orderId, 'completed', 'Driver confirmed delivery to the customer', null);
+        foreach ($groupTickets as $groupTicket) add_order_history((int)$groupTicket['id'], 'completed', 'Driver delivered the shared booking to the customer', null);
         if ($order['customer_id']) add_notification('customer', (int)$order['customer_id'], $orderId, 'Laundry delivered', 'Your laundry order ' . $order['order_number'] . ' was delivered.');
         $message = 'Laundry marked as delivered.';
     }
