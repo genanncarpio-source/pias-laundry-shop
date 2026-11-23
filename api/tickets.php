@@ -23,7 +23,7 @@ if (!is_array($items) || count($items) < 1 || count($items) > 30) {
 $quantities = [];
 $weights = [];
 $totalLaundryWeight = 0.0;
-$addonParents = [];
+$addonQuantities = [];
 foreach ($items as $item) {
     if (!is_array($item)) mobile_booking_json(422, ['success' => false, 'error' => 'Each service must include a service ID and quantity.']);
     $serviceId = is_scalar($item['service_id'] ?? null) ? filter_var($item['service_id'], FILTER_VALIDATE_INT) : false;
@@ -31,8 +31,14 @@ foreach ($items as $item) {
     if ($serviceId === false || $serviceId === 0 || $quantity === false || $quantity <= 0 || $quantity > 500) {
         mobile_booking_json(422, ['success' => false, 'error' => 'Enter a valid service and quantity.']);
     }
-    $quantities[$serviceId] = ($quantities[$serviceId] ?? 0) + (float)$quantity;
-    if (isset($item['parent_service_id'])) $addonParents[$serviceId] = (int)$item['parent_service_id'];
+    if (array_key_exists('parent_service_id', $item)) {
+        if (array_key_exists('weight_kg', $item)) mobile_booking_json(422, ['success' => false, 'error' => 'Add-ons cannot have a laundry weight.']);
+        $parentServiceId = is_scalar($item['parent_service_id']) ? filter_var($item['parent_service_id'], FILTER_VALIDATE_INT) : false;
+        if ($parentServiceId === false || $parentServiceId < 1) mobile_booking_json(422, ['success' => false, 'error' => 'Choose the main service for each add-on.']);
+        $addonQuantities[$serviceId][$parentServiceId] = ($addonQuantities[$serviceId][$parentServiceId] ?? 0) + (float)$quantity;
+    } else {
+        $quantities[$serviceId] = ($quantities[$serviceId] ?? 0) + (float)$quantity;
+    }
     if (array_key_exists('weight_kg', $item)) {
         $weight = is_scalar($item['weight_kg']) ? filter_var($item['weight_kg'], FILTER_VALIDATE_FLOAT) : false;
         if ($weight === false || !is_finite((float)$weight) || round((float)$weight, 2) <= 0 || $weight > 15) {
@@ -45,7 +51,7 @@ foreach ($items as $item) {
     }
 }
 
-$ids = array_keys($quantities);
+$ids = array_values(array_unique(array_merge(array_keys($quantities), array_keys($addonQuantities))));
 $dbIds = array_values(array_filter($ids, static fn ($id) => (int)$id > 0));
 $serviceMap = [];
 if ($dbIds) {
@@ -61,8 +67,17 @@ $legacyAddons = [-1 => 'Fabcon (Downy)', -2 => 'Detergent (Surf)'];
 foreach ($ids as $id) if ((int)$id < 0 && isset($legacyAddons[(int)$id])) $serviceMap[(int)$id] = ['id' => (int)$id, 'name' => $legacyAddons[(int)$id], 'category' => 'Add-ons', 'unit' => 'load', 'price' => 10.00];
 if (count($serviceMap) !== count($ids)) mobile_booking_json(422, ['success' => false, 'error' => 'One or more selected services are unavailable. Refresh the service list and try again.']);
 
+foreach ($quantities as $serviceId => $quantity) {
+    $service = $serviceMap[$serviceId];
+    if (stripos((string)$service['category'], 'add') === 0 || (int)$serviceId < 0) {
+        if (array_key_exists($serviceId, $weights)) mobile_booking_json(422, ['success' => false, 'error' => 'Add-ons cannot have a laundry weight.']);
+        $addonQuantities[$serviceId][0] = ($addonQuantities[$serviceId][0] ?? 0) + $quantity;
+        unset($quantities[$serviceId]);
+    }
+}
+
 $coreServices = [];
-$expectedAddonLoads = 0;
+$coreLoadCounts = [];
 foreach ($quantities as $serviceId => $quantity) {
     $service = $serviceMap[$serviceId];
     $category = strtolower(trim((string)($service['category'] ?? '')));
@@ -71,38 +86,39 @@ foreach ($quantities as $serviceId => $quantity) {
         || in_array($category, ['wash', 'dry', 'full service', 'wash & fold'], true)
         || in_array($name, ['wash', 'dry', 'full service'], true);
     if ($isMainService) {
-        $coreServices[] = $service['name'];
+        $coreServices[(int)$serviceId] = $service;
         if (array_key_exists($serviceId, $weights)) {
-            $expectedAddonLoads = service_weight_load_count((float)$weights[$serviceId], (string)$service['category'], $service['kg_per_load'] !== null ? (float)$service['kg_per_load'] : null);
+            $coreLoadCounts[(int)$serviceId] = service_weight_load_count((float)$weights[$serviceId], (string)$service['category'], $service['kg_per_load'] !== null ? (float)$service['kg_per_load'] : null);
         } elseif (strtolower((string)$service['unit']) === 'load') {
-            $expectedAddonLoads = (int)$quantity;
+            $coreLoadCounts[(int)$serviceId] = (int)$quantity;
         } elseif (strtolower((string)$service['unit']) === 'kg') {
-            $expectedAddonLoads = service_weight_load_count((float)$quantity, (string)$service['category'], $service['kg_per_load'] !== null ? (float)$service['kg_per_load'] : null);
+            $coreLoadCounts[(int)$serviceId] = service_weight_load_count((float)$quantity, (string)$service['category'], $service['kg_per_load'] !== null ? (float)$service['kg_per_load'] : null);
         }
     }
 }
-$hasAddons = count(array_filter($ids, static fn ($id) => stripos((string)($serviceMap[$id]['category'] ?? ''), 'add') === 0 || (int)$id < 0)) > 0;
-if ($hasAddons && (count($coreServices) !== 1 || $expectedAddonLoads < 1)) {
-    mobile_booking_json(422, ['success' => false, 'error' => 'Choose one main laundry service before adding add-ons.']);
-}
-
-$selectedCoreId = null;
-foreach ($quantities as $candidateId => $_quantity) {
-    $candidate = $serviceMap[$candidateId];
-    if (stripos((string)$candidate['category'], 'add') !== 0 && (int)$candidateId > 0) $selectedCoreId = (int)$candidateId;
-}
-if ($hasAddons) {
-    $coreService = $selectedCoreId ? $serviceMap[$selectedCoreId] : null;
-    $capacity = $coreService ? service_load_capacity((string)$coreService['category'], $coreService['kg_per_load'] !== null ? (float)$coreService['kg_per_load'] : null) : 99;
-    if (!$coreService || !array_key_exists($selectedCoreId, $weights) || (float)$weights[$selectedCoreId] + 0.0001 < $capacity) {
-        mobile_booking_json(422, ['success' => false, 'error' => 'Enter at least one full load of laundry before adding add-ons.']);
+$hasAddons = count($addonQuantities) > 0;
+if ($hasAddons && count($coreServices) < 1) mobile_booking_json(422, ['success' => false, 'error' => 'Choose a main laundry service before adding add-ons.']);
+foreach ($addonQuantities as $addonId => $parents) {
+    $addon = $serviceMap[$addonId];
+    if (stripos((string)$addon['category'], 'add') !== 0 && (int)$addonId > 0) {
+        mobile_booking_json(422, ['success' => false, 'error' => 'That service is not an add-on. Refresh the offers and try again.']);
     }
-    foreach ($quantities as $addonId => $_quantity) {
-        $addon = $serviceMap[$addonId];
-        if (stripos((string)$addon['category'], 'add') === 0 && ((int)$addonId < 1
-            || ($addonParents[$addonId] ?? null) !== $selectedCoreId
-            || !in_array((int)$addonId, service_assigned_addon_ids($selectedCoreId), true))) {
+    foreach ($parents as $parentId => $addonQuantity) {
+        $parentId = (int)$parentId;
+        if ($parentId < 1) {
+            if (count($coreServices) !== 1) mobile_booking_json(422, ['success' => false, 'error' => 'Choose the main service for each add-on.']);
+            $parentId = (int)array_key_first($coreServices);
+        }
+        $coreService = $coreServices[$parentId] ?? null;
+        if (!$coreService || ((int)$addonId > 0 && !in_array((int)$addonId, service_assigned_addon_ids($parentId), true))) {
             mobile_booking_json(422, ['success' => false, 'error' => 'That add-on is not available for the selected service. Refresh the offers and try again.']);
+        }
+        if (array_key_exists($parentId, $weights)) {
+            $capacity = service_load_capacity((string)$coreService['category'], $coreService['kg_per_load'] !== null ? (float)$coreService['kg_per_load'] : null);
+            if ((float)$weights[$parentId] + 0.0001 < $capacity) mobile_booking_json(422, ['success' => false, 'error' => 'Enter at least one full load of laundry before adding add-ons.']);
+        }
+        if (($coreLoadCounts[$parentId] ?? 0) < 1 || (float)$addonQuantity !== (float)$coreLoadCounts[$parentId]) {
+            mobile_booking_json(422, ['success' => false, 'error' => 'Add-on quantities must match the number of loads for their main service. Refresh the estimate and try again.']);
         }
     }
 }
@@ -115,24 +131,6 @@ foreach ($quantities as $serviceId => $quantity) {
     $isMainService = service_uses_weighted_load($service)
         || in_array($category, ['wash', 'dry', 'full service', 'wash & fold'], true)
         || in_array($name, ['wash', 'dry', 'full service'], true);
-    if (stripos((string)$service['category'], 'add') === 0 || (int)$serviceId < 0) {
-        if (array_key_exists($serviceId, $weights) || (float)$quantity !== (float)$expectedAddonLoads) {
-            mobile_booking_json(422, ['success' => false, 'error' => 'Add-on quantities must match the number of laundry loads. Refresh the estimate and try again.']);
-        }
-        $lineTotal = round((float)$service['price'] * $quantity, 2);
-        $subtotal += $lineTotal;
-        $lines[] = [
-            'service_id' => (int)$serviceId > 0 ? (int)$serviceId : null,
-            'parent_service_id' => $addonParents[$serviceId] ?? $selectedCoreId,
-            'service_name' => $service['name'],
-            'unit' => 'load',
-            'quantity' => $quantity,
-            'unit_price' => (float)$service['price'],
-            'subtotal' => $lineTotal,
-            'estimated_weight_kg' => null,
-        ];
-        continue;
-    }
     $hasEstimatedWeight = array_key_exists($serviceId, $weights);
     $isWeightLoadService = service_uses_weighted_load($service);
     if ($hasEstimatedWeight && !$isWeightLoadService) {
@@ -156,15 +154,33 @@ foreach ($quantities as $serviceId => $quantity) {
         'estimated_weight_kg' => $hasEstimatedWeight ? (float)$weights[$serviceId] : null,
     ];
 }
+
+foreach ($addonQuantities as $addonId => $parents) {
+    foreach ($parents as $parentId => $quantity) {
+        $parentId = (int)$parentId > 0 ? (int)$parentId : (int)array_key_first($coreServices);
+        $service = $serviceMap[$addonId];
+        $lineTotal = round((float)$service['price'] * $quantity, 2);
+        $subtotal += $lineTotal;
+        $lines[] = [
+            'service_id' => (int)$addonId > 0 ? (int)$addonId : null,
+            'parent_service_id' => $parentId,
+            'service_name' => $service['name'],
+            'unit' => 'load',
+            'quantity' => $quantity,
+            'unit_price' => (float)$service['price'],
+            'subtotal' => $lineTotal,
+            'estimated_weight_kg' => null,
+        ];
+    }
+}
 $subtotal = round($subtotal, 2);
 $serviceLines = [];
 foreach ($lines as $line) {
     $ownerServiceId = $line['parent_service_id'] ?? $line['service_id'];
     if (!$ownerServiceId || (int)$ownerServiceId < 1) mobile_booking_json(422, ['success' => false, 'error' => 'Every add-on must belong to a main laundry service.']);
     $ownerService = $serviceMap[(int)$ownerServiceId] ?? null;
-    $serviceCategory = trim((string)($ownerService['category'] ?? ''));
-    $groupKey = $serviceCategory !== '' ? 'category:' . strtolower($serviceCategory) : 'service:' . (int)$ownerServiceId;
-    $serviceLines[$groupKey]['name'] = $serviceCategory !== '' ? $serviceCategory : (string)($ownerService['name'] ?? $line['service_name']);
+    $groupKey = 'service:' . (int)$ownerServiceId;
+    $serviceLines[$groupKey]['name'] = (string)($ownerService['name'] ?? $line['service_name']);
     $serviceLines[$groupKey]['lines'][] = $line;
 }
 if (count($serviceLines) < 1) mobile_booking_json(422, ['success' => false, 'error' => 'Choose at least one main laundry service.']);

@@ -1117,35 +1117,44 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
     return matchesCategory && matchesSearch;
   }), [filter, search, services]);
 
-  const mainLaundry = services.find((service) => isCoreLoadService(service) && Number(quantities[String(service.id)] || 0) > 0);
-  const mainLaundryWeight = mainLaundry ? Number(quantities[String(mainLaundry.id)] || 0) : 0;
-  const mainLoadCount = mainLaundry ? billableLoadCount(mainLaundryWeight, serviceCategory(mainLaundry), serviceKgPerLoad(mainLaundry)) : 0;
+  const selectedMainServices = useMemo(() => services.filter((service) => isCoreLoadService(service) && Number(quantities[String(service.id)] || 0) > 0), [services, quantities]);
+  const addonLoadCountFor = useCallback((service) => {
+    const weight = Number(quantities[String(service.id)] || 0);
+    const category = serviceCategory(service);
+    const minimumKg = category === 'Full service' ? 7 : serviceKgPerLoad(service);
+    return weight + 0.0001 >= minimumKg ? billableLoadCount(weight, category, serviceKgPerLoad(service)) : 0;
+  }, [quantities]);
   const serviceSubtotal = useMemo(() => services.reduce((total, service) => {
     const quantity = Number(quantities[String(service.id)] || 0);
     if (!Number.isFinite(quantity) || quantity <= 0) return total;
     if (isCoreLoadService(service)) return total + loadPriceForWeight(quantity, service.price, serviceCategory(service), serviceKgPerLoad(service));
     if (serviceCategory(service) === 'Add-ons') return total;
     return total + (Number(service.price) || 0) * quantity;
-  }, 0) + (mainLaundry ? services.filter((service) => serviceCategory(service) === 'Add-ons' && (mainLaundry.addon_ids || []).map(Number).includes(Number(service.id)) && addonSelections[String(mainLaundry.id)+':'+String(service.id)]).reduce((total, service) => total + (Number(service.price) || 0) * mainLoadCount, 0) : 0), [quantities, services, mainLoadCount, mainLaundry, addonSelections]);
+  }, 0) + selectedMainServices.reduce((addonsTotal, mainService) => {
+    const loadCount = addonLoadCountFor(mainService);
+    if (!loadCount) return addonsTotal;
+    return addonsTotal + services.filter((service) => serviceCategory(service) === 'Add-ons'
+      && (mainService.addon_ids || []).map(Number).includes(Number(service.id))
+      && addonSelections[String(mainService.id)+':'+String(service.id)])
+      .reduce((total, service) => total + (Number(service.price) || 0) * loadCount, 0);
+  }, 0), [quantities, services, selectedMainServices, addonSelections, addonLoadCountFor]);
   const estimate = serviceSubtotal + deliveryFee;
 
   const updateQuantity = (service, value) => {
     const clean = String(value).replace(/[^0-9.]/g, '');
     const id = String(service.id);
     const isCoreService = isCoreLoadService(service) || ['Wash', 'Dry', 'Full service'].includes(serviceCategory(service));
-    if (isCoreService && Number(clean || 0) > 15) { setBookingError('The maximum laundry weight per order is 15 kg.'); return; }
-    if (isCoreService && mainLaundry && String(mainLaundry.id) !== id) setAddonSelections({});
-    setQuantities((current) => {
-      if (!isCoreService) return { ...current, [id]: clean };
-      const next = { ...current, [id]: clean };
-      if (Number(clean || 0) > 0) {
-        services.forEach((item) => {
-          if (String(item.id) !== id && (isCoreLoadService(item) || ['Wash', 'Dry', 'Full service'].includes(serviceCategory(item)))) next[String(item.id)] = '';
-        });
-      }
-      return next;
-    });
-    if (isCoreService && (Number(clean || 0) <= 0 || Number(clean || 0) < serviceKgPerLoad(service))) setAddonSelections({});
+    const weight = Number(clean || 0);
+    if (isCoreLoadService(service)) {
+      const otherWeight = services.reduce((total, item) => total + (String(item.id) === id || !isCoreLoadService(item) ? 0 : (Number(quantities[String(item.id)]) || 0)), 0);
+      if (weight + otherWeight > 15) { setBookingError('The maximum combined laundry weight per booking is 15 kg.'); return; }
+    }
+    if (isCoreService && weight > 15) { setBookingError('The maximum laundry weight per service is 15 kg.'); return; }
+    setQuantities((current) => ({ ...current, [id]: clean }));
+    const addonMinimumKg = serviceCategory(service) === 'Full service' ? 7 : serviceKgPerLoad(service);
+    if (isCoreService && (weight <= 0 || weight + 0.0001 < addonMinimumKg)) {
+      setAddonSelections((current) => Object.fromEntries(Object.entries(current).filter(([key]) => !key.startsWith(id + ':'))));
+    }
     if (isCoreService && Number(clean || 0) > 0) {
       setError('');
     }
@@ -1190,14 +1199,20 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
       if (isAddon) return null;
       return {
         service_id: Number(service.id),
-        quantity: isAddon ? (amount > 0 ? mainLoadCount : 0) : (weightBased ? (amount > 0 ? Math.ceil(amount / (serviceCategory(service) === 'Full service' ? 8 : serviceKgPerLoad(service))) : 0) : amount),
+        quantity: weightBased ? (amount > 0 ? Math.ceil(amount / (serviceCategory(service) === 'Full service' ? 8 : serviceKgPerLoad(service))) : 0) : amount,
         ...(weightBased ? { weight_kg: Number(amount.toFixed(2)) } : {}),
       };
     }).filter((line) => line && line.quantity > 0);
-    const addonLines = mainLaundry ? services.filter((service) => serviceCategory(service) === 'Add-ons' && (mainLaundry.addon_ids || []).map(Number).includes(Number(service.id)) && addonSelections[String(mainLaundry.id)+':'+String(service.id)]).map((service) => ({ service_id: Number(service.id), quantity: mainLoadCount, parent_service_id: Number(mainLaundry.id) })) : [];
+    const addonLines = selectedMainServices.flatMap((mainService) => {
+      const loadCount = addonLoadCountFor(mainService);
+      if (!loadCount) return [];
+      return services.filter((service) => serviceCategory(service) === 'Add-ons'
+        && (mainService.addon_ids || []).map(Number).includes(Number(service.id))
+        && addonSelections[String(mainService.id)+':'+String(service.id)])
+        .map((service) => ({ service_id: Number(service.id), quantity: loadCount, parent_service_id: Number(mainService.id) }));
+    });
     chosen.push(...addonLines);
     if (!chosen.length) return setBookingError('Choose a laundry service before booking.');
-    if (chosen.some((line) => serviceCategory(services.find((service) => Number(service.id) === line.service_id) || {}) === 'Add-ons') && mainLoadCount < 1) return setBookingError('Choose a main laundry service first so add-ons can be priced per load.');
     if (chosen.some((line) => !Number.isFinite(line.quantity) || line.quantity > 500 || line.weight_kg > 15 ||
       (['piece', 'load'].includes(services.find((service) => Number(service.id) === line.service_id)?.unit) && !Number.isInteger(line.quantity)))) {
       return setBookingError('The maximum laundry weight per order is 15 kg. Load and piece quantities must be whole numbers.');
@@ -1351,8 +1366,8 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
               ))}
             </ScrollView>
             <View style={styles.serviceRuleNote}>
-              <Text style={styles.serviceRuleTitle}>Choose one main laundry service</Text>
-              <Text style={styles.serviceRuleCopy}>Prices and units reflect the current shop price list. Choose one main laundry service; add-ons are priced per load. Maximum laundry weight per order: 15 kg.</Text>
+              <Text style={styles.serviceRuleTitle}>Choose one or more services</Text>
+              <Text style={styles.serviceRuleCopy}>Each selected service gets its own ticket. Add-ons are priced per load for that service. Maximum combined laundry weight per booking: 15 kg. Payment and delivery are shared.</Text>
             </View>
 
             {loading && !services.length ? (
