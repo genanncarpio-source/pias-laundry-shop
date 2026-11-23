@@ -1144,10 +1144,6 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
     const id = String(service.id);
     const isCoreService = isCoreLoadService(service) || ['Wash', 'Dry', 'Full service'].includes(serviceCategory(service));
     const weight = Number(clean || 0);
-    if (isCoreLoadService(service)) {
-      const otherWeight = services.reduce((total, item) => total + (String(item.id) === id || !isCoreLoadService(item) ? 0 : (Number(quantities[String(item.id)]) || 0)), 0);
-      if (weight + otherWeight > 15) { setBookingError('The maximum combined laundry weight per booking is 15 kg.'); return; }
-    }
     if (isCoreService && weight > 15) { setBookingError('The maximum laundry weight per service is 15 kg.'); return; }
     setQuantities((current) => ({ ...current, [id]: clean }));
     const addonMinimumKg = serviceCategory(service) === 'Full service' ? 7 : serviceKgPerLoad(service);
@@ -1214,7 +1210,7 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
     if (!chosen.length) return setBookingError('Choose a laundry service before booking.');
     if (chosen.some((line) => !Number.isFinite(line.quantity) || line.quantity > 500 || line.weight_kg > 15 ||
       (['piece', 'load'].includes(services.find((service) => Number(service.id) === line.service_id)?.unit) && !Number.isInteger(line.quantity)))) {
-      return setBookingError('The maximum laundry weight per order is 15 kg. Load and piece quantities must be whole numbers.');
+      return setBookingError('Each service has a maximum laundry weight of 15 kg. Load and piece quantities must be whole numbers.');
     }
     if (pickupAt && new Date(pickupAt) <= new Date()) return setBookingError('Choose a future schedule or remove the suggested time.');
     if (!deliveryAvailable) return setBookingError('Laundry services are available only within the service area covering San Jose, San Manuel, and Balingcanaway, Tarlac.');
@@ -1366,7 +1362,7 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
             </ScrollView>
             <View style={styles.serviceRuleNote}>
               <Text style={styles.serviceRuleTitle}>Choose one or more services</Text>
-              <Text style={styles.serviceRuleCopy}>Each selected service gets its own ticket. Add-ons are priced per load for that service. Maximum combined laundry weight per booking: 15 kg. Payment and delivery are shared.</Text>
+              <Text style={styles.serviceRuleCopy}>Each selected service gets its own ticket. Each service can include up to 15 kg of laundry. Add-ons are priced per load for that service. Payment and delivery are shared.</Text>
             </View>
 
             {loading && !services.length ? (
@@ -1730,8 +1726,8 @@ function AddonCard({ service, selected, loadCount, onToggle }) {
     <View style={styles.inlineAddon}>
       <View style={styles.flexOne}>
         <Text style={styles.serviceTitle}>{service.name}</Text>
-        <Text style={styles.serviceDescription}>Added per load Â· {money(service.price)} each</Text>
-        {selected ? <Text style={styles.addonTotal}>{count} {count === 1 ? 'load' : 'loads'} Â· {money(Number(service.price) * count)}</Text> : null}
+        <Text style={styles.serviceDescription}>Added per load · {money(service.price)} each</Text>
+        {selected ? <Text style={styles.addonTotal}>{count} {count === 1 ? 'load' : 'loads'} · {money(Number(service.price) * count)}</Text> : null}
       </View>
       <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: selected, disabled }} disabled={disabled} onPress={() => onToggle(!selected)} style={[styles.addonToggle, selected && styles.addonToggleActive, disabled && styles.disabledButton]}>
         <Text style={[styles.addonToggleText, selected && styles.addonToggleTextActive]}>{selected ? 'Added' : 'Add'}</Text>
