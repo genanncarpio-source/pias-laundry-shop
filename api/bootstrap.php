@@ -52,9 +52,32 @@ function api_require_method(string $method): void
 
 function api_is_delivery_area(float $latitude, float $longitude): bool
 {
-    // Free delivery corridor covering San Jose, San Manuel, and Balingcanaway, Tarlac.
-    return $latitude >= 15.4400 && $latitude <= 15.5350
-        && $longitude >= 120.6000 && $longitude <= 120.7300;
+    // Exported service boundary from Direction.kmz (KML coordinate order: longitude, latitude).
+    $polygon = [
+        [15.4869602, 120.6409888],
+        [15.4788684, 120.6427512],
+        [15.4807066, 120.6622062],
+        [15.4802011, 120.6725059],
+        [15.4936192, 120.6847129],
+        [15.4994549, 120.6650672],
+        [15.5008793, 120.6455169],
+    ];
+    $inside = false;
+    $count = count($polygon);
+    for ($i = 0, $j = $count - 1; $i < $count; $j = $i++) {
+        [$yi, $xi] = $polygon[$i];
+        [$yj, $xj] = $polygon[$j];
+        // Treat points on a boundary segment as inside.
+        $cross = ($longitude - $xi) * ($yj - $yi) - ($latitude - $yi) * ($xj - $xi);
+        if (abs($cross) < 1e-10
+            && $longitude >= min($xi, $xj) - 1e-10 && $longitude <= max($xi, $xj) + 1e-10
+            && $latitude >= min($yi, $yj) - 1e-10 && $latitude <= max($yi, $yj) + 1e-10) return true;
+        if (($yi > $latitude) !== ($yj > $latitude)
+            && $longitude < ($xj - $xi) * ($latitude - $yi) / ($yj - $yi) + $xi) {
+            $inside = !$inside;
+        }
+    }
+    return $inside;
 }
 function api_delivery_quote(float $latitude, float $longitude): array
 {
@@ -72,7 +95,7 @@ function api_is_san_manuel_tarlac_address(string $address): bool
 {
     return api_is_complete_address($address) && stripos($address, 'tarlac') !== false;
 }
-function api_delivery_area_error(): string { return 'Pickup and delivery are available only in San Jose, San Manuel, and Balingcanaway, Tarlac. For other locations, choose Drop-off & Pick-up at the shop.'; }
+function api_delivery_area_error(): string { return 'Registration and laundry services are currently available only within the service area covering San Jose, San Manuel, and Balingcanaway, Tarlac.'; }
 function api_send_transactional_email(string $email, string $subject, string $text): void
 {
     $apiKey = trim((string)getenv('BREVO_API_KEY'));

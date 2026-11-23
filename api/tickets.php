@@ -182,6 +182,7 @@ $fulfillment = api_text($data, 'fulfillment_type') ?: 'pickup_delivery';
 if (!in_array($fulfillment, ['pickup_delivery', 'dropoff_delivery', 'dropoff_pickup'], true)) mobile_booking_json(422, ['success' => false, 'error' => 'Choose a valid service handoff option.']);
 $customerLatitude = isset($customer['location_latitude']) ? (float)$customer['location_latitude'] : 0.0;
 $customerLongitude = isset($customer['location_longitude']) ? (float)$customer['location_longitude'] : 0.0;
+if (!api_is_delivery_area($customerLatitude, $customerLongitude)) mobile_booking_json(422, ['success' => false, 'error' => api_delivery_area_error()]);
 $hasDelivery = in_array($fulfillment, ['pickup_delivery', 'dropoff_delivery'], true);
 if ($hasDelivery && ($customerLatitude < -90 || $customerLatitude > 90 || $customerLongitude < -180 || $customerLongitude > 180 || ($customerLatitude === 0.0 && $customerLongitude === 0.0))) {
     mobile_booking_json(422, ['success' => false, 'error' => 'Pin your delivery location in your account profile first.']);

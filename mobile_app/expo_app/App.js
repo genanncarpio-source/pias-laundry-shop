@@ -85,14 +85,29 @@ let welcomeSeenThisLaunch = false;
 Notifications.setNotificationHandler({ handleNotification: async () => ({ shouldShowBanner: true, shouldShowList: true, shouldPlaySound: true, shouldSetBadge: false }) });
 
 
-// Delivery coverage follows the Tarlac City corridor from San Jose to Balingcanaway.
-const DELIVERY_BOUNDS = { south: 15.44, north: 15.535, west: 120.6, east: 120.73 };
+// Service coverage matches the exported Direction.kmz polygon.
+const DELIVERY_POLYGON = [
+  [15.4869602, 120.6409888],
+  [15.4788684, 120.6427512],
+  [15.4807066, 120.6622062],
+  [15.4802011, 120.6725059],
+  [15.4936192, 120.6847129],
+  [15.4994549, 120.6650672],
+  [15.5008793, 120.6455169],
+];
 function isDeliveryArea(latitude, longitude) {
   const lat = Number(latitude);
   const lon = Number(longitude);
-  return Number.isFinite(lat) && Number.isFinite(lon)
-    && lat >= DELIVERY_BOUNDS.south && lat <= DELIVERY_BOUNDS.north
-    && lon >= DELIVERY_BOUNDS.west && lon <= DELIVERY_BOUNDS.east;
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return false;
+  let inside = false;
+  for (let i = 0, j = DELIVERY_POLYGON.length - 1; i < DELIVERY_POLYGON.length; j = i++) {
+    const [yi, xi] = DELIVERY_POLYGON[i];
+    const [yj, xj] = DELIVERY_POLYGON[j];
+    const cross = (lon - xi) * (yj - yi) - (lat - yi) * (xj - xi);
+    if (Math.abs(cross) < 1e-10 && lon >= Math.min(xi, xj) - 1e-10 && lon <= Math.max(xi, xj) + 1e-10 && lat >= Math.min(yi, yj) - 1e-10 && lat <= Math.max(yi, yj) + 1e-10) return true;
+    if ((yi > lat) !== (yj > lat) && lon < (xj - xi) * (lat - yi) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
 }
 
 async function getCurrentAddressPlace() {
@@ -527,6 +542,7 @@ function AuthScreen({ apiBase, onSignedIn, sessionNotice }) {
     const completeRegistrationAddress = [addressDetails.trim(), address.trim()].filter(Boolean).join(', ');
     if (registering && !verificationPending && !address.trim()) return showAuthError('Choose an address from the map search results. House, unit, or landmark details are optional.');
     if (registering && !verificationPending && !locationPin) return showAuthError('Choose your address from the address search results.');
+    if (registering && !verificationPending && !locationPin.deliveryAvailable) return showAuthError('You can register only if your address is inside the service area covering San Jose, San Manuel, and Balingcanaway, Tarlac.');
     if (registering && !verificationPending && !/^09\d{9}$/.test(phone)) return showAuthError('Enter an 11-digit mobile number starting with 09.');
     if ((!registering || !verificationPending) && (!password || (registering && password.length < 10))) return showAuthError(registering ? 'Use a password with at least 10 characters.' : 'Enter your password.', 'password');
 
@@ -691,7 +707,7 @@ function AuthScreen({ apiBase, onSignedIn, sessionNotice }) {
             {registering ? <Field label="Phone number" value={phone} onChangeText={(value) => setPhone(value.replace(/\D/g, '').slice(0, 11))} placeholder="09xx xxx xxxx" keyboardType="phone-pad" maxLength={11} returnKeyType="next" /> : null}
             {registering ? <><PlaceAddressSearch apiBase={apiBase} value={address} onChangeText={(value) => { setAddress(value); setLocationPin(null); }} onPlaceSelected={selectRegistrationPlace} onUseCurrentLocation={getCurrentAddressPlace} />
               <Field label="Address Detail (optional)" value={addressDetails} onChangeText={setAddressDetails} placeholder="House number, unit, gate, or nearby landmark" autoCapitalize="words" maxLength={180} returnKeyType="next" />
-              <View style={styles.locationPinPanel}><Text style={styles.locationPinTitle}>Pin Address</Text><Text style={styles.locationPinCopy}>Choose one address, then pin the exact spot where the driver should go. Tap “Full-screen map” for a larger map preview. The pin is saved with your address. Pickup and delivery are available only in San Jose, San Manuel, and Balingcanaway, Tarlac.</Text>{locationPin ? <><Text style={[styles.locationPinSuccess, !locationPin.deliveryAvailable && styles.locationPinWarning]}>{locationPin.deliveryAvailable ? 'This pin is in the pickup and delivery area.' : 'Pickup and delivery are unavailable at this pin. Choose Drop-off & Pick-up at the shop.'}</Text><Text style={styles.locationPinCopy}>Adjust the marker to your exact home or gate. The coordinates below are what the driver will use.</Text><View style={styles.registrationMap}><DeliveryMap location={locationPin} label="Delivery pin" editable onLocationChange={adjustRegistrationPin} /></View></> : <Text style={styles.locationPinCopy}>Search for an address above or use your current location to place its pin on the map.</Text>}</View></> : null}
+              <View style={styles.locationPinPanel}><Text style={styles.locationPinTitle}>Pin Address</Text><Text style={styles.locationPinCopy}>Choose one address, then pin the exact spot where the driver should go. Tap “Full-screen map” for a larger map preview. The pin is saved with your address. Registration and laundry services are available only inside the mapped service area covering San Jose, San Manuel, and Balingcanaway, Tarlac.</Text>{locationPin ? <><Text style={[styles.locationPinSuccess, !locationPin.deliveryAvailable && styles.locationPinWarning]}>{locationPin.deliveryAvailable ? 'This pin is inside the service area.' : 'Registration and laundry services are unavailable outside the service area.'}</Text><Text style={styles.locationPinCopy}>Adjust the marker to your exact home or gate. The coordinates below are what the driver will use.</Text><View style={styles.registrationMap}><DeliveryMap location={locationPin} label="Delivery pin" editable onLocationChange={adjustRegistrationPin} /></View></> : <Text style={styles.locationPinCopy}>Search for an address above or use your current location to place its pin on the map.</Text>}</View></> : null}
             <Field label="Email address" value={email} onFocus={scrollAuthFieldIntoView} onChangeText={changeAuthField(setEmail, 'email')} error={errorField === 'email' ? error : ''} placeholder="you@example.com" keyboardType="email-address" autoCapitalize="none" autoCorrect={false} maxLength={120} returnKeyType="next" />
             <Field
               label="Password"
@@ -1187,7 +1203,7 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
       return setBookingError('Each laundry service is limited to 99 kg. Load and piece quantities must be whole numbers.');
     }
     if (pickupAt && new Date(pickupAt) <= new Date()) return setBookingError('Choose a future schedule or remove the suggested time.');
-    if (['pickup_delivery', 'dropoff_delivery'].includes(effectiveFulfillment) && !deliveryAvailable) return setBookingError('Delivery is available only in San Jose, San Manuel, and Balingcanaway, Tarlac. Choose Drop-off & Pick-up at the shop for other locations.');
+    if (!deliveryAvailable) return setBookingError('Laundry services are available only within the service area covering San Jose, San Manuel, and Balingcanaway, Tarlac.');
     if (effectiveFulfillment !== 'dropoff_pickup' && !deliveryAddress.trim()) return setBookingError('Add an address to your profile before booking delivery.');
     bookingBusy.current = true;
     setSending(true);
@@ -1355,7 +1371,7 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
 
             <View style={styles.bookingPanel}>
               <Text style={styles.panelTitle}>Service handoff</Text>
-              <View style={[styles.deliveryRestriction, deliveryAvailable && styles.deliveryRestrictionAvailable]}><Text style={[styles.deliveryRestrictionTitle, deliveryAvailable && styles.deliveryRestrictionTitleAvailable]}>{deliveryAvailable ? 'Pickup and delivery available' : 'Delivery unavailable at this location'}</Text><Text style={[styles.deliveryRestrictionCopy, deliveryAvailable && styles.deliveryRestrictionCopyAvailable]}>{deliveryAvailable ? 'Free pickup and delivery are available in San Jose, San Manuel, and Balingcanaway, Tarlac.' : 'Pickup and delivery are available only in San Jose, San Manuel, and Balingcanaway, Tarlac. For other locations, choose Drop-off & Pick-up and bring your laundry to the shop.'}</Text></View>
+              <View style={[styles.deliveryRestriction, deliveryAvailable && styles.deliveryRestrictionAvailable]}><Text style={[styles.deliveryRestrictionTitle, deliveryAvailable && styles.deliveryRestrictionTitleAvailable]}>{deliveryAvailable ? 'Services available in this area' : 'Outside the service area'}</Text><Text style={[styles.deliveryRestrictionCopy, deliveryAvailable && styles.deliveryRestrictionCopyAvailable]}>{deliveryAvailable ? 'Laundry services are available inside the mapped service area covering San Jose, San Manuel, and Balingcanaway, Tarlac.' : 'Laundry services are available only inside the mapped service area covering San Jose, San Manuel, and Balingcanaway, Tarlac.'}</Text></View>
               <View style={styles.handoffChoices}>
                 <Pressable disabled={!deliveryAvailable} onPress={() => { setFulfillment('pickup_delivery'); }} style={[styles.handoffCard, effectiveFulfillment === 'pickup_delivery' && styles.handoffCardActive, !deliveryAvailable && styles.handoffCardDisabled]}>
                   <Text style={styles.handoffIcon}>🚚</Text>
@@ -1473,7 +1489,7 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
                   { question: 'When can I add Fabcon or detergent?', answer: 'Add-ons become available at 7 kg for Wash and Full Service. They are charged per load; a Full Service load can contain up to 8 kg.' },
                 ] },
                 { title: 'Booking & Tracking Questions', items: [
-                  { question: 'How do I choose pickup or delivery?', answer: 'Choose an available handoff option while booking. Pickup and delivery depend on the service area shown for your address. If delivery is unavailable, choose Drop-off & Pick-up.' },
+                  { question: 'How do I choose pickup or delivery?', answer: 'Laundry service is available only for addresses inside the mapped service area covering San Jose, San Manuel, and Balingcanaway, Tarlac.' },
                   { question: 'Where can I view or download my receipt?', answer: 'In Track, open your order and tap View receipt. Use Download / Share PDF receipt to save or share a copy.' },
                   { question: 'When can I rate an order?', answer: 'The rating option becomes available after the shop marks your order complete. You can open About and select the eligible order under Rate your experience.' },
                 ] },
@@ -1523,15 +1539,15 @@ function CustomerHome({ apiBase, customer, token, onSessionExpired, onSignOut, o
             {profileDetailsError ? <Text style={styles.errorBox}>{profileDetailsError}</Text> : null}
             <View style={styles.profileLocationCard}>
               <Text style={styles.profileLocationTitle}>Address and saved location</Text>
-              <Text style={styles.profileLocationCopy}>Save one delivery address and one map pin. Choose a search result, then move the marker to your exact home or gate. Pickup and delivery are available only in San Jose, San Manuel, and Balingcanaway, Tarlac.</Text>
+              <Text style={styles.profileLocationCopy}>Save one address and one map pin. Choose a search result, then move the marker to your exact home or gate. Registration and laundry services are available only inside the mapped service area covering San Jose, San Manuel, and Balingcanaway, Tarlac.</Text>
               {editingLocation ? <>
                 <PlaceAddressSearch apiBase={apiBase} value={profileAddress} onChangeText={(value) => { setProfileAddress(value); setProfilePin(null); }} onPlaceSelected={selectProfilePlace} onUseCurrentLocation={async () => ({ ...(await getCurrentAddressPlace()), preserve_address_details: true })} disabled={profileSaving} />
                 <Text style={styles.profileAddressLabel}>Address Detail (optional)</Text>
                 <TextInput value={profileAddressDetails} onChangeText={setProfileAddressDetails} maxLength={180} placeholder="House number, unit, gate, or nearby landmark" placeholderTextColor="#a59ba5" style={styles.deliveryAddressInput} />
-                {profilePin ? <><Text style={[styles.locationPinSuccess, !profilePin.deliveryAvailable && styles.locationPinWarning]}>{profilePin.deliveryAvailable ? 'This pin is in the pickup and delivery area.' : 'Pickup and delivery are unavailable at this pin. Choose Drop-off & Pick-up at the shop.'}</Text><Text style={styles.profileLocationCopy}>Drag the marker or tap the exact spot for the driver. Tap “Full-screen map” to preview it larger.</Text><View style={styles.registrationMap}><DeliveryMap location={profilePin} label="Delivery pin" editable onLocationChange={adjustProfilePin} /></View></> : <Text style={styles.profileLocationCopy}>Search for an address above or use your current location to place its pin on the map.</Text>}
+                {profilePin ? <><Text style={[styles.locationPinSuccess, !profilePin.deliveryAvailable && styles.locationPinWarning]}>{profilePin.deliveryAvailable ? 'This pin is inside the service area.' : 'Registration and laundry services are unavailable outside the service area.'}</Text><Text style={styles.profileLocationCopy}>Drag the marker or tap the exact spot for the driver. Tap “Full-screen map” to preview it larger.</Text><View style={styles.registrationMap}><DeliveryMap location={profilePin} label="Delivery pin" editable onLocationChange={adjustProfilePin} /></View></> : <Text style={styles.profileLocationCopy}>Search for an address above or use your current location to place its pin on the map.</Text>}
                 {profileLocationError ? <Text style={styles.errorBox}>{profileLocationError}</Text> : null}
                 <View style={styles.profileLocationActions}><Pressable disabled={profileSaving} onPress={() => setEditingLocation(false)} style={styles.secondaryButton}><Text style={styles.secondaryButtonText}>Cancel</Text></Pressable><Pressable disabled={profileSaving} onPress={saveProfileLocation} style={[styles.primaryButton, profileSaving && styles.disabledButton]}>{profileSaving ? <ActivityIndicator color={COLORS.white} /> : <Text style={styles.primaryButtonText}>Save address</Text>}</Pressable></View>
-              </> : <><Text style={[styles.locationPinSuccess, !isDeliveryArea(customer.location_latitude, customer.location_longitude) && styles.locationPinWarning]}>{isDeliveryArea(customer.location_latitude, customer.location_longitude) ? 'Your saved pin is in the pickup and delivery area.' : 'Pickup and delivery are unavailable at your saved pin. Choose Drop-off & Pick-up at the shop.'}</Text><Pressable onPress={beginLocationEdit} style={styles.locationPinButton}><Text style={styles.locationPinButtonText}>Edit address</Text></Pressable></>}
+              </> : <><Text style={[styles.locationPinSuccess, !isDeliveryArea(customer.location_latitude, customer.location_longitude) && styles.locationPinWarning]}>{isDeliveryArea(customer.location_latitude, customer.location_longitude) ? 'Your saved pin is inside the service area.' : 'Registration and laundry services are unavailable outside the service area.'}</Text><Pressable onPress={beginLocationEdit} style={styles.locationPinButton}><Text style={styles.locationPinButtonText}>Edit address</Text></Pressable></>}
             </View>
             <Pressable onPress={() => { void signOutCustomer(); }} style={styles.signOutButton}><Text style={styles.signOutButtonText}>Sign out</Text></Pressable>
           </View>

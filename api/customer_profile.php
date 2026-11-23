@@ -14,6 +14,8 @@ if ($latitude === false || $longitude === false || !is_finite((float)$latitude) 
     api_json(422, ['success' => false, 'error' => 'Pin a valid location before saving.']);
 }
 
+if (!api_is_delivery_area((float)$latitude, (float)$longitude)) api_json(422, ['success' => false, 'error' => api_delivery_area_error()]);
+
 $update = db()->prepare('UPDATE customers SET address = ?, location_latitude = ?, location_longitude = ? WHERE id = ?');
 $update->execute([$address, $latitude, $longitude, (int)$customer['id']]);
 $customer['address'] = $address;

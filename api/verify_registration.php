@@ -35,6 +35,11 @@ try {
         api_json(422, ['success' => false, 'error' => 'The verification code is incorrect.']);
     }
 
+    if (!api_is_delivery_area((float)$registration['latitude'], (float)$registration['longitude'])) {
+        $pdo->rollBack();
+        api_json(422, ['success' => false, 'error' => api_delivery_area_error()]);
+    }
+
     $existing = $pdo->prepare('SELECT c.id FROM customers c LEFT JOIN customer_accounts a ON a.customer_id = c.id WHERE LOWER(c.email) = ? OR LOWER(a.email) = ? LIMIT 1');
     $existing->execute([$email, $email]);
     if ($existing->fetch()) {

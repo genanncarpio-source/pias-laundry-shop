@@ -18,6 +18,7 @@ if (!filter_var($email, FILTER_VALIDATE_EMAIL) || strlen($email) > 120) api_json
 if ($phone === '' || strlen($phone) > 30) api_json(422, ['success' => false, 'error' => 'Enter a phone number for service updates.']);
 if (trim($address) === '' || strlen($address) > 255) api_json(422, ['success' => false, 'error' => 'Enter an address up to 255 characters.']);
 if ($latitude === false || $longitude === false || !is_finite((float)$latitude) || !is_finite((float)$longitude) || (float)$latitude < -90 || (float)$latitude > 90 || (float)$longitude < -180 || (float)$longitude > 180) api_json(422, ['success' => false, 'error' => 'Pin a valid location to check delivery coverage.']);
+if (!api_is_delivery_area((float)$latitude, (float)$longitude)) api_json(422, ['success' => false, 'error' => api_delivery_area_error()]);
 if (strlen($password) < 10) api_json(422, ['success' => false, 'error' => 'Use a password with at least 10 characters.']);
 
 $pdo = db();
