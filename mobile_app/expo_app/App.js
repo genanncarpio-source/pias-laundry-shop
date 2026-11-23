@@ -353,7 +353,7 @@ function BrandBar({ onSignOut }) {
   return (
     <View style={styles.topBar}>
       <View style={styles.brandLockup}>
-        <View style={styles.miniLogo}><Text style={styles.miniLogoText}>🧺</Text></View>
+        <View style={styles.miniLogo}><Image source={require('./assets/pias-laundry-shop-icon.png')} resizeMode="contain" style={styles.miniLogoImage} /></View>
         <Text style={styles.topTitle}>Pia&apos;s Laundry Shop</Text>
       </View>
       <View style={styles.topActions}>
@@ -369,13 +369,12 @@ function HeroBanner({ compact = false, keyboardCompact = false }) {
       <View style={styles.heroDecorOne} />
       <View style={styles.heroDecorTwo} />
       <View style={[styles.heroContent, keyboardCompact && styles.heroContentKeyboardCompact]}>
-        <View style={[styles.heroIcon, keyboardCompact && styles.heroIconKeyboardCompact]}><Text style={[styles.heroEmoji, keyboardCompact && styles.heroEmojiKeyboardCompact]}>🫧</Text></View>
+        <View style={[styles.heroIcon, keyboardCompact && styles.heroIconKeyboardCompact]}><Image source={require('./assets/pias-laundry-shop-logo.png')} resizeMode="contain" style={styles.heroLogoImage} /></View>
         <View style={styles.heroTextBlock}>
           <Text style={[styles.heroTitle, keyboardCompact && styles.heroTitleKeyboardCompact]}>Pia&apos;s Laundry Shop</Text>
           <Text style={[styles.heroDetail, keyboardCompact && styles.heroDetailKeyboardCompact]}>Brgy. San Manuel, Tarlac City</Text>
           <Text style={[styles.heroDetail, keyboardCompact && styles.heroDetailKeyboardCompact]}>Contact: 0918-967-9623</Text>
         </View>
-        <Text style={[styles.heroFloatingEmoji, keyboardCompact && styles.heroFloatingEmojiKeyboardCompact]}>🧺</Text>
       </View>
     </LinearGradient>
   );
@@ -1764,7 +1763,6 @@ function ServiceCard({ service, quantity, onQuantityChange, wide, index, addonSe
   return (
     <View style={[styles.serviceCard, wide ? styles.serviceCardWide : styles.serviceCardNarrow]}>
       <LinearGradient colors={colors} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0.8 }} style={styles.serviceImageBand}>
-        <Text style={styles.serviceHeroEmoji}>{serviceEmoji(service)}</Text>
         <Text style={styles.serviceBandCaption}>{category.toUpperCase()}</Text>
         <View style={styles.bandBubble} />
       </LinearGradient>
@@ -1967,7 +1965,8 @@ const styles = StyleSheet.create({
   loadingText: { color: '#e6dbe9', fontSize: 15 },
   topBar: { minHeight: 62, paddingHorizontal: 22, backgroundColor: COLORS.darkPanel, borderBottomColor: '#3b303e', borderBottomWidth: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', zIndex: 2 },
   brandLockup: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  miniLogo: { width: 34, height: 34, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: '#f3e9f5' },
+  miniLogo: { width: 34, height: 34, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: '#f3e9f5', overflow: 'hidden' },
+  miniLogoImage: { width: '100%', height: '100%' },
   miniLogoText: { fontSize: 19 },
   topTitle: { color: COLORS.cream, fontSize: 17, fontWeight: '700' },
   topActions: { flexDirection: 'row', gap: 8 },
@@ -1982,7 +1981,8 @@ const styles = StyleSheet.create({
   heroKeyboardCompact: { minHeight: 82, marginTop: 0, marginBottom: 0, paddingHorizontal: 12 },
   heroContent: { flexDirection: 'row', alignItems: 'center', gap: 16, zIndex: 1 },
   heroContentKeyboardCompact: { gap: 9 },
-  heroIcon: { width: 70, height: 70, borderRadius: 22, backgroundColor: '#fff7e9', alignItems: 'center', justifyContent: 'center', transform: [{ rotate: '-5deg' }] },
+  heroIcon: { width: 70, height: 70, borderRadius: 22, backgroundColor: '#fff7e9', alignItems: 'center', justifyContent: 'center', transform: [{ rotate: '-5deg' }], overflow: 'hidden' },
+  heroLogoImage: { width: '100%', height: '100%' },
   heroIconKeyboardCompact: { width: 50, height: 50, borderRadius: 16 },
   heroEmoji: { fontSize: 38 },
   heroEmojiKeyboardCompact: { fontSize: 27 },
