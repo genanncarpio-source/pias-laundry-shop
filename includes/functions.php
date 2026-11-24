@@ -238,7 +238,7 @@ function order_next_statuses(string $status, array $items = []): array
     $stageTransitions = [];
     foreach ($processStages as $index => $stage) {
         $nextStage = $processStages[$index + 1] ?? 'ready_for_pickup';
-        $stageTransitions[$stage] = [$nextStage === 'folding' ? 'ready_for_pickup' : $nextStage];
+        $stageTransitions[$stage] = [$nextStage];
     }
     $flow = [
         'pending' => ['confirmed', 'rejected'],

@@ -333,9 +333,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['update_status']) || 
                     if ($alreadyPaid < (float)$currentOrder['total']) throw new InvalidArgumentException('Record the remaining payment before completing this order.');
                 }
                 $pdo->beginTransaction();
-                if ($isFullService && $currentOrder['status'] === 'drying' && $status === 'ready_for_pickup') {
-                    add_order_history($id, 'folding', 'Full Service fold completed automatically', (int)$_SESSION['user_id']);
-                }
                 $assignedSql = $status === 'confirmed' ? ', assigned_staff_id = COALESCE(assigned_staff_id, ?)' : '';
                 $statusStmt = $pdo->prepare('UPDATE orders SET status = ?' . $assignedSql . ($status === 'completed' ? ', completed_at = NOW()' : '') . ' WHERE id = ?');
                 $status === 'confirmed' ? $statusStmt->execute([$status, $_SESSION['user_id'], $id]) : $statusStmt->execute([$status, $id]);
@@ -356,8 +353,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['update_status']) || 
                 $label = order_status_labels()[$status] ?? ucwords(str_replace('_', ' ', $status));
                 add_order_history($id, $status, 'Status changed to ' . $label, (int)$_SESSION['user_id']);
                 if ($currentOrder['customer_id']) {
+                    $readyLabel = $isDeliveryOrder ? 'Delivery' : 'Pick-up';
                     $message = $isFullService && $status === 'ready_for_pickup'
-                        ? $currentOrder['order_number'] . ' completed Full Service (Wash, Dry, Fold) and is Ready for Pick-up.'
+                        ? $currentOrder['order_number'] . ' completed Full Service (Wash, Dry, Fold) and is Ready for ' . $readyLabel . '.'
                         : $currentOrder['order_number'] . ' is now ' . $label . '.';
                     add_notification('customer', (int)$currentOrder['customer_id'], $id, 'Laundry status updated', $message);
                 }
@@ -428,6 +426,7 @@ $statusActionLabels = [
     'received' => 'Mark Received at Shop',
     'washing' => 'Washing',
     'drying' => 'Drying',
+    'folding' => 'Mark as Folding',
     'ready_for_pickup' => 'Ready for Pickup',
     'rejected' => 'Reject Request',
     'out_for_delivery' => 'Send for Delivery',
@@ -695,7 +694,7 @@ include __DIR__ . '/includes/header.php';
 <?php if (!is_admin() && !$gcashUnverified && !in_array($order['status'], ['cancelled', 'rejected', 'completed', 'picked_up'], true)): ?>
 <div class="card mt-16">
   <h2>Update Status</h2>
-  <?php if ($isFullService && $order['status'] === 'drying'): ?><p class="muted">When you mark this Full Service order Ready, Fold will be recorded automatically.</p><?php endif; ?>
+  <?php if ($isFullService && in_array($order['status'], ['drying', 'folding'], true)): ?><p class="muted">Mark the order as Folding after drying. Once folding is complete, mark it Ready for Delivery or Pickup.</p><?php endif; ?>
   <div class="row-between">
     <?php foreach ($statusFlow as $st): ?>
       <form method="post" action="order_view.php?id=<?= (int)$id ?>" style="display:inline;">
@@ -743,7 +742,9 @@ foreach (order_process_statuses($lines) as $processStatus) {
     $timelineStages[] = [
         'key' => $processStatus,
         'label' => $statusLabels[$processStatus] ?? ucwords(str_replace('_', ' ', $processStatus)),
-        'detail' => 'Laundry is being ' . strtolower($statusLabels[$processStatus] ?? $processStatus) . '.',
+        'detail' => $processStatus === 'folding'
+            ? 'Laundry is being folded.'
+            : 'Laundry is being ' . strtolower($statusLabels[$processStatus] ?? $processStatus) . '.',
     ];
 }
 $timelineStages[] = [
